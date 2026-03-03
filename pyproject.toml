@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "encap"
+version = "0.1.0"
+description = "Encoder with Chapter Assembly Protocol"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+dependencies = [
+  "PySide6>=6.8,<7",
+]
+
+[project.scripts]
+encap = "encap.cli:main"
+encap-gui = "encap.gui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
