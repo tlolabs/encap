@@ -48,16 +48,20 @@ Homebrew Python builds on macOS omit Tk by default.
 ## CLI
 
 ```bash
-encap /path/to/source_dir --output-dir /path/to/output_dir --output-name stitched.wav
+python3 encap.py /path/to/source_dir --output-dir /path/to/output_dir --output-name stitched.wav
 ```
 
 Use `--write-report` to emit a text report next to the output WAV.
 
+If you install the package, the `encap` console command is also available.
+
 ## GUI
 
 ```bash
-encap-gui
+python3 encap_gui.py
 ```
+
+If you install the package, the `encap-gui` console command is also available.
 
 ## License
 
