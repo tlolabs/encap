@@ -9,9 +9,7 @@ description = "Encoder with Chapter Assembly Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-only"
-dependencies = [
-  "PySide6>=6.8,<7",
-]
+dependencies = []
 
 [project.scripts]
 encap = "encap.cli:main"

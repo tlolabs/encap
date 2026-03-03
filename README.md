@@ -42,7 +42,8 @@ For a full application/tool, GPLv3 fits the intent here:
 python3 -m pip install -e .
 ```
 
-For the GUI, ensure the environment includes Qt support through `PySide6`.
+For the GUI, use a Python build that includes `tkinter`/Tk support. Some
+Homebrew Python builds on macOS omit Tk by default.
 
 ## CLI
 

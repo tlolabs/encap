@@ -4,8 +4,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from .service import create_stitched_wav
-from .wav_tools import EncapError
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from encap.service import create_stitched_wav
+    from encap.wav_tools import EncapError
+else:
+    from .service import create_stitched_wav
+    from .wav_tools import EncapError
 
 
 def build_parser() -> argparse.ArgumentParser:
