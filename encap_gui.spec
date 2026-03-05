@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['encap_gui.py'],
+    ['src/encap/gui.py'],
     pathex=['src'],
     binaries=[],
     datas=[],
