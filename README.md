@@ -1,4 +1,4 @@
-# E.N.C.A.P.
+# En.C.A.P. — Encoder with Chapter Assembly Protocol
 
 Encoder with Chapter Assembly Protocol.
 
