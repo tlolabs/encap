@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='encap_gui',
+    name='EnCap',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -40,11 +40,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='encap_gui',
+    name='EnCap',
 )
 app = BUNDLE(
     coll,
-    name='encap_gui.app',
+    name='EnCap.app',
     icon=None,
     bundle_identifier=None,
 )
