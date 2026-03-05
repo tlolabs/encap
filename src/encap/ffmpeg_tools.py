@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from .models import WavFormat
@@ -9,9 +11,31 @@ from .wav_tools import EncapError
 
 
 def ensure_ffmpeg() -> str:
+    # macOS lookup order:
+    # 1) bundled binary inside the .app
+    # 2) system install in /usr/local/bin
+    # 3) /Applications/ffmpeg
+    # 4) PATH fallback
+    bundled_candidates = []
+    if getattr(sys, "frozen", False):
+        bundled_candidates.append(Path(sys.executable).resolve().parent / "ffmpeg")
+    bundled_candidates.append(Path("/ENCAP.app/Contents/MacOS/ffmpeg"))
+    bundled_candidates.append(Path("/Applications/ENCAP.app/Contents/MacOS/ffmpeg"))
+
+    for candidate in [
+        *bundled_candidates,
+        Path("/usr/local/bin/ffmpeg"),
+        Path("/Applications/ffmpeg"),
+    ]:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
-        raise EncapError("ffmpeg is required for conversion but was not found on PATH.")
+        raise EncapError(
+            "ffmpeg is required for conversion but was not found. "
+            "Checked app bundle, /usr/local/bin/ffmpeg, /Applications/ffmpeg, and PATH."
+        )
     return ffmpeg
 
 
