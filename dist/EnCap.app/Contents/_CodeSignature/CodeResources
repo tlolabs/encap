@@ -1298,7 +1298,7 @@
 		</data>
 		<key>Resources/base_library.zip</key>
 		<data>
-		xorwFnXS3ZgoridOAEzAH8boHkI=
+		g151q6vucezA4UmhZRYBLOjzeYk=
 		</data>
 		<key>Resources/icon-windowed.icns</key>
 		<data>
@@ -1377,19 +1377,19 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			LjSnoT9MO8n5gO3Hm1eotpQWyCg=
+			9GaQQGWvudOdE4KNKO3yuoTi3p8=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"2e34a7a13f4c3bc9f980edc79b57a8b69416c828"</string>
+			<string>cdhash H"f466904065afb9d39d13828d28edf2ba84e2de9f"</string>
 		</dict>
 		<key>Frameworks/liblzma.5.dylib</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			idC7TO0NtChAHeq+77tLuA1pnNM=
+			BsSnL75CwDtKP0VbwOSIIe7t6to=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"89d0bb4ced0db428401deabeefbb4bb80d699cd3"</string>
+			<string>cdhash H"06c4a72fbe42c03b4a3f455bc0e48821eeedeada"</string>
 		</dict>
 		<key>Frameworks/libmpdec.4.dylib</key>
 		<dict>
@@ -4050,7 +4050,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			0X7OnNP6/2XLA6il+SxBAaxS21/tfTqUakrM6Sfrpi4=
+			h7glu3qRalMfBuqTomN0bIlo0mq6QPZ4AwtN8vHUv2s=
 			</data>
 		</dict>
 		<key>Resources/icon-windowed.icns</key>
