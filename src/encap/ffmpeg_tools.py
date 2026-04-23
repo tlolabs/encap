@@ -10,33 +10,67 @@ from .models import WavFormat
 from .wav_tools import EncapError
 
 
-def ensure_ffmpeg() -> str:
-    # macOS lookup order:
-    # 1) bundled binary inside the .app
-    # 2) system install in /usr/local/bin
-    # 3) /Applications/ffmpeg
-    # 4) PATH fallback
-    bundled_candidates = []
-    if getattr(sys, "frozen", False):
-        bundled_candidates.append(Path(sys.executable).resolve().parent / "ffmpeg")
-    bundled_candidates.append(Path("/ENCAP.app/Contents/MacOS/ffmpeg"))
-    bundled_candidates.append(Path("/Applications/ENCAP.app/Contents/MacOS/ffmpeg"))
+def _tool_name(name: str) -> str:
+    return f"{name}.exe" if sys.platform == "win32" else name
 
-    for candidate in [
-        *bundled_candidates,
-        Path("/usr/local/bin/ffmpeg"),
-        Path("/Applications/ffmpeg"),
-    ]:
-        if candidate.exists() and os.access(candidate, os.X_OK):
+
+def _is_runnable(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    return sys.platform == "win32" or os.access(path, os.X_OK)
+
+
+def _bundled_candidates(name: str) -> list[Path]:
+    tool_name = _tool_name(name)
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).resolve().parent / tool_name)
+
+    if sys.platform == "darwin":
+        candidates.extend(
+            [
+                Path(f"/ENCAP.app/Contents/MacOS/{tool_name}"),
+                Path(f"/Applications/ENCAP.app/Contents/MacOS/{tool_name}"),
+                Path(f"/Applications/EnCap.app/Contents/MacOS/{tool_name}"),
+            ]
+        )
+
+    return candidates
+
+
+def _resolve_media_tool(name: str, fallback_paths: list[Path]) -> str:
+    for candidate in [*_bundled_candidates(name), *fallback_paths]:
+        if _is_runnable(candidate):
             return str(candidate)
 
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise EncapError(
-            "ffmpeg is required for conversion but was not found. "
-            "Checked app bundle, /usr/local/bin/ffmpeg, /Applications/ffmpeg, and PATH."
-        )
-    return ffmpeg
+    tool = shutil.which(_tool_name(name)) or shutil.which(name)
+    if tool is not None:
+        return tool
+
+    checked = ", ".join(
+        str(path) for path in [*_bundled_candidates(name), *fallback_paths]
+    )
+    raise EncapError(f"{name} is required but was not found. Checked {checked} and PATH.")
+
+
+def ensure_ffmpeg() -> str:
+    return _resolve_media_tool(
+        "ffmpeg",
+        [
+            Path("/usr/local/bin/ffmpeg"),
+            Path("/Applications/ffmpeg"),
+        ],
+    )
+
+
+def ensure_ffprobe() -> str:
+    return _resolve_media_tool(
+        "ffprobe",
+        [
+            Path("/usr/local/bin/ffprobe"),
+            Path("/Applications/ffprobe"),
+        ],
+    )
 
 
 def codec_for_format(wav_format: WavFormat) -> str:

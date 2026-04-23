@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+
 
 a = Analysis(
     ['src/encap/gui.py'],
@@ -42,9 +44,11 @@ coll = COLLECT(
     upx_exclude=[],
     name='EnCap',
 )
-app = BUNDLE(
-    coll,
-    name='EnCap.app',
-    icon=None,
-    bundle_identifier=None,
-)
+
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='EnCap.app',
+        icon=None,
+        bundle_identifier=None,
+    )
