@@ -19,6 +19,8 @@ jobs:
         include:
           - os: macos-13
             platform: macos-intel
+          - os: macos-14
+            platform: macos-arm64
           - os: windows-latest
             platform: windows
           - os: ubuntu-latest
