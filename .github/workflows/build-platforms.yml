@@ -1,0 +1,189 @@
+name: Build platform apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            platform: macos-intel
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install platform media tools
+        run: npm install --no-save --no-package-lock ffmpeg-static ffprobe-static
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable . pyinstaller
+
+      - name: Read package version
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          print(f"APP_VERSION={project['version']}")
+          PY
+
+      - name: Build CLI
+        run: python -m PyInstaller --noconfirm encap.spec
+
+      - name: Build GUI
+        run: python -m PyInstaller --noconfirm encap_gui.spec
+
+      - name: Include FFmpeg and FFprobe binaries
+        shell: bash
+        run: |
+          python - <<'PY'
+          import shutil
+          import stat
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          suffix = ".exe" if sys.platform == "win32" else ""
+          sources = {
+              "ffmpeg": subprocess.check_output(
+                  ["node", "-p", "require('ffmpeg-static')"], text=True
+              ).strip(),
+              "ffprobe": subprocess.check_output(
+                  ["node", "-p", "require('ffprobe-static').path"], text=True
+              ).strip(),
+          }
+          targets = [Path("dist/EnCap"), Path("dist/encap_cli")]
+          if sys.platform == "darwin":
+              targets.append(Path("dist/EnCap.app/Contents/MacOS"))
+
+          for tool, source in sources.items():
+              source_path = Path(source)
+              if not source_path.exists():
+                  raise SystemExit(f"{tool} was not found at {source}")
+
+              for target in targets:
+                  if not target.exists():
+                      continue
+                  destination = target / f"{tool}{suffix}"
+                  shutil.copy2(source_path, destination)
+                  destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+          PY
+
+      - name: Verify bundled media tools
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          suffix = ".exe" if sys.platform == "win32" else ""
+          required = [Path("dist/EnCap") / f"ffmpeg{suffix}", Path("dist/EnCap") / f"ffprobe{suffix}"]
+          if sys.platform == "darwin":
+              required.extend(
+                  [
+                      Path("dist/EnCap.app/Contents/MacOS") / "ffmpeg",
+                      Path("dist/EnCap.app/Contents/MacOS") / "ffprobe",
+                  ]
+              )
+
+          missing = [str(path) for path in required if not path.exists()]
+          if missing:
+              raise SystemExit(f"Missing bundled media tools: {', '.join(missing)}")
+          PY
+
+      - name: Package macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/release
+          hdiutil create \
+            -volname EnCap \
+            -srcfolder dist/EnCap.app \
+            -ov \
+            -format UDZO \
+            "dist/release/EnCap-${APP_VERSION}-${{ matrix.platform }}.dmg"
+
+      - name: Package Windows and Linux archives
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          version = os.environ["APP_VERSION"]
+          platform = os.environ["RUNNER_OS"].lower()
+          platform_name = "windows" if platform == "windows" else "linux"
+          release_dir = Path("dist/release")
+          staging_dir = Path("dist/staging") / f"EnCap-{version}-{platform_name}"
+
+          if staging_dir.exists():
+              shutil.rmtree(staging_dir)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          staging_dir.mkdir(parents=True)
+
+          shutil.copytree("dist/EnCap", staging_dir / "EnCap")
+          shutil.copytree("dist/encap_cli", staging_dir / "encap_cli")
+
+          archive_format = "zip" if platform_name == "windows" else "gztar"
+          shutil.make_archive(str(release_dir / staging_dir.name), archive_format, staging_dir.parent, staging_dir.name)
+          PY
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnCap-${{ matrix.platform }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+          gh release upload "$TAG_NAME" release-assets/* --clobber
