@@ -243,11 +243,13 @@ class GuiWorkspacesTest(unittest.TestCase):
 
         self.window.activity_tabs.setCurrentWidget(self.window.process_audio_page)
         self.app.processEvents()
+        # Qt may place wide actions in the toolbar overflow on some platforms.
+        # Membership plus QAction visibility is the stable workspace contract.
         for key in process_only | shared:
             with self.subTest(workspace="Process Audio", action=key):
                 widget = self.window.main_toolbar.widgetForAction(self.window.toolbar_actions[key])
                 self.assertIsNotNone(widget)
-                self.assertTrue(widget.isVisible())
+                self.assertTrue(self.window.toolbar_actions[key].isVisible())
 
         self.window.activity_tabs.setCurrentWidget(self.window.transcribe_page)
         self.app.processEvents()
@@ -260,7 +262,7 @@ class GuiWorkspacesTest(unittest.TestCase):
             with self.subTest(workspace="Transcribe", action=key):
                 widget = self.window.main_toolbar.widgetForAction(self.window.toolbar_actions[key])
                 self.assertIsNotNone(widget)
-                self.assertTrue(widget.isVisible())
+                self.assertTrue(self.window.toolbar_actions[key].isVisible())
 
     def test_transcript_exports_enable_only_with_audio_and_transcript(self) -> None:
         export_keys = ("export_all", "export_txt", "export_srt")
