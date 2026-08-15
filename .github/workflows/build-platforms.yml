@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configure update verification key
         shell: bash
@@ -53,12 +53,12 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -95,6 +95,7 @@ jobs:
               "win32": "win32",
           }[sys.platform]
           platform_key = f"{platform_name}-{architecture}"
+          suffix = ".exe" if sys.platform == "win32" else ""
 
           expected_hashes = {
               "darwin-arm64": {
@@ -118,10 +119,8 @@ jobs:
               raise SystemExit(f"No pinned FFmpeg tools are configured for {platform_key}")
 
           installed_ffmpeg_package = json.loads(
-              subprocess.check_output(
-                  ["npm", "list", "ffmpeg-static", "--depth=0", "--json"], text=True
-              )
-          )["dependencies"]["ffmpeg-static"]["version"]
+              Path("node_modules/ffmpeg-static/package.json").read_text(encoding="utf-8")
+          )["version"]
           expected_ffmpeg_package = os.environ["FFMPEG_STATIC_VERSION"]
           if installed_ffmpeg_package != expected_ffmpeg_package:
               raise SystemExit(
@@ -129,15 +128,10 @@ jobs:
                   f"{expected_ffmpeg_package}"
               )
 
-          ffmpeg_path = Path(
-              subprocess.check_output(
-                  ["node", "-p", "require('ffmpeg-static')"], text=True
-              ).strip()
-          )
+          ffmpeg_path = Path("node_modules/ffmpeg-static") / f"ffmpeg{suffix}"
           if not ffmpeg_path.is_file():
               raise SystemExit(f"ffmpeg binary was not found at {ffmpeg_path}")
 
-          suffix = ".exe" if sys.platform == "win32" else ""
           tools_dir = Path(".build-tools")
           tools_dir.mkdir(exist_ok=True)
           ffprobe_path = tools_dir / f"ffprobe{suffix}"
@@ -167,10 +161,8 @@ jobs:
               print(f"Using pinned {name}: {completed.stdout.splitlines()[0]}")
 
           installed_lame_package = json.loads(
-              subprocess.check_output(
-                  ["npm", "list", "node-lame", "--depth=0", "--json"], text=True
-              )
-          )["dependencies"]["node-lame"]["version"]
+              Path("node_modules/node-lame/package.json").read_text(encoding="utf-8")
+          )["version"]
           expected_lame_package = "${{ env.NODE_LAME_VERSION }}"
           if installed_lame_package != expected_lame_package:
               raise SystemExit(
@@ -184,18 +176,22 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          import subprocess
           from pathlib import Path
 
-          expressions = ["require('ffmpeg-static')"]
           with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as github_path:
-              for expression in expressions:
-                  tool_path = subprocess.check_output(
-                      ["node", "-p", expression], text=True
-                  ).strip()
-                  print(Path(tool_path).parent, file=github_path)
+              print(Path("node_modules/ffmpeg-static").resolve(), file=github_path)
               print(Path(".build-tools").resolve(), file=github_path)
           PY
+
+      - name: Install Linux GUI runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libegl1 \
+            libgl1 \
+            libxcb-cursor0 \
+            libxkbcommon-x11-0
 
       - name: Install Python build dependencies
         run: |
@@ -205,6 +201,7 @@ jobs:
       - name: Run required test suite
         env:
           ENCAP_REQUIRE_MEDIA_TESTS: "1"
+          QT_QPA_PLATFORM: "offscreen"
         run: python -m unittest discover -s tests -v
 
       - name: Read package version
@@ -283,7 +280,6 @@ jobs:
           python - <<'PY'
           import shutil
           import stat
-          import subprocess
           import sys
           from pathlib import Path
 
@@ -302,9 +298,9 @@ jobs:
               / f"lame{suffix}"
           )
           sources = {
-              "ffmpeg": subprocess.check_output(
-                  ["node", "-p", "require('ffmpeg-static')"], text=True
-              ).strip(),
+              "ffmpeg": str(
+                  Path("node_modules/ffmpeg-static") / f"ffmpeg{suffix}"
+              ),
               "ffprobe": str(Path(".build-tools") / f"ffprobe{suffix}"),
               "lame": str(lame_path),
           }
@@ -456,7 +452,7 @@ jobs:
             dist/EnCap.app/Contents/MacOS/apple-transcriber \
             dist/EnCap.app/Contents/MacOS/apple-aac-info
           do
-            lipo -verify_arch "$expected_arch" "$binary"
+            lipo "$binary" -verify_arch "$expected_arch"
           done
           python - <<'PY'
           import re
@@ -545,7 +541,7 @@ jobs:
           PY
 
       - name: Upload platform artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EnCap-${{ matrix.platform }}
           path: dist/release/*
@@ -559,15 +555,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Download platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
