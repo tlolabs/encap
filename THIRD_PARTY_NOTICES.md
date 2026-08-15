@@ -25,6 +25,8 @@ libmp3lame wrapper and does not modify it.
 LAME is distributed under the GNU Library General Public License, version 2.
 Source and license information are available from
 https://lame.sourceforge.io/ and https://sourceforge.net/projects/lame/files/lame/3.100/.
+The Windows x64 executable is distributed by RareWares from
+https://www.rarewares.org/mp3-lame-bundle.php.
 
 ## whisper.cpp
 
