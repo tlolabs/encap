@@ -3,6 +3,7 @@ name: Build platform apps
 env:
   FFMPEG_BINARY_RELEASE: "b6.1.1"
   FFMPEG_STATIC_VERSION: "5.3.0"
+  LAME_WINDOWS_SHA256: "9a9c815203316e5203847e93100c6acf0d5d7a5be7744c9018825ded037052e7"
   MACOSX_DEPLOYMENT_TARGET: "13.0"
   NODE_LAME_VERSION: "2.0.2"
   SPARKLE_VERSION: "2.9.4"
@@ -63,10 +64,13 @@ jobs:
           node-version: "22"
 
       - name: Install platform media tools
-        run: >-
-          npm install --no-save --no-package-lock
-          ffmpeg-static@${{ env.FFMPEG_STATIC_VERSION }}
-          node-lame@${{ env.NODE_LAME_VERSION }}
+        shell: bash
+        run: |
+          packages=("ffmpeg-static@$FFMPEG_STATIC_VERSION")
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            packages+=("node-lame@$NODE_LAME_VERSION")
+          fi
+          npm install --no-save --no-package-lock "${packages[@]}"
 
       - name: Download and verify matching FFprobe
         shell: bash
@@ -79,7 +83,9 @@ jobs:
           import stat
           import subprocess
           import sys
+          import time
           import urllib.request
+          import zipfile
           from pathlib import Path
 
           machine = platform.machine().lower()
@@ -144,31 +150,95 @@ jobs:
               ffprobe_path.write_bytes(response.read())
           ffprobe_path.chmod(ffprobe_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-          for name, tool_path in {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}.items():
+          tools = {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
+          if sys.platform == "win32":
+              lame_archive_url = "https://www.rarewares.org/files/mp3/lame3.100.1-x64.zip"
+              lame_archive_path = tools_dir / "lame3.100.1-x64.zip"
+              last_error = None
+              for attempt in range(1, 5):
+                  try:
+                      request = urllib.request.Request(
+                          lame_archive_url,
+                          headers={"User-Agent": "EnCap release builder"},
+                      )
+                      with urllib.request.urlopen(request, timeout=120) as response:
+                          lame_archive_path.write_bytes(response.read())
+                      last_error = None
+                      break
+                  except Exception as error:
+                      last_error = error
+                      if attempt < 4:
+                          time.sleep(attempt * 2)
+              if last_error is not None:
+                  raise SystemExit(
+                      f"Could not download the pinned Windows LAME archive: {last_error}"
+                  )
+
+              lame_archive_digest = hashlib.sha256(
+                  lame_archive_path.read_bytes()
+              ).hexdigest()
+              expected_lame_archive_digest = os.environ["LAME_WINDOWS_SHA256"]
+              if lame_archive_digest != expected_lame_archive_digest:
+                  raise SystemExit(
+                      "Windows LAME archive SHA-256 mismatch: "
+                      f"{lame_archive_digest}"
+                  )
+
+              with zipfile.ZipFile(lame_archive_path) as archive:
+                  member = next(
+                      (
+                          name
+                          for name in archive.namelist()
+                          if Path(name).name.lower() == "lame.exe"
+                      ),
+                      None,
+                  )
+                  if member is None:
+                      raise SystemExit("The Windows LAME archive does not contain lame.exe")
+                  lame_path = tools_dir / "lame.exe"
+                  lame_path.write_bytes(archive.read(member))
+                  lame_path.chmod(
+                      lame_path.stat().st_mode
+                      | stat.S_IXUSR
+                      | stat.S_IXGRP
+                      | stat.S_IXOTH
+                  )
+              tools["lame"] = lame_path
+
+          for name, tool_path in tools.items():
               digest = hashlib.sha256(tool_path.read_bytes()).hexdigest()
-              expected_digest = expected_hashes[platform_key][name]
-              if digest != expected_digest:
+              expected_digest = expected_hashes[platform_key].get(name)
+              if expected_digest is not None and digest != expected_digest:
                   raise SystemExit(
                       f"{name} SHA-256 mismatch for {platform_key}: {digest}"
                   )
               completed = subprocess.run(
-                  [str(tool_path.resolve()), "-version"], capture_output=True, text=True
+                  [
+                      str(tool_path.resolve()),
+                      "--version" if name == "lame" else "-version",
+                  ],
+                  capture_output=True,
+                  text=True,
               )
               if completed.returncode != 0:
                   raise SystemExit(
                       f"{name} binary failed its version check:\n{completed.stderr}"
                   )
-              print(f"Using pinned {name}: {completed.stdout.splitlines()[0]}")
+              version_output = completed.stdout.strip() or completed.stderr.strip()
+              if not version_output:
+                  raise SystemExit(f"{name} did not report a version")
+              print(f"Using pinned {name}: {version_output.splitlines()[0]}")
 
-          installed_lame_package = json.loads(
-              Path("node_modules/node-lame/package.json").read_text(encoding="utf-8")
-          )["version"]
-          expected_lame_package = "${{ env.NODE_LAME_VERSION }}"
-          if installed_lame_package != expected_lame_package:
-              raise SystemExit(
-                  f"node-lame {installed_lame_package} is installed, expected "
-                  f"{expected_lame_package}"
-              )
+          if sys.platform != "win32":
+              installed_lame_package = json.loads(
+                  Path("node_modules/node-lame/package.json").read_text(encoding="utf-8")
+              )["version"]
+              expected_lame_package = "${{ env.NODE_LAME_VERSION }}"
+              if installed_lame_package != expected_lame_package:
+                  raise SystemExit(
+                      f"node-lame {installed_lame_package} is installed, expected "
+                      f"{expected_lame_package}"
+                  )
           PY
 
       - name: Add platform media tools to PATH
@@ -292,11 +362,14 @@ jobs:
               "aarch64": "arm64",
               "arm64": "arm64",
           }.get(machine, machine)
-          lame_path = (
-              Path("node_modules/node-lame/vendor/lame")
-              / f"{platform_name}-{architecture}"
-              / f"lame{suffix}"
-          )
+          if sys.platform == "win32":
+              lame_path = Path(".build-tools/lame.exe")
+          else:
+              lame_path = (
+                  Path("node_modules/node-lame/vendor/lame")
+                  / f"{platform_name}-{architecture}"
+                  / f"lame{suffix}"
+              )
           sources = {
               "ffmpeg": str(
                   Path("node_modules/ffmpeg-static") / f"ffmpeg{suffix}"
