@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "encap"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Encoder with Chapter Assembly Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-only"
-dependencies = []
+dependencies = ["cryptography>=43", "PySide6>=6.7"]
 
 [project.scripts]
 encap = "encap.cli:main"
@@ -20,3 +20,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "encap.version.__version__"}

@@ -7,6 +7,7 @@ from .models import CueMarker, StitchPlan, WavFormat, WavSource
 
 RIFF_HEADER_SIZE = 12
 CHUNK_HEADER_SIZE = 8
+AUDIO_FILE_EXTENSIONS = {".aif", ".aiff", ".wav"}
 
 
 class EncapError(Exception):
@@ -68,6 +69,109 @@ def load_wav_source(path: Path) -> WavSource:
         fmt_chunk_data=fmt_chunk_data,
     )
     return WavSource(path=path, wav_format=wav_format, data=data_chunk_data)
+
+
+def load_audio_source(path: Path) -> WavSource:
+    """Load an uncompressed WAV or AIFF file into the internal PCM representation."""
+    if path.suffix.lower() in {".aif", ".aiff"}:
+        return load_aiff_source(path)
+    return load_wav_source(path)
+
+
+def load_aiff_source(path: Path) -> WavSource:
+    raw = path.read_bytes()
+    if len(raw) < RIFF_HEADER_SIZE:
+        raise UnsupportedWavError(f"{path} is too small to be a valid AIFF file.")
+    form_id, form_size, form_type = struct.unpack(">4sI4s", raw[:RIFF_HEADER_SIZE])
+    if form_id != b"FORM" or form_type != b"AIFF":
+        raise UnsupportedWavError(f"{path} is not an uncompressed AIFF file.")
+    if form_size + 8 > len(raw):
+        raise UnsupportedWavError(f"{path} has a truncated FORM chunk.")
+
+    offset = RIFF_HEADER_SIZE
+    comm_chunk_data = None
+    ssnd_chunk_data = None
+    while offset + CHUNK_HEADER_SIZE <= len(raw):
+        chunk_id = raw[offset : offset + 4]
+        chunk_size = struct.unpack(">I", raw[offset + 4 : offset + 8])[0]
+        data_start = offset + CHUNK_HEADER_SIZE
+        data_end = data_start + chunk_size
+        if data_end > len(raw):
+            raise UnsupportedWavError(f"{path} has a truncated {chunk_id!r} chunk.")
+        chunk_data = raw[data_start:data_end]
+        if chunk_id == b"COMM":
+            comm_chunk_data = chunk_data
+        elif chunk_id == b"SSND":
+            ssnd_chunk_data = chunk_data
+        offset = data_end + (chunk_size % 2)
+
+    if comm_chunk_data is None or ssnd_chunk_data is None:
+        raise UnsupportedWavError(f"{path} is missing required COMM/SSND chunks.")
+    if len(comm_chunk_data) < 18 or len(ssnd_chunk_data) < 8:
+        raise UnsupportedWavError(f"{path} has an invalid AIFF audio chunk.")
+
+    channels, frame_count, bits_per_sample = struct.unpack(">HIH", comm_chunk_data[:8])
+    sample_rate = _decode_extended_float(comm_chunk_data[8:18])
+    if channels <= 0 or frame_count < 0 or bits_per_sample not in {8, 16, 24, 32}:
+        raise UnsupportedWavError(f"{path} uses an unsupported AIFF PCM format.")
+    sample_width = bits_per_sample // 8
+    block_align = channels * sample_width
+    sound_offset, _block_size = struct.unpack(">II", ssnd_chunk_data[:8])
+    sound_start = 8 + sound_offset
+    expected_size = frame_count * block_align
+    if sound_start > len(ssnd_chunk_data) or sound_start + expected_size > len(ssnd_chunk_data):
+        raise UnsupportedWavError(f"{path} has truncated AIFF sample data.")
+
+    data = ssnd_chunk_data[sound_start : sound_start + expected_size]
+    if sample_width == 1:
+        # AIFF 8-bit PCM is signed; WAV 8-bit PCM is unsigned.
+        data = bytes((sample + 128) & 0xFF for sample in data)
+    else:
+        data = b"".join(
+            data[index : index + sample_width][::-1]
+            for index in range(0, len(data), sample_width)
+        )
+
+    byte_rate = sample_rate * block_align
+    fmt_chunk_data = struct.pack(
+        "<HHIIHH",
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+    )
+    return WavSource(
+        path=path,
+        wav_format=WavFormat(
+            audio_format=1,
+            channels=channels,
+            sample_rate=sample_rate,
+            byte_rate=byte_rate,
+            block_align=block_align,
+            bits_per_sample=bits_per_sample,
+            fmt_chunk_data=fmt_chunk_data,
+        ),
+        data=data,
+    )
+
+
+def _decode_extended_float(raw: bytes) -> int:
+    """Decode the positive 80-bit extended value used for AIFF sample rates."""
+    if len(raw) != 10:
+        raise UnsupportedWavError("Invalid AIFF sample-rate value.")
+    exponent = struct.unpack(">H", raw[:2])[0]
+    mantissa = int.from_bytes(raw[2:], byteorder="big")
+    if exponent == 0 and mantissa == 0:
+        return 0
+    if exponent & 0x8000:
+        raise UnsupportedWavError("Negative AIFF sample rates are not supported.")
+    value = mantissa * (2.0 ** ((exponent & 0x7FFF) - 16383 - 63))
+    sample_rate = int(round(value))
+    if sample_rate <= 0:
+        raise UnsupportedWavError("Invalid AIFF sample rate.")
+    return sample_rate
 
 
 def formats_match(left: WavFormat, right: WavFormat) -> bool:
