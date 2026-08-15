@@ -1,0 +1,126 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "automatic-gradient" : "extended-srgb:1.00000,0.23137,0.18824,1.00000"
+          },
+          "image-name" : "04-chapter-markers.svg",
+          "name" : "04-chapter-markers",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "name" : "Highlights",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.85
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.15
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "automatic-gradient" : "extended-srgb:0.01569,0.04706,0.32157,1.00000"
+          },
+          "image-name" : "03-waveform.svg",
+          "name" : "03-waveform"
+        }
+      ],
+      "name" : "Waveform",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.7
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.12
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+          },
+          "image-name" : "01-source-nodes.svg",
+          "name" : "01-source-nodes"
+        },
+        {
+          "fill" : {
+            "automatic-gradient" : "extended-srgb:0.54510,0.93725,1.00000,1.00000"
+          },
+          "image-name" : "02-capsule.svg",
+          "name" : "02-capsule",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              18,
+              0
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "automatic-gradient" : "extended-srgb:0.00000,0.47843,1.00000,1.00000"
+          },
+          "image-name" : "02-assembly-flow.svg",
+          "name" : "02-assembly-flow"
+        }
+      ],
+      "name" : "Assembly",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.8
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "automatic-gradient" : "extended-srgb:0.01569,0.04706,0.32157,1.00000"
+              }
+            }
+          ],
+          "image-name" : "00-background.svg",
+          "name" : "00-background"
+        }
+      ],
+      "name" : "Background",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.25
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

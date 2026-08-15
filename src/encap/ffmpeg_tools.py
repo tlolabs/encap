@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from .models import WavFormat
@@ -71,6 +72,54 @@ def ensure_ffprobe() -> str:
             Path("/Applications/ffprobe"),
         ],
     )
+
+
+def ensure_lame() -> str:
+    """Resolve the bundled LAME first, then common developer installations."""
+    return _resolve_media_tool(
+        "lame",
+        [
+            Path("/opt/homebrew/bin/lame"),
+            Path("/usr/local/bin/lame"),
+        ],
+    )
+
+
+@lru_cache(maxsize=None)
+def media_encoder_available(encoder_name: str) -> bool:
+    try:
+        ffmpeg = ensure_ffmpeg()
+    except EncapError:
+        return False
+    completed = subprocess.run(
+        [ffmpeg, "-hide_banner", "-h", f"encoder={encoder_name}"],
+        capture_output=True,
+        text=True,
+    )
+    output = f"{completed.stdout}\n{completed.stderr}"
+    return completed.returncode == 0 and f"Encoder {encoder_name}" in output
+
+
+@lru_cache(maxsize=1)
+def apple_aac_encoder_implementation() -> str:
+    """Describe the AAC components macOS exposes to AudioToolbox.
+
+    FFmpeg's ``aac_at`` wrapper creates a system-selected AudioConverter and
+    does not expose AudioConverterNewSpecific, so this is a capability report,
+    not a claim that a particular component can be forced.
+    """
+    if sys.platform != "darwin":
+        return ""
+    project_helper = Path(__file__).resolve().parents[2] / ".build-tools" / "apple-aac-info"
+    candidates = [*_bundled_candidates("apple-aac-info"), project_helper]
+    helper = next((candidate for candidate in candidates if _is_runnable(candidate)), None)
+    if helper is None:
+        return "Apple system-selected (component details unavailable)"
+    completed = subprocess.run([str(helper)], capture_output=True, text=True)
+    implementation = completed.stdout.strip()
+    if completed.returncode == 0 and implementation:
+        return implementation
+    return "Apple system-selected (component details unavailable)"
 
 
 def codec_for_format(wav_format: WavFormat) -> str:

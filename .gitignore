@@ -1,6 +1,15 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.venv/
 .venv-packaging/
+.codex/
+node_modules/
+.sparkle/
+.whisper-cpp/
+.build-tools/
+.encap-update-private-key
+src/encap/update_public_key.txt
 build/
+dist/
 .DS_Store

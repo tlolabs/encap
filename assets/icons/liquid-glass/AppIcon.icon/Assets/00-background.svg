@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="encapBackground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FBFDFF"/>
+      <stop offset="0.5" stop-color="#E2ECFF"/>
+      <stop offset="1" stop-color="#B8D3FF"/>
+    </linearGradient>
+    <radialGradient id="upperSheen" cx="0.1" cy="0.05" r="0.58">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#DDEBFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lowerGlow" cx="0.92" cy="0.88" r="0.72">
+      <stop offset="0" stop-color="#6DA8FF" stop-opacity="0.58"/>
+      <stop offset="0.48" stop-color="#8FBDFF" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#C8DDFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#encapBackground)"/>
+  <rect width="1024" height="1024" fill="url(#upperSheen)"/>
+  <rect width="1024" height="1024" fill="url(#lowerGlow)"/>
+</svg>

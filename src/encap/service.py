@@ -6,11 +6,21 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .ffmpeg_tools import convert_to_match
-from .models import StitchPlan, WavSource
+from .models import (
+    AudioSourceEntry,
+    ChapterEntry,
+    EpisodeMetadata,
+    ExportSettings,
+    ProjectDocument,
+    StitchPlan,
+    WavSource,
+)
 from .wav_tools import (
+    AUDIO_FILE_EXTENSIONS,
     EncapError,
     build_stitch_plan,
     formats_match,
+    load_audio_source,
     load_wav_source,
     write_wav,
 )
@@ -33,8 +43,26 @@ def discover_wav_files(source_dir: Path) -> list[Path]:
     return sort_wav_files(files)
 
 
+def discover_audio_files(source_dir: Path) -> list[Path]:
+    files = [
+        path
+        for path in source_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in AUDIO_FILE_EXTENSIONS
+    ]
+    if not files:
+        raise EncapError(f"No WAV or AIFF files were found in {source_dir}.")
+    return sort_wav_files(files)
+
+
 def sort_wav_files(paths: list[Path]) -> list[Path]:
-    return sorted(paths, key=_wav_sort_key)
+    return sorted(paths, key=audio_path_sort_key)
+
+
+def audio_path_sort_key(path: Path) -> tuple[int, tuple[int, int, int, int, int, int], str]:
+    parsed = parse_recorder_timestamp(path.stem)
+    if parsed is not None:
+        return (0, parsed, path.name.lower())
+    return (1, (0, 0, 0, 0, 0, 0), path.name.lower())
 
 
 def discover_wav_groups(source_dir: Path) -> list[tuple[RecordingDate | None, list[Path]]]:
@@ -54,8 +82,15 @@ def discover_wav_groups(source_dir: Path) -> list[tuple[RecordingDate | None, li
 
 
 def build_date_output_name(recording_date: RecordingDate) -> str:
-    month, day, year = recording_date
+    year, month, day = recording_date
     return f"encap-{month}.{day}.{year % 100:02d}.wav"
+
+
+def infer_episode_title(recording_date: RecordingDate | None, fallback_name: str) -> str:
+    if recording_date is None:
+        return fallback_name
+    year, month, day = recording_date
+    return f"{year:04d}-{month:02d}-{day:02d} Aircheck"
 
 
 def parse_recorder_timestamp(stem: str) -> tuple[int, int, int, int, int, int] | None:
@@ -70,6 +105,82 @@ def parse_recorder_timestamp(stem: str) -> tuple[int, int, int, int, int, int] |
         int(match.group("min")),
         int(match.group("ss")),
     )
+
+
+def build_project_document(
+    source_dir: Path,
+    prompt_for_conversion: ConversionPrompt,
+) -> ProjectDocument:
+    wav_paths = discover_audio_files(source_dir)
+    recording_date = parse_recorder_timestamp(wav_paths[0].stem)
+    audio_entries = build_audio_source_entries(wav_paths=wav_paths)
+    chapters = build_chapter_entries(audio_entries)
+    fallback_name = wav_paths[0].stem
+    episode_title = infer_episode_title(recording_date[:3] if recording_date is not None else None, fallback_name)
+    source_channels = load_audio_source(wav_paths[0]).wav_format.channels
+    output_channels = 1 if source_channels == 1 else 2
+    highest_mp3_bitrate = "160k" if output_channels == 1 else "320k"
+    return ProjectDocument(
+        project_title=episode_title,
+        source_folder=source_dir,
+        audio_sources=audio_entries,
+        chapters=chapters,
+        metadata=EpisodeMetadata(episode_title=episode_title),
+        export_settings=ExportSettings(
+            output_format="mp3",
+            quality_preset=highest_mp3_bitrate,
+            encoder="lame",
+            channels=output_channels,
+        ),
+    )
+
+
+def build_audio_source_entries(wav_paths: list[Path]) -> list[AudioSourceEntry]:
+    if not wav_paths:
+        raise EncapError("No WAV files were selected for processing.")
+
+    entries: list[AudioSourceEntry] = []
+    for path in wav_paths:
+        source = load_audio_source(path)
+        duration_seconds = source.frame_count / source.wav_format.sample_rate
+        entries.append(
+            AudioSourceEntry(
+                source_path=path,
+                display_name=path.name,
+                duration_seconds=duration_seconds,
+            )
+        )
+    return entries
+
+
+def build_chapter_entries(audio_sources: list[AudioSourceEntry]) -> list[ChapterEntry]:
+    chapters: list[ChapterEntry] = []
+    running_time = 0.0
+    for index, source in enumerate(audio_sources, start=1):
+        chapters.append(
+            ChapterEntry(
+                start_time_seconds=running_time,
+                duration_seconds=source.duration_seconds,
+                chapter_number=index,
+                title=f"Chapter {index}",
+            )
+        )
+        running_time += source.duration_seconds
+    return chapters
+
+
+def update_project_document_metadata(
+    project: ProjectDocument,
+    podcast_title: str = "",
+    episode_title: str | None = None,
+    summary: str = "",
+) -> ProjectDocument:
+    if episode_title is None:
+        episode_title = project.project_title
+    project.metadata.podcast_title = podcast_title
+    project.metadata.episode_title = episode_title
+    project.metadata.summary = summary
+    return project
 
 
 def prepare_sources(
@@ -88,13 +199,13 @@ def prepare_sources_for_paths(
         raise EncapError("No WAV files were selected for processing.")
 
     sources: list[WavSource] = []
-    reference = load_wav_source(wav_paths[0])
+    reference = load_audio_source(wav_paths[0])
     sources.append(reference)
 
     with tempfile.TemporaryDirectory(prefix="encap-") as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         for path in wav_paths[1:]:
-            source = load_wav_source(path)
+            source = load_audio_source(path)
             if formats_match(reference.wav_format, source.wav_format):
                 sources.append(source)
                 continue
@@ -107,9 +218,14 @@ def prepare_sources_for_paths(
             converted_source = load_wav_source(converted_path)
             if not formats_match(reference.wav_format, converted_source.wav_format):
                 raise EncapError(f"Converted file still does not match the reference format: {path}")
-            sources.append(WavSource(path=path, wav_format=converted_source.wav_format, data=converted_source.data))
+            sources.append(
+                WavSource(
+                    path=path,
+                    wav_format=converted_source.wav_format,
+                    data=converted_source.data,
+                )
+            )
 
-        # Keep source data in memory while the temporary directory is alive.
         return list(sources)
 
 
@@ -160,7 +276,7 @@ def create_stitched_wav(
     prompt_for_conversion: ConversionPrompt,
     write_report: bool = False,
 ) -> StitchPlan:
-    wav_paths = discover_wav_files(source_dir)
+    wav_paths = discover_audio_files(source_dir)
     return create_stitched_wav_for_paths(
         wav_paths=wav_paths,
         output_dir=output_dir,
@@ -168,10 +284,3 @@ def create_stitched_wav(
         prompt_for_conversion=prompt_for_conversion,
         write_report=write_report,
     )
-
-
-def _wav_sort_key(path: Path) -> tuple[int, tuple[int, int, int, int, int, int], str]:
-    parsed = parse_recorder_timestamp(path.stem)
-    if parsed is not None:
-        return (0, parsed, path.name.lower())
-    return (1, (0, 0, 0, 0, 0, 0), path.name.lower())
