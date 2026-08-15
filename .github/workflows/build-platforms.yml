@@ -553,8 +553,21 @@ jobs:
           shutil.copytree("dist/EnCap", staging_dir / "EnCap")
           shutil.copytree("dist/encap_cli", staging_dir / "encap_cli")
 
-          archive_format = "zip" if platform_name == "windows" else "gztar"
-          shutil.make_archive(str(release_dir / staging_dir.name), archive_format, staging_dir.parent, staging_dir.name)
+          archive_format = "zip" if platform == "windows" else "gztar"
+          archive_path = Path(
+              shutil.make_archive(
+                  str(release_dir / staging_dir.name),
+                  archive_format,
+                  staging_dir.parent,
+                  staging_dir.name,
+              )
+          )
+          expected_suffix = ".zip" if platform == "windows" else ".tar.gz"
+          expected_path = release_dir / f"{staging_dir.name}{expected_suffix}"
+          if archive_path.resolve() != expected_path.resolve() or not expected_path.is_file():
+              raise SystemExit(
+                  f"Created {archive_path}; expected release artifact {expected_path}"
+              )
           PY
 
       - name: Upload platform artifact
