@@ -366,6 +366,7 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import os
           import subprocess
           import sys
           from pathlib import Path
@@ -402,8 +403,24 @@ jobs:
                   arguments = []
               else:
                   continue
+              environment = os.environ.copy()
+              if path.name.startswith("lame") and sys.platform.startswith("linux"):
+                  bundled_libraries = path.parent / "lame-libs"
+                  if not bundled_libraries.is_dir():
+                      raise SystemExit(
+                          f"Bundled LAME libraries are missing: {bundled_libraries}"
+                      )
+                  existing = environment.get("LD_LIBRARY_PATH", "")
+                  environment["LD_LIBRARY_PATH"] = (
+                      str(bundled_libraries)
+                      if not existing
+                      else f"{bundled_libraries}{os.pathsep}{existing}"
+                  )
               completed = subprocess.run(
-                  [str(path), *arguments], capture_output=True, text=True
+                  [str(path), *arguments],
+                  capture_output=True,
+                  text=True,
+                  env=environment,
               )
               if completed.returncode != 0:
                   raise SystemExit(
