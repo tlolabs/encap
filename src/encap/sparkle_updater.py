@@ -9,6 +9,20 @@ from pathlib import Path
 from .update_service import UpdateConfigurationError, UpdateError
 
 
+_OBJC_ID = ctypes.c_void_p
+_OBJC_SELECTOR = ctypes.c_void_p
+_SEND_ID = ctypes.CFUNCTYPE(_OBJC_ID, _OBJC_ID, _OBJC_SELECTOR)
+_SEND_VOID_ID = ctypes.CFUNCTYPE(None, _OBJC_ID, _OBJC_SELECTOR, _OBJC_ID)
+_SEND_ID_BOOL_ID_ID = ctypes.CFUNCTYPE(
+    _OBJC_ID,
+    _OBJC_ID,
+    _OBJC_SELECTOR,
+    ctypes.c_bool,
+    _OBJC_ID,
+    _OBJC_ID,
+)
+
+
 class SparkleUpdater:
     """Own Sparkle's standard updater controller for the application's lifetime."""
 
@@ -26,21 +40,18 @@ class SparkleUpdater:
         self._objc.objc_getClass.argtypes = [ctypes.c_char_p]
         self._objc.sel_registerName.restype = ctypes.c_void_p
         self._objc.sel_registerName.argtypes = [ctypes.c_char_p]
-        self._send = self._objc.objc_msgSend
-        self._send.restype = ctypes.c_void_p
+        send_address = ctypes.cast(self._objc.objc_msgSend, ctypes.c_void_p).value
+        if send_address is None:
+            raise UpdateConfigurationError("Objective-C message dispatch is unavailable.")
+        self._send_id = _SEND_ID(send_address)
+        self._send_void_id = _SEND_VOID_ID(send_address)
+        self._send_id_bool_id_id = _SEND_ID_BOOL_ID_ID(send_address)
 
         controller_class = self._objc.objc_getClass(b"SPUStandardUpdaterController")
         if not controller_class:
             raise UpdateConfigurationError("Sparkle did not register its updater controller.")
         allocated = self._message(controller_class, b"alloc")
-        self._send.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_bool,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        controller = self._send(
+        controller = self._send_id_bool_id_id(
             allocated,
             self._selector(b"initWithStartingUpdater:updaterDelegate:userDriverDelegate:"),
             True,
@@ -67,12 +78,10 @@ class SparkleUpdater:
         return self._objc.sel_registerName(name)
 
     def _message(self, receiver: int, selector: bytes) -> int:
-        self._send.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        return self._send(receiver, self._selector(selector))
+        return self._send_id(receiver, self._selector(selector))
 
     def check_for_updates(self) -> None:
-        self._send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-        self._send(
+        self._send_void_id(
             self._controller,
             self._selector(b"checkForUpdates:"),
             None,

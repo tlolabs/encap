@@ -4,12 +4,11 @@ import os
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .ffmpeg_tools import ensure_ffmpeg, ensure_lame
 from .models import ProjectDocument
-from .service import create_stitched_wav_for_paths, prepare_sources_for_paths
+from .service import create_stitched_wav_for_paths
 from .wav_tools import EncapError
 
 
@@ -82,7 +81,11 @@ def export_project(
         encoder = normalize_encoder(project.export_settings.encoder)
         format_name = normalize_output_format(project.export_settings.output_format)
         if encoder == "lame" and format_name == "mp3":
-            intermediate_audio = export_mp3_with_lame(project, temp_dir, prompt_for_conversion)
+            intermediate_audio = export_mp3_with_lame(
+                project=project,
+                stitched_wav=stitched_plan.output_path,
+                temp_dir=temp_dir,
+            )
         else:
             intermediate_audio = stitched_plan.output_path
 
@@ -135,6 +138,18 @@ def validate_project_for_export(project: ProjectDocument) -> None:
             raise EncapError("Every chapter must have a title.")
         if chapter.link_url.strip() and "://" not in chapter.link_url:
             raise EncapError(f"Chapter link must be a full URL: {chapter.link_url}")
+    chapters_with_images = [
+        str(chapter.chapter_number)
+        for chapter in project.chapters
+        if chapter.image_path is not None
+    ]
+    if chapters_with_images:
+        chapter_list = ", ".join(chapters_with_images)
+        raise EncapError(
+            "Chapter-specific artwork cannot be embedded in MP3 or M4A exports "
+            f"(chapter{'s' if len(chapters_with_images) != 1 else ''} {chapter_list}). "
+            "Remove the chapter images before exporting. Episode artwork is still supported."
+        )
 
 
 def build_ffmetadata(project: ProjectDocument) -> str:
@@ -249,75 +264,17 @@ def build_ffmpeg_export_command(
     return command
 
 
-def export_mp3_with_lame(project: ProjectDocument, temp_dir: Path, prompt_for_conversion) -> Path:
+def export_mp3_with_lame(
+    project: ProjectDocument,
+    stitched_wav: Path,
+    temp_dir: Path,
+) -> Path:
     lame = ensure_lame()
-
-    prepared_sources = prepare_sources_for_paths(
-        wav_paths=[entry.source_path for entry in project.audio_sources],
-        prompt_for_conversion=prompt_for_conversion,
-    )
-    chunk_paths: list[Path] = []
-    wav_chunk_paths: list[Path] = []
-    for index, source in enumerate(prepared_sources, start=1):
-        wav_path = temp_dir / f"chunk-{index:03d}.wav"
-        wav_chunk_paths.append(wav_path)
-        _write_source_wav(source, wav_path)
-        chunk_paths.append(temp_dir / f"chunk-{index:03d}.mp3")
-
     bitrate = project.export_settings.quality_preset.rstrip("k")
     channels = project.export_settings.channels
-    worker_count = min(max(os.cpu_count() or 1, 1), len(wav_chunk_paths))
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = [
-            executor.submit(_run_lame, lame, wav_path, mp3_path, bitrate, channels)
-            for wav_path, mp3_path in zip(wav_chunk_paths, chunk_paths)
-        ]
-        for future in futures:
-            future.result()
-
-    concat_list_path = temp_dir / "concat.txt"
-    concat_list_path.write_text(
-        "\n".join(f"file '{chunk_path.as_posix()}'" for chunk_path in chunk_paths) + "\n",
-        encoding="utf-8",
-    )
-    ffmpeg = ensure_ffmpeg()
-    merged_output = temp_dir / "lame-merged.mp3"
-    command = [
-        ffmpeg,
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(concat_list_path),
-        "-c",
-        "copy",
-        str(merged_output),
-    ]
-    completed = subprocess.run(command, capture_output=True, text=True)
-    if completed.returncode != 0:
-        raise EncapError(
-            "LAME export assembly failed.\n"
-            f"Command: {' '.join(command)}\n"
-            f"stderr:\n{completed.stderr.strip()}"
-        )
-    return merged_output
-
-
-def _write_source_wav(source, output_path: Path) -> None:
-    import struct
-
-    fmt_chunk_data = source.wav_format.fmt_chunk_data
-    data = source.data
-    fmt_chunk = b"fmt " + struct.pack("<I", len(fmt_chunk_data)) + fmt_chunk_data
-    if len(fmt_chunk_data) % 2:
-        fmt_chunk += b"\x00"
-    data_chunk = b"data" + struct.pack("<I", len(data)) + data
-    if len(data) % 2:
-        data_chunk += b"\x00"
-    riff_body = b"WAVE" + fmt_chunk + data_chunk
-    output_path.write_bytes(b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body)
+    output_path = temp_dir / "lame-encoded.mp3"
+    _run_lame(lame, stitched_wav, output_path, bitrate, channels)
+    return output_path
 
 
 def _run_lame(
@@ -350,7 +307,7 @@ def _run_lame(
     completed = subprocess.run(command, capture_output=True, text=True, env=environment)
     if completed.returncode != 0:
         raise EncapError(
-            "LAME chunk encoding failed.\n"
+            "LAME encoding failed.\n"
             f"Command: {' '.join(command)}\n"
             f"stderr:\n{completed.stderr.strip()}"
         )

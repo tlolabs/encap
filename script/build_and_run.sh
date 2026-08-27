@@ -8,6 +8,22 @@ SPARKLE_VERSION="2.9.4"
 SPARKLE_SHA256="ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9"
 WHISPER_CPP_VERSION="v1.9.1"
 
+NATIVE_ARCH="$(uname -m)"
+case "$NATIVE_ARCH" in
+  arm64)
+    ENCAP_PLATFORM_NAME="macos-arm64"
+    DMG_ARCH_LABEL="arm64"
+    ;;
+  x86_64)
+    ENCAP_PLATFORM_NAME="macos-intel"
+    DMG_ARCH_LABEL="intel"
+    ;;
+  *)
+    echo "Unsupported macOS architecture: $NATIVE_ARCH" >&2
+    exit 1
+    ;;
+esac
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$ROOT_DIR/.venv-packaging/bin/python"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
@@ -18,6 +34,9 @@ SPARKLE_FRAMEWORK="$SPARKLE_DIR/Sparkle.framework"
 PUBLIC_KEY_FILE="$ROOT_DIR/src/encap/update_public_key.txt"
 WHISPER_CPP_DIR="$ROOT_DIR/.whisper-cpp"
 APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/apple-transcriber"
+WHISPERKIT_PACKAGE="$ROOT_DIR/helpers/whisperkit_transcriber"
+WHISPERKIT_BUILD_DIR="$ROOT_DIR/.build-tools/whisperkit-transcriber-build"
+WHISPERKIT_TRANSCRIBER="$ROOT_DIR/.build-tools/whisperkit-transcriber"
 XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 ACTOOL="$XCODE_DEVELOPER_DIR/usr/bin/actool"
 ICON_COMPOSER_TOOL="/Applications/Icon Composer.app/Contents/Executables/ictool"
@@ -132,12 +151,26 @@ cmake --build "$WHISPER_CPP_DIR/build" --config Release --target whisper-cli
 mkdir -p "$(dirname "$APPLE_TRANSCRIBER")"
 swiftc -swift-version 5 -O "$ROOT_DIR/helpers/apple_transcriber.swift" \
   -o "$APPLE_TRANSCRIBER"
+if [[ "$NATIVE_ARCH" == "arm64" ]]; then
+  swift build \
+    --package-path "$WHISPERKIT_PACKAGE" \
+    --scratch-path "$WHISPERKIT_BUILD_DIR" \
+    --configuration release \
+    --product whisperkit-transcriber
+  WHISPERKIT_BIN_DIR="$(swift build \
+    --package-path "$WHISPERKIT_PACKAGE" \
+    --scratch-path "$WHISPERKIT_BUILD_DIR" \
+    --configuration release \
+    --show-bin-path)"
+  cp "$WHISPERKIT_BIN_DIR/whisperkit-transcriber" "$WHISPERKIT_TRANSCRIBER"
+  chmod +x "$WHISPERKIT_TRANSCRIBER"
+fi
 
 APP_VERSION="$($PYTHON -c "import runpy; print(runpy.run_path('$ROOT_DIR/src/encap/version.py')['__version__'])")"
 UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
 
 cd "$ROOT_DIR"
-ENCAP_PLATFORM="macos-arm64" \
+ENCAP_PLATFORM="$ENCAP_PLATFORM_NAME" \
 ENCAP_UPDATE_PUBLIC_KEY="$UPDATE_PUBLIC_KEY" \
   "$PYTHON" -m PyInstaller --noconfirm --clean encap_gui.spec
 
@@ -160,6 +193,11 @@ codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/whisper-cli"
 cp "$APPLE_TRANSCRIBER" "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
 chmod +x "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
 codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
+if [[ "$NATIVE_ARCH" == "arm64" && -x "$WHISPERKIT_TRANSCRIBER" ]]; then
+  cp "$WHISPERKIT_TRANSCRIBER" "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
+  chmod +x "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
+  codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
+fi
 
 ditto "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 codesign --force --sign - "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
@@ -172,14 +210,14 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP_BUNDLE/Conten
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP_BUNDLE/Contents/Info.plist")" = "AppIcon"
 assetutil --info "$APP_BUNDLE/Contents/Resources/Assets.car" > "$ICON_BUILD_DIR/bundle-assets.json"
 grep '"AssetType" : "IconGroup"' "$ICON_BUILD_DIR/bundle-assets.json" >/dev/null
-file "$APP_BINARY" | grep arm64 >/dev/null
+file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
 package_dmg() {
-  local dmg_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-arm64.dmg"
+  local dmg_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-${DMG_ARCH_LABEL}.dmg"
   hdiutil create \
     -volname EnCap \
     -srcfolder "$APP_BUNDLE" \

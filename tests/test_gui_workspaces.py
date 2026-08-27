@@ -17,7 +17,7 @@ from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QAction, QColor, QDropEvent, QKeySequence, QPixmap
 from PySide6.QtWidgets import QApplication, QTabWidget
 
-from encap.gui import EncapWindow
+from encap.gui import EncapWindow, _chapter_key
 from encap.models import (
     AudioSourceEntry,
     ChapterEntry,
@@ -47,6 +47,13 @@ class GuiWorkspacesTest(unittest.TestCase):
         self.window.close()
         self.app.processEvents()
         super().tearDown()
+
+    def test_chapter_keys_use_stable_runtime_ids(self) -> None:
+        first = ChapterEntry(0.0, 1.0, 1, "Chapter 1")
+        second = ChapterEntry(0.0, 1.0, 1, "Chapter 1")
+
+        self.assertEqual(_chapter_key(first), first.id)
+        self.assertNotEqual(_chapter_key(first), _chapter_key(second))
 
     def test_activity_tabs_are_top_level_workspaces_and_switch_complete_pages(self) -> None:
         tabs = self.window.activity_tabs
