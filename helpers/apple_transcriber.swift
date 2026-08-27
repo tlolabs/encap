@@ -76,6 +76,8 @@ func transcribe(url: URL) throws -> OutputDocument {
     let semaphore = DispatchSemaphore(value: 0)
     var finalResult: SFSpeechRecognitionResult?
     var finalError: Error?
+    let recognitionDeadline = Date(timeIntervalSinceNow: 30 * 60)
+    var recognitionTimedOut = false
     let task = recognizer.recognitionTask(with: request) { result, error in
         if let result = result, result.isFinal {
             finalResult = result
@@ -87,6 +89,17 @@ func transcribe(url: URL) throws -> OutputDocument {
     }
     while semaphore.wait(timeout: .now()) != .success {
         RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        if task.state == .completed || task.state == .canceling {
+            break
+        }
+        if Date() >= recognitionDeadline {
+            recognitionTimedOut = true
+            task.cancel()
+            break
+        }
+    }
+    if recognitionTimedOut {
+        throw HelperError.recognition("Apple Speech recognition timed out after 30 minutes.")
     }
     task.finish()
 

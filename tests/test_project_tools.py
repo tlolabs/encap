@@ -9,16 +9,24 @@ import wave
 from pathlib import Path
 import sys
 import shutil
+import stat
 import struct
+import zipfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from encap.export_tools import build_ffmpeg_export_command, export_project
+from encap.export_tools import (
+    build_ffmpeg_export_command,
+    export_mp3_with_lame,
+    export_project,
+    validate_project_for_export,
+)
 from encap.gui import _apply_chapter_form_values, validate_link_url
 from encap.project_io import cleanup_loaded_project, load_project, save_project
 from encap.service import build_project_document, prepare_sources_for_paths
 from encap.transcript_tools import export_transcript_srt, export_transcript_txt, parse_transcript_text
+from encap.wav_tools import EncapError
 
 
 def write_test_wav(
@@ -72,6 +80,17 @@ def ffprobe_output(output_path: Path) -> dict:
     ]
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     return json.loads(completed.stdout)
+
+
+def minimal_project_manifest() -> dict:
+    return {
+        "schema_version": 1,
+        "metadata": {},
+        "audio_sources": [],
+        "chapters": [],
+        "transcript_segments": [],
+        "export_settings": {},
+    }
 
 
 class ProjectToolsTest(unittest.TestCase):
@@ -178,6 +197,94 @@ class ProjectToolsTest(unittest.TestCase):
             self.assertEqual(loaded.export_settings.channels, 1)
             self.assertEqual(loaded.export_settings.quality_preset, "80k")
 
+    def test_save_project_replaces_existing_file_only_after_archive_completes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            source_dir = temp_dir / "src"
+            source_dir.mkdir()
+            write_test_wav(source_dir / "05042026120000_DN-700R.wav", frame_count=100)
+            project = build_project_document(source_dir, prompt_for_conversion=lambda _: False)
+            project_path = temp_dir / "episode.encap"
+            original_contents = b"existing project remains intact"
+            project_path.write_bytes(original_contents)
+
+            with patch.object(zipfile.ZipFile, "writestr", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(EncapError, "Project could not be saved: disk full"):
+                    save_project(project, project_path)
+
+            self.assertEqual(project_path.read_bytes(), original_contents)
+            self.assertEqual(list(temp_dir.glob(".episode.encap.*.tmp")), [])
+            self.assertIsNone(project.project_path)
+
+    def test_load_project_rejects_unsafe_archive_members(self) -> None:
+        symlink = zipfile.ZipInfo("audio/link.wav")
+        symlink.create_system = 3
+        symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
+        unsafe_members: tuple[str | zipfile.ZipInfo, ...] = (
+            "../escaped.txt",
+            "/absolute.txt",
+            symlink,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            for index, member in enumerate(unsafe_members):
+                with self.subTest(member=member):
+                    project_path = temp_dir / f"unsafe-archive-{index}.encap"
+                    extraction_dir = temp_dir / f"extracted-{index}"
+                    with zipfile.ZipFile(project_path, "w") as archive:
+                        archive.writestr(member, b"unsafe")
+
+                    with patch(
+                        "encap.project_io.tempfile.mkdtemp",
+                        return_value=str(extraction_dir),
+                    ):
+                        with self.assertRaisesRegex(
+                            EncapError,
+                            r"unsafe (?:stored )?path",
+                        ):
+                            load_project(project_path)
+
+                    self.assertFalse(extraction_dir.exists())
+                    self.assertFalse((temp_dir / "escaped.txt").exists())
+
+    def test_load_project_rejects_unsafe_manifest_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            absolute_path = str((temp_dir / "outside.wav").resolve())
+            cases = (
+                ("audio parent", "audio", "../outside.wav"),
+                ("audio absolute", "audio", absolute_path),
+                ("artwork parent", "artwork", "../../outside.png"),
+                ("artwork absolute", "artwork", absolute_path),
+                ("chapter parent", "chapter", "../outside.png"),
+                ("chapter absolute", "chapter", absolute_path),
+            )
+
+            for index, (name, field, stored_path) in enumerate(cases):
+                with self.subTest(name=name):
+                    manifest = minimal_project_manifest()
+                    if field == "audio":
+                        manifest["audio_sources"] = [{"stored_path": stored_path}]
+                    elif field == "artwork":
+                        manifest["metadata"]["artwork_stored_path"] = stored_path
+                    else:
+                        manifest["chapters"] = [{"image_stored_path": stored_path}]
+
+                    project_path = temp_dir / f"unsafe-manifest-{index}.encap"
+                    extraction_dir = temp_dir / f"manifest-extracted-{index}"
+                    with zipfile.ZipFile(project_path, "w") as archive:
+                        archive.writestr("manifest.json", json.dumps(manifest))
+
+                    with patch(
+                        "encap.project_io.tempfile.mkdtemp",
+                        return_value=str(extraction_dir),
+                    ):
+                        with self.assertRaisesRegex(EncapError, r"unsafe stored path"):
+                            load_project(project_path)
+
+                    self.assertFalse(extraction_dir.exists())
+
     def test_transcript_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir_name:
             temp_dir = Path(temp_dir_name)
@@ -246,6 +353,48 @@ class ProjectToolsTest(unittest.TestCase):
             self.assertEqual(
                 native_aac_command[native_aac_command.index("-aac_coder") + 1],
                 "twoloop",
+            )
+
+    def test_export_rejects_chapter_images_instead_of_silently_omitting_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            source_dir = temp_dir / "src"
+            source_dir.mkdir()
+            write_test_wav(source_dir / "05042026120000_DN-700R.wav", frame_count=100)
+            project = build_project_document(source_dir, prompt_for_conversion=lambda _: False)
+            project.metadata.podcast_title = "Show Title"
+            project.chapters[0].image_path = temp_dir / "chapter.png"
+
+            with self.assertRaisesRegex(
+                EncapError,
+                r"Chapter-specific artwork cannot be embedded.*chapter 1",
+            ):
+                validate_project_for_export(project)
+
+    def test_lame_encodes_the_stitched_wav_in_one_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            source_dir = temp_dir / "src"
+            source_dir.mkdir()
+            write_test_wav(source_dir / "05042026120000_DN-700R.wav", frame_count=24000)
+            write_test_wav(source_dir / "05042026120500_DN-700R.wav", frame_count=48000)
+            project = build_project_document(source_dir, prompt_for_conversion=lambda _: False)
+            project.export_settings.quality_preset = "128k"
+
+            stitched_wav = temp_dir / "stitched.wav"
+            with (
+                patch("encap.export_tools.ensure_lame", return_value="/usr/bin/lame"),
+                patch("encap.export_tools._run_lame") as run_lame,
+            ):
+                output_path = export_mp3_with_lame(project, stitched_wav, temp_dir)
+
+            self.assertEqual(output_path, temp_dir / "lame-encoded.mp3")
+            run_lame.assert_called_once_with(
+                "/usr/bin/lame",
+                stitched_wav,
+                output_path,
+                "128",
+                1,
             )
 
     def test_exported_mp3_and_m4a_preserve_media_contract(self) -> None:

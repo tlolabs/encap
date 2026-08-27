@@ -22,6 +22,7 @@ from .wav_tools import (
     formats_match,
     load_audio_source,
     load_wav_source,
+    read_source_pcm,
     write_wav,
 )
 
@@ -222,7 +223,7 @@ def prepare_sources_for_paths(
                 WavSource(
                     path=path,
                     wav_format=converted_source.wav_format,
-                    data=converted_source.data,
+                    data=read_source_pcm(converted_source),
                 )
             )
 

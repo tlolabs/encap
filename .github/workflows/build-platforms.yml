@@ -320,16 +320,35 @@ jobs:
         run: |
           mkdir -p .build-tools
           if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            swift_target="arm64-apple-macosx${MACOSX_DEPLOYMENT_TARGET}"
+            swift_arch="arm64"
           else
-            swift_target="x86_64-apple-macosx${MACOSX_DEPLOYMENT_TARGET}"
+            swift_arch="x86_64"
           fi
+          swift_target="${swift_arch}-apple-macosx${MACOSX_DEPLOYMENT_TARGET}"
           swiftc -swift-version 5 -O helpers/apple_transcriber.swift \
             -target "$swift_target" \
             -o .build-tools/apple-transcriber
           swiftc -swift-version 5 -O helpers/apple_aac_info.swift \
             -target "$swift_target" \
             -o .build-tools/apple-aac-info
+          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
+            whisperkit_target="arm64-apple-macosx14.0"
+            swift build \
+              --package-path helpers/whisperkit_transcriber \
+              --scratch-path .build-tools/whisperkit-transcriber-build \
+              --configuration release \
+              --triple "$whisperkit_target" \
+              --product whisperkit-transcriber
+            whisperkit_bin_dir="$(swift build \
+              --package-path helpers/whisperkit_transcriber \
+              --scratch-path .build-tools/whisperkit-transcriber-build \
+              --configuration release \
+              --triple "$whisperkit_target" \
+              --show-bin-path)"
+            cp "$whisperkit_bin_dir/whisperkit-transcriber" \
+              .build-tools/whisperkit-transcriber
+            chmod +x .build-tools/whisperkit-transcriber
+          fi
 
       - name: Build CLI
         run: python -m PyInstaller --noconfirm encap.spec
@@ -433,6 +452,13 @@ jobs:
               destination = Path("dist/EnCap.app/Contents/MacOS/apple-aac-info")
               shutil.copy2(Path(".build-tools/apple-aac-info"), destination)
               destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+              whisperkit_transcriber = Path(".build-tools/whisperkit-transcriber")
+              if whisperkit_transcriber.is_file():
+                  destination = Path("dist/EnCap.app/Contents/MacOS/whisperkit-transcriber")
+                  shutil.copy2(whisperkit_transcriber, destination)
+                  destination.chmod(
+                      destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                  )
           PY
 
       - name: Verify bundled media tools
@@ -440,6 +466,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import platform
           import subprocess
           import sys
           from pathlib import Path
@@ -462,6 +489,10 @@ jobs:
                       Path("dist/EnCap.app/Contents/MacOS") / "apple-aac-info",
                   ]
               )
+              if platform.machine().lower() in {"arm64", "aarch64"}:
+                  required.append(
+                      Path("dist/EnCap.app/Contents/MacOS") / "whisperkit-transcriber"
+                  )
 
           missing = [str(path) for path in required if not path.exists()]
           if missing:
@@ -499,6 +530,18 @@ jobs:
                   raise SystemExit(
                       f"Bundled tool failed: {path}\n{completed.stderr}"
                   )
+          if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+              helper = Path("dist/EnCap.app/Contents/MacOS/whisperkit-transcriber")
+              completed = subprocess.run(
+                  [str(helper)],
+                  capture_output=True,
+                  text=True,
+              )
+              if completed.returncode == 0 or "Usage:" not in completed.stderr:
+                  raise SystemExit(
+                      "Bundled WhisperKit helper did not launch and report its usage.\n"
+                      f"{completed.stderr}"
+                  )
           PY
 
       - name: Include update helper
@@ -523,6 +566,9 @@ jobs:
           codesign --force --sign - dist/EnCap.app/Contents/MacOS/whisper-cli
           codesign --force --sign - dist/EnCap.app/Contents/MacOS/apple-transcriber
           codesign --force --sign - dist/EnCap.app/Contents/MacOS/apple-aac-info
+          if [[ -f dist/EnCap.app/Contents/MacOS/whisperkit-transcriber ]]; then
+            codesign --force --sign - dist/EnCap.app/Contents/MacOS/whisperkit-transcriber
+          fi
           codesign --force --sign - dist/EnCap.app/Contents/Frameworks/Sparkle.framework
           codesign --force --sign - dist/EnCap.app
           codesign --verify --deep --strict dist/EnCap.app
@@ -544,6 +590,10 @@ jobs:
           do
             lipo "$binary" -verify_arch "$expected_arch"
           done
+          if [[ -f dist/EnCap.app/Contents/MacOS/whisperkit-transcriber ]]; then
+            lipo dist/EnCap.app/Contents/MacOS/whisperkit-transcriber \
+              -verify_arch "$expected_arch"
+          fi
           python - <<'PY'
           import re
           import subprocess

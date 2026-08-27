@@ -59,6 +59,14 @@ verified with SHA-256, and can be selected or removed from the same window.
 After a model is installed, Whisper transcription works offline. The packaged
 app includes only the lightweight `whisper.cpp` runtime, not model weights.
 
+On macOS, EnCap avoids duplicate multi-gigabyte downloads when another supported
+transcription app already has a usable Large V3 model. It checks for a verified
+Superwhisper `ggml-large-v3.bin` first, then for installed Apple-silicon macOS 14+
+WhisperKit models managed by Whisper Transcription (MacWhisper). Shared model
+weights are read in place and are never copied, removed, or updated by EnCap;
+small tokenizer metadata is staged only in a temporary working directory. If
+neither shared source is usable, EnCap falls back to its own model manager.
+
 ## Automatic updates
 
 Packaged EnCap builds use the latest GitHub Release as the update source. macOS

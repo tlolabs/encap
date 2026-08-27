@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 
 @dataclass(frozen=True)
@@ -23,11 +24,26 @@ class WavFormat:
 class WavSource:
     path: Path
     wav_format: WavFormat
-    data: bytes
+    data: bytes | None = field(default=None, repr=False)
+    data_path: Path | None = None
+    data_offset: int = 0
+    data_size: int | None = None
+    pcm_byte_order: str = "little"
+    pcm_8bit_signed: bool = False
+
+    def __post_init__(self) -> None:
+        if self.data_size is None:
+            object.__setattr__(self, "data_size", len(self.data or b""))
+        if self.data is not None and self.data_size != len(self.data):
+            raise ValueError("In-memory PCM data does not match its declared size.")
+        if self.data_offset < 0 or self.data_size < 0:
+            raise ValueError("PCM offsets and sizes cannot be negative.")
+        if self.pcm_byte_order not in {"little", "big"}:
+            raise ValueError(f"Unsupported PCM byte order: {self.pcm_byte_order}")
 
     @property
     def frame_count(self) -> int:
-        return len(self.data) // self.wav_format.block_align
+        return self.data_size // self.wav_format.block_align
 
 
 @dataclass(frozen=True)
@@ -62,6 +78,12 @@ class ChapterEntry:
     link_url: str = ""
     image_path: Path | None = None
     image_stored_path: str | None = None
+    id: str = field(
+        default_factory=lambda: uuid4().hex,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass

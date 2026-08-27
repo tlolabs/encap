@@ -318,15 +318,25 @@ if missing_gui_dependency is None:
         def __init__(self, store: TranscriptionModelStore, parent=None) -> None:
             super().__init__(parent)
             self.store = store
+            self.shared_providers = store.shared_providers()
             self._download_worker: ModelDownloadWorker | None = None
             self.setWindowTitle("Transcription Models")
             self.resize(780, 430)
 
             layout = QVBoxLayout(self)
-            explanation = QLabel(
-                "Whisper models are downloaded only when you request them and remain on this "
-                "computer. No model weights are included in EnCap."
-            )
+            if self.shared_providers:
+                shared_source = self.shared_providers[0].source_name
+                explanation_text = (
+                    f"EnCap is reusing the model installed by {shared_source} without copying it. "
+                    "Additional EnCap downloads are disabled while that shared model is available; "
+                    "previous EnCap downloads can still be removed to reclaim space."
+                )
+            else:
+                explanation_text = (
+                    "Whisper models are downloaded only when you request them and remain on this "
+                    "computer. No model weights are included in EnCap."
+                )
+            explanation = QLabel(explanation_text)
             explanation.setWordWrap(True)
             layout.addWidget(explanation)
 
@@ -412,8 +422,9 @@ if missing_gui_dependency is None:
                 f"{model.description} License: {model.license_name}. "
                 f"Stored in {self.store.model_path(model)}"
             )
-            self.download_button.setEnabled(not installed and not busy)
-            self.use_button.setEnabled(installed and not busy)
+            shared_active = bool(self.shared_providers)
+            self.download_button.setEnabled(not installed and not busy and not shared_active)
+            self.use_button.setEnabled(installed and not busy and not shared_active)
             self.remove_button.setEnabled(installed and not busy)
             self.table.setEnabled(not busy)
 
@@ -1380,14 +1391,13 @@ if missing_gui_dependency is None:
             selected_model_id = self.model_store.selected_model_id()
             self.transcription_provider_box.blockSignals(True)
             self.transcription_provider_box.clear()
+            for provider in self.model_store.available_providers():
+                self.transcription_provider_box.addItem(provider.name, provider.provider_id)
             if self.capabilities.apple_transcription_available:
                 self.transcription_provider_box.addItem(
                     "Apple On-Device (system managed)",
                     APPLE_PROVIDER_ID,
                 )
-            for model in WHISPER_MODELS:
-                if self.model_store.is_installed(model):
-                    self.transcription_provider_box.addItem(model.name, model.model_id)
             if self.transcription_provider_box.count() == 0:
                 self.transcription_provider_box.addItem(
                     "No local transcription engine available",
@@ -1500,7 +1510,7 @@ if missing_gui_dependency is None:
 
         def _handle_transcription_complete(self, segments, error: str) -> None:
             self._transcription_worker = None
-            self._update_transcription_controls()
+            self._refresh_transcription_providers()
             if error or segments is None:
                 message = error or "The transcription did not return a result."
                 self.append_log(f"Transcription failed: {message}")
@@ -2404,7 +2414,7 @@ def _normalize_link_url(value: str) -> str:
 
 
 def _chapter_key(chapter: ChapterEntry) -> str:
-    return str(id(chapter))
+    return chapter.id
 
 
 def _resolve_url_candidate(url: str, timeout_seconds: float = 4.0) -> str:
