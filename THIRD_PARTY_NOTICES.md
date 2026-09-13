@@ -6,27 +6,27 @@ downloaded only at the user's request.
 
 ## FFmpeg and FFprobe
 
-EnCap distributions include FFmpeg and FFprobe command-line executables from
-the `ffmpeg-static` project release used by the reproducible build workflow.
-The bundled executables are separate programs invoked by EnCap for media
-conversion, encoding, metadata, and validation.
+EnCap distributions include FFmpeg and FFprobe 9.0.1 command-line executables
+built from the checksum-pinned upstream source release. The bundled executables
+are separate programs invoked by EnCap for media conversion, encoding,
+metadata, and validation.
 
 The distributed builds enable GPL and version-3 components. FFmpeg licensing,
 corresponding source, and build information are available from
-https://ffmpeg.org/legal.html, https://ffmpeg.org/download.html, and
-https://github.com/eugeneware/ffmpeg-static/releases.
+https://ffmpeg.org/legal.html and https://ffmpeg.org/download.html. The exact
+configuration used by EnCap is recorded in the platform build scripts.
 
 ## LAME
 
-EnCap distributions include the LAME 3.100 command-line MP3 encoder as a
-separate executable. EnCap invokes it as an optional alternative to FFmpeg's
-libmp3lame wrapper and does not modify it.
+EnCap's bundled FFmpeg is linked with an encoder-only static build of LAME 4.0
+to provide the `libmp3lame` codec. EnCap does not ship LAME's command-line
+frontend or decoder.
 
-LAME is distributed under the GNU Library General Public License, version 2.
+LAME is distributed under the GNU Lesser General Public License, version 2 or
+later.
 Source and license information are available from
-https://lame.sourceforge.io/ and https://sourceforge.net/projects/lame/files/lame/3.100/.
-The Windows x64 executable is distributed by RareWares from
-https://www.rarewares.org/mp3-lame-bundle.php.
+https://lame.sourceforge.io/ and
+https://sourceforge.net/projects/lame/files/lame/4.0/.
 
 ## whisper.cpp
 

@@ -1,0 +1,48 @@
+<Window x:Class="EnCap.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid>
+    <NavigationView x:Name="Navigation" IsBackButtonVisible="Collapsed" SelectionChanged="Navigation_SelectionChanged">
+      <NavigationView.MenuItems>
+        <NavigationViewItem Content="Assemble &amp; Encode" Tag="assemble" Icon="Audio" />
+        <NavigationViewItem Content="Transcribe" Tag="transcribe" Icon="Microphone" />
+      </NavigationView.MenuItems>
+      <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <CommandBar DefaultLabelPosition="Right">
+          <AppBarButton Icon="OpenFile" Label="Import folder" Click="Import_Click" />
+          <AppBarButton Icon="OpenFile" Label="Open project" Click="Open_Click" />
+          <AppBarButton Icon="Save" Label="Save project" Click="Save_Click" />
+          <AppBarButton Icon="Download" Label="Export audio" Click="Export_Click" />
+        </CommandBar>
+        <ScrollViewer Grid.Row="1">
+          <StackPanel x:Name="AssemblePanel" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
+            <TextBlock Text="Assemble &amp; Encode" Style="{ThemeResource TitleTextBlockStyle}" />
+            <TextBox x:Name="PodcastTitle" Header="Podcast title" AutomationProperties.Name="Podcast title" />
+            <TextBox x:Name="EpisodeTitle" Header="Episode title" AutomationProperties.Name="Episode title" />
+            <TextBox x:Name="Summary" Header="Summary" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" AutomationProperties.Name="Episode summary" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <ComboBox x:Name="Format" Header="Format" SelectedIndex="0"><x:String>mp3</x:String><x:String>aac</x:String></ComboBox>
+              <ComboBox x:Name="Channels" Header="Channels" SelectedIndex="1"><x:Int32>1</x:Int32><x:Int32>2</x:Int32></ComboBox>
+              <ComboBox x:Name="Bitrate" Header="Bitrate" SelectedIndex="6"><x:String>64k</x:String><x:String>96k</x:String><x:String>128k</x:String><x:String>160k</x:String><x:String>192k</x:String><x:String>256k</x:String><x:String>320k</x:String></ComboBox>
+            </StackPanel>
+            <TextBlock Text="Chapters" Style="{ThemeResource SubtitleTextBlockStyle}" />
+            <ListView x:Name="ChapterList" AutomationProperties.Name="Project chapters">
+              <ListView.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal" Spacing="12"><TextBlock Text="{Binding ChapterNumber}"/><TextBlock Text="{Binding Title}"/><TextBlock Text="{Binding DurationSeconds}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+            </ListView>
+          </StackPanel>
+          <StackPanel x:Name="TranscribePanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
+            <TextBlock Text="Transcribe" Style="{ThemeResource TitleTextBlockStyle}" />
+            <ComboBox x:Name="Provider" Header="Local transcription engine" AutomationProperties.Name="Local transcription engine" />
+            <Button Content="Transcribe locally" Click="Transcribe_Click" />
+            <ListView x:Name="TranscriptList" AutomationProperties.Name="Transcript segments">
+              <ListView.ItemTemplate><DataTemplate><StackPanel Spacing="4"><TextBlock Text="{Binding Speaker}" FontWeight="SemiBold"/><TextBlock Text="{Binding Text}" TextWrapping="Wrap"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+            </ListView>
+          </StackPanel>
+        </ScrollViewer>
+        <InfoBar x:Name="Status" Grid.Row="2" IsOpen="True" Severity="Informational" Message="Import an audio folder to begin." />
+      </Grid>
+    </NavigationView>
+  </Grid>
+</Window>
+

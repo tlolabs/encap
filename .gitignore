@@ -13,4 +13,5 @@ node_modules/
 src/encap/update_public_key.txt
 build/
 dist/
+target/
 .DS_Store

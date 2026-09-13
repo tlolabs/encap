@@ -1,0 +1,25 @@
+[package]
+name = "encap-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "encap-engine"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+directories.workspace = true
+encap-assemble = { path = "../encap-assemble" }
+encap-core = { path = "../encap-core" }
+encap-ffmpeg = { path = "../encap-ffmpeg" }
+encap-transcribe = { path = "../encap-transcribe" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
