@@ -60,7 +60,7 @@ if [[ ! -x "$CARGO" ]]; then
 fi
 if [[ ! -s "$PUBLIC_KEY_FILE" ]]; then
   echo "Missing update public key: $PUBLIC_KEY_FILE" >&2
-  echo "Run the legacy key setup helper under legacy-python before building a release." >&2
+  echo "Set ENCAP_UPDATE_PUBLIC_KEY in GitHub and place the same public key at this path." >&2
   exit 1
 fi
 if [[ ! -x "$XCODE_DEVELOPER_DIR/usr/bin/xcodebuild" ]]; then

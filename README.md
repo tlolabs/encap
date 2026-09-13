@@ -6,9 +6,10 @@
 
 EnCap 2.0 turns a naturally ordered folder of recordings into audio, transcript,
 and social-video deliverables in one portable project. Its Rust engine has native
-interfaces for macOS, Windows, and Linux. The original Python application remains in
-[`legacy-python/`](legacy-python/) for comparison until the rewrite has been
-manually accepted.
+interfaces for macOS, Windows, and Linux. EnCap 2.0 is the current build. The frozen
+pre-2.0 Python implementation is preserved on the
+[`archive/python-legacy`](https://github.com/tlolabs/encap/tree/archive/python-legacy)
+branch and is not part of current development or releases.
 
 ## Architecture
 
@@ -116,27 +117,12 @@ Shared checks:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-python3 -m unittest discover -s tests
+./script/check_no_python.sh
 ```
 
 See [`docs/development.md`](docs/development.md) for platform builds, release
 artifacts, and the engine protocol. The project format is specified in
 [`docs/project-format.md`](docs/project-format.md).
-
-## Run the preserved Python reference
-
-The Python implementation is intentionally not a release dependency of the
-native rewrite. To run it for behavioral comparison:
-
-```bash
-python3 -m venv .venv-legacy
-.venv-legacy/bin/python -m pip install -e .
-.venv-legacy/bin/encap-gui
-```
-
-Its source, packaging files, and instructions remain intact under
-[`legacy-python/`](legacy-python/). Legacy UI captures are in
-[`docs/legacy-ui/`](docs/legacy-ui/).
 
 ## Release process
 
@@ -148,8 +134,8 @@ macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release
 steps and are never stored in the repository.
 
-EnCap 2.0 development builds use the normal CI workflow. The stable `v2.0.0` tag
-and release must not be created until the integrated application is manually approved.
+The native-only policy check rejects Python source and packaging files from the
+current branch. Historical Python work remains available from the archive branch.
 
 ## About and license
 

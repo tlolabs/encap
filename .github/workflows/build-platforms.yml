@@ -19,23 +19,15 @@ env:
 
 jobs:
   quality:
-    name: Shared engine and compatibility tests
+    name: Native engine checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-      - name: Install legacy reference application
-        run: python -m pip install --disable-pip-version-check --editable .
+      - name: Enforce native-only source policy
+        run: ./script/check_no_python.sh
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Check formatting and lints
@@ -44,13 +36,8 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test Rust workspace
         run: cargo test --workspace --locked
-      - name: Build compatibility engine
+      - name: Build native engine
         run: cargo build --package encap-engine --locked
-      - name: Test legacy behavior and file compatibility
-        env:
-          QT_QPA_PLATFORM: offscreen
-          ENCAP_REQUIRE_MEDIA_TESTS: "1"
-        run: python -m unittest discover -s tests -v
 
   macos:
     name: macOS ${{ matrix.label }}
@@ -72,6 +59,7 @@ jobs:
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
         run: |
+          mkdir -p src/encap
           if [[ -n "$UPDATE_PUBLIC_KEY" ]]; then
             printf '%s\n' "$UPDATE_PUBLIC_KEY" > src/encap/update_public_key.txt
           else
@@ -253,10 +241,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
       - name: Download packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
         with:
@@ -272,7 +256,6 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$version"
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
           gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
-          python -m pip install --disable-pip-version-check "cryptography==43.0.3"
-          python scripts/build_release_metadata.py --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
+          cargo run --locked --package encap-release -- --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
           gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false

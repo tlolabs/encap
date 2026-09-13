@@ -28,8 +28,8 @@ paths (`source_path`, `working_dir`, and `project_path`) never appear in the
 manifest; the engine reconstructs them in an owned private extraction directory
 when opening the document.
 
-Historical aliases remain accepted: `m4a` is treated as AAC/M4A, and the Python
-loader continues to understand its older encoder names. A native client carries
+Historical aliases remain accepted: `m4a` is treated as AAC/M4A, and older encoder
+names are normalized during migration. A native client carries
 an opaque compatibility payload across its Rust process boundary. Unknown fields
 at the manifest, metadata, audio-source, chapter, transcript-segment, and export
 settings levels are merged back during save rather than silently discarded.
