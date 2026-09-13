@@ -405,7 +405,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "encap-assemble"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "ctrlc",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "encap-core",
  "tempfile",
@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "encap-transcribe"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "directories",
  "encap-core",
