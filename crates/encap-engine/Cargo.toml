@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+ctrlc.workspace = true
 directories.workspace = true
 encap-assemble = { path = "../encap-assemble" }
 encap-core = { path = "../encap-core" }

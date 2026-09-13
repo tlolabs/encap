@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 #if SWIFT_PACKAGE
 import SparkleBridge
@@ -23,7 +24,9 @@ final class AppStore: ObservableObject {
     @Published var project: ProjectDocument?
     @Published var workspace = Workspace.process
     @Published var providers: [TranscriptionProvider] = []
+    @Published var transcriptionModels: [TranscriptionModelInfo] = []
     @Published var selectedProviderID = "apple-local"
+    @Published var isModelManagerPresented = false
     @Published var isWorking = false
     @Published var status = "Import an audio folder to begin."
     @Published var errorMessage: String?
@@ -35,6 +38,8 @@ final class AppStore: ObservableObject {
     private var player: AVPlayer?
     private var playbackEndObserver: NSObjectProtocol?
     private var savedProject: ProjectDocument?
+    private var cancellationRequested = false
+    private var recoveryObservation: AnyCancellable?
 
     var hasUnsavedChanges: Bool { project != nil && project != savedProject }
 
@@ -66,6 +71,35 @@ final class AppStore: ObservableObject {
 
     init() {
         _ = EnCapStartUpdater()
+        recoveryObservation = $project
+            .dropFirst()
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] project in
+                guard let self, !self.isWorking else { return }
+                Task { @MainActor in
+                    if let project, project != self.savedProject {
+                        try? await self.engine.saveRecovery(project)
+                    } else {
+                        try? await self.engine.clearRecovery()
+                    }
+                }
+            }
+        Task { await restoreRecoveryIfAvailable() }
+    }
+
+    private func restoreRecoveryIfAvailable() async {
+        do {
+            guard project == nil, let recovered = try await engine.loadRecovery() else { return }
+            replaceProject(recovered, saved: false)
+            status = "Recovered unsaved work from the previous session."
+        } catch {
+            errorMessage = "Unsaved work could not be recovered: \(error.localizedDescription)"
+        }
+    }
+
+    func prepareToTerminate() async {
+        try? await engine.clearRecovery()
+        cleanupSession()
     }
 
     var isProjectLoaded: Bool { project != nil }
@@ -170,6 +204,38 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func presentModelManager() {
+        isModelManagerPresented = true
+        Task { await refreshModels() }
+    }
+
+    func installModel(_ model: TranscriptionModelInfo) {
+        perform("Downloading \(model.name)…") {
+            _ = try await self.engine.installModel(id: model.id)
+            await self.refreshModels()
+            self.loadProviders()
+            self.selectedProviderID = model.id
+            self.status = "Installed \(model.name)."
+        }
+    }
+
+    func removeModel(_ model: TranscriptionModelInfo) {
+        perform("Removing \(model.name)…") {
+            _ = try await self.engine.removeModel(id: model.id)
+            await self.refreshModels()
+            self.loadProviders()
+            self.status = "Removed \(model.name)."
+        }
+    }
+
+    private func refreshModels() async {
+        do {
+            transcriptionModels = try await engine.models()
+        } catch {
+            errorMessage = "Could not load the model catalog: \(error.localizedDescription)"
+        }
+    }
+
     func transcribe() {
         guard let project, !selectedProviderID.isEmpty else { return }
         perform("Transcribing locally…") {
@@ -180,6 +246,33 @@ final class AppStore: ObservableObject {
             self.project?.transcriptSegments = segments
             self.workspace = .transcribe
             self.status = "Transcription complete."
+        }
+    }
+
+    func presentTranscriptSavePanel(format: String) {
+        guard let project, !project.transcriptSegments.isEmpty, !isWorking else { return }
+        let panel = NSSavePanel()
+        let fileExtension = format == "srt" ? "srt" : "txt"
+        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
+        panel.nameFieldStringValue = "\(project.outputBaseName).\(fileExtension)"
+        panel.canCreateDirectories = true
+        panel.title = format == "srt" ? "Export SRT Captions" : "Export Transcript"
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.exportTranscript(to: url, format: format)
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func exportTranscript(to url: URL, format: String) {
+        guard let project else { return }
+        perform("Exporting transcript…") {
+            let output = try await self.engine.exportTranscript(project, to: url, format: format)
+            self.status = "Exported \(output.lastPathComponent)."
         }
     }
 
@@ -250,6 +343,13 @@ final class AppStore: ObservableObject {
         isPlaying = false
     }
 
+    func cancelCurrentOperation() {
+        guard isWorking else { return }
+        cancellationRequested = true
+        status = "Cancelling safely…"
+        engine.cancelCurrentOperation()
+    }
+
     func checkForUpdates() {
         if !EnCapCheckForUpdates() {
             errorMessage = "The update service is unavailable in this build."
@@ -269,15 +369,25 @@ final class AppStore: ObservableObject {
 
     private func perform(_ activity: String, operation: @escaping @MainActor () async throws -> Void) {
         guard !isWorking else { return }
+        cancellationRequested = false
         isWorking = true
         status = activity
         Task {
-            defer { isWorking = false }
+            defer {
+                isWorking = false
+                // Re-arm debounced recovery if an edit and a long operation
+                // began within the same one-second window.
+                project = project
+            }
             do {
                 try await operation()
             } catch {
-                errorMessage = error.localizedDescription
-                status = "Operation failed."
+                if cancellationRequested {
+                    status = "Operation cancelled."
+                } else {
+                    errorMessage = error.localizedDescription
+                    status = "Operation failed."
+                }
             }
         }
     }

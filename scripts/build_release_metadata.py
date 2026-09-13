@@ -101,6 +101,7 @@ def main() -> int:
         "macos-intel": (f"EnCap-{args.version}-macos-intel.dmg", "dmg"),
         "macos-arm64": (f"EnCap-{args.version}-macos-arm64.dmg", "dmg"),
         "windows-x64": (f"EnCap-{args.version}-windows-x64.zip", "zip"),
+        "windows-arm64": (f"EnCap-{args.version}-windows-arm64.zip", "zip"),
         "linux-x64": (f"EnCap-{args.version}-linux-x64.tar.gz", "tar.gz"),
     }
     notes = ""

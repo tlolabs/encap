@@ -160,6 +160,7 @@ class UpdateServiceTest(unittest.TestCase):
                 "EnCap-1.2.0-macos-intel.dmg",
                 "EnCap-1.2.0-macos-arm64.dmg",
                 "EnCap-1.2.0-windows-x64.zip",
+                "EnCap-1.2.0-windows-arm64.zip",
                 "EnCap-1.2.0-linux-x64.tar.gz",
             ]
             for index, filename in enumerate(filenames):

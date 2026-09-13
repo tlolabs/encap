@@ -25,6 +25,12 @@ struct TranscribeView: View {
                     Button("Transcribe", action: store.transcribe)
                         .buttonStyle(.borderedProminent)
                         .disabled(store.providers.isEmpty || store.isWorking)
+                    Button("Manage Models…", action: store.presentModelManager)
+                    Menu("Export") {
+                        Button("Plain Text…") { store.presentTranscriptSavePanel(format: "txt") }
+                        Button("SRT Captions…") { store.presentTranscriptSavePanel(format: "srt") }
+                    }
+                    .disabled(store.project?.transcriptSegments.isEmpty != false)
                     Toggle("Show Speakers", isOn: $showSpeakers)
                     Spacer()
                     TextField("Search transcript", text: $query)
@@ -54,6 +60,9 @@ struct TranscribeView: View {
                     }
                     .listStyle(.inset)
                 }
+            }
+            .sheet(isPresented: $store.isModelManagerPresented) {
+                ModelManagerView(store: store)
             }
         }
     }
@@ -92,6 +101,59 @@ struct TranscribeView: View {
             }
             running += source.durationSeconds
         }
+    }
+}
+
+private struct ModelManagerView: View {
+    @ObservedObject var store: AppStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Local Transcription Models").font(.title2).bold()
+                    Text("Models are downloaded from EnCap's pinned catalog, verified with SHA-256, and used offline.")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Done") { store.isModelManagerPresented = false }
+                    .keyboardShortcut(.defaultAction)
+            }
+            List(store.transcriptionModels) { model in
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: model.installed ? "checkmark.circle.fill" : "arrow.down.circle")
+                        .foregroundStyle(model.installed ? Color.green : Color.secondary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.name).font(.headline)
+                        Text("\(model.downloadSize) · \(model.languages)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(model.description)
+                            .font(.callout)
+                    }
+                    Spacer()
+                    if model.installed {
+                        Button("Remove", role: .destructive) { store.removeModel(model) }
+                    } else {
+                        Button("Download") { store.installModel(model) }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!model.downloadAllowed)
+                            .help(model.downloadAllowed
+                                ? "Download this model for offline transcription"
+                                : "EnCap is reusing a compatible model already installed by another app")
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .overlay {
+                if store.transcriptionModels.isEmpty {
+                    ProgressView("Loading model catalog…")
+                }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 660, minHeight: 440)
     }
 }
 

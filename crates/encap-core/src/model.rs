@@ -141,6 +141,10 @@ pub struct ProjectDocument {
     pub transcript_segments: Vec<TranscriptSegment>,
     #[serde(default)]
     pub export_settings: ExportSettings,
+    /// Opaque engine-boundary state used to preserve unknown manifest fields
+    /// through native clients that intentionally expose only known fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility_payload: Option<String>,
     /// Unknown top-level manifest fields are retained across open/save cycles.
     #[serde(flatten)]
     pub extensions: BTreeMap<String, Value>,
@@ -159,6 +163,7 @@ impl Default for ProjectDocument {
             chapters: Vec::new(),
             transcript_segments: Vec::new(),
             export_settings: ExportSettings::default(),
+            compatibility_payload: None,
             extensions: BTreeMap::new(),
         }
     }
@@ -201,6 +206,32 @@ impl ProjectDocument {
         if !matches!(self.export_settings.channels, 1 | 2) {
             return Err(crate::EncapError::Message(
                 "Audio channels must be mono or stereo.".into(),
+            ));
+        }
+        let format = self.export_settings.output_format.to_ascii_lowercase();
+        if !matches!(format.as_str(), "mp3" | "aac" | "m4a") {
+            return Err(crate::EncapError::Message(
+                "The selected audio format is unsupported.".into(),
+            ));
+        }
+        let encoder = self.export_settings.encoder.as_str();
+        if (format == "mp3" && !matches!(encoder, "lame" | "ffmpeg"))
+            || (format != "mp3" && !matches!(encoder, "ffmpeg" | "audio_toolbox"))
+        {
+            return Err(crate::EncapError::Message(
+                "The selected encoder does not support this audio format.".into(),
+            ));
+        }
+        let allowed_quality = match (format.as_str(), self.export_settings.channels) {
+            ("mp3", 1) => &["64k", "80k", "96k", "112k", "128k", "160k"][..],
+            ("mp3", 2) => &["96k", "128k", "160k", "192k", "224k", "256k", "320k"][..],
+            (_, 1) => &["48k", "64k", "80k", "96k", "128k", "160k"][..],
+            (_, 2) => &["64k", "96k", "128k", "160k", "192k", "256k", "320k"][..],
+            _ => unreachable!(),
+        };
+        if !allowed_quality.contains(&self.export_settings.quality_preset.as_str()) {
+            return Err(crate::EncapError::Message(
+                "The selected bitrate is unsupported for this format and channel layout.".into(),
             ));
         }
         let mut previous = 0.0;

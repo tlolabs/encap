@@ -37,10 +37,17 @@ struct EnCapApp: App {
 @MainActor
 final class EnCapApplicationDelegate: NSObject, NSApplicationDelegate {
     weak var store: AppStore?
+    private var isPreparingToTerminate = false
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if isPreparingToTerminate { return .terminateLater }
         guard store?.confirmDiscardChanges() != false else { return .terminateCancel }
-        store?.cleanupSession()
-        return .terminateNow
+        guard let store else { return .terminateNow }
+        isPreparingToTerminate = true
+        Task { @MainActor in
+            await store.prepareToTerminate()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
