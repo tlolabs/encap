@@ -175,7 +175,9 @@ for SIGNABLE in "$APP_MACOS"/*; do
   codesign --force --sign - "$SIGNABLE"
 done
 codesign --force --sign - "$APP_FRAMEWORKS/Sparkle.framework"
-codesign --force --sign - "$APP_BUNDLE"
+# CI packages use an ad-hoc identity. Re-sign the complete nested-code graph so
+# architecture-specific helper binaries cannot retain or lose a stale signature.
+codesign --force --deep --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 plutil -lint "$INFO_PLIST"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" = "$BUNDLE_ID"
