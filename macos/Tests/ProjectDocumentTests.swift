@@ -48,6 +48,29 @@ final class ProjectDocumentTests: XCTestCase {
         XCTAssertEqual(project.metadata.podcastTitle, "P")
         XCTAssertEqual(project.chapters.first?.linkUrl, "https://example.com")
     }
+
+    func testReservedVideoCompositionsRoundTripWithoutDataLoss() throws {
+        let payload = """
+        {
+          "schema_version": 2,
+          "video": {
+            "schema_version": 1,
+            "export_settings": {},
+            "compositions": [{"kind":"future","layers":[1,true,null]}]
+          }
+        }
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let project = try decoder.decode(ProjectDocument.self, from: payload)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let encoded = try encoder.encode(project)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let video = try XCTUnwrap(object["video"] as? [String: Any])
+        let compositions = try XCTUnwrap(video["compositions"] as? [[String: Any]])
+        XCTAssertEqual(compositions.first?["kind"] as? String, "future")
+    }
 }
 
 final class ReviewRegressionTests: XCTestCase {

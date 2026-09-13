@@ -4,8 +4,9 @@
   <Grid>
     <NavigationView x:Name="Navigation" IsBackButtonVisible="Collapsed" SelectionChanged="Navigation_SelectionChanged">
       <NavigationView.MenuItems>
-        <NavigationViewItem Content="Assemble &amp; Encode" Tag="assemble" Icon="Audio" />
-        <NavigationViewItem Content="Transcribe" Tag="transcribe" Icon="Microphone" />
+        <NavigationViewItem Content="Audio" Tag="audio" Icon="Audio" />
+        <NavigationViewItem Content="Transcript" Tag="transcript" Icon="Microphone" />
+        <NavigationViewItem Content="Video" Tag="video" Icon="Video" />
       </NavigationView.MenuItems>
       <Grid Padding="24" RowSpacing="16">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -17,8 +18,8 @@
         </CommandBar>
         <ScrollViewer Grid.Row="1">
           <Grid>
-            <StackPanel x:Name="AssemblePanel" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
-            <TextBlock Text="Assemble &amp; Encode" Style="{ThemeResource TitleTextBlockStyle}" />
+            <StackPanel x:Name="AudioPanel" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
+            <TextBlock Text="Audio" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBox x:Name="PodcastTitle" Header="Podcast title" AutomationProperties.Name="Podcast title" TextChanged="TextEdit_Changed" />
             <TextBox x:Name="EpisodeTitle" Header="Episode title" AutomationProperties.Name="Episode title" TextChanged="TextEdit_Changed" />
             <TextBox x:Name="Summary" Header="Summary" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" AutomationProperties.Name="Episode summary" TextChanged="TextEdit_Changed" />
@@ -37,11 +38,11 @@
               <Button Content="Remove selected" Click="RemoveChapter_Click" />
             </StackPanel>
             <ListView x:Name="ChapterList" AutomationProperties.Name="Project chapters">
-              <ListView.ItemTemplate><DataTemplate><Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="{Binding ChapterNumber}" VerticalAlignment="Center"/><TextBox Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" Header="Chapter title" TextChanged="TextEdit_Changed"/><NumberBox Grid.Column="2" Value="{Binding DurationSeconds, Mode=TwoWay}" Header="Seconds" Minimum="0.001" SpinButtonPlacementMode="Compact" ValueChanged="NumberEdit_Changed"/></Grid></DataTemplate></ListView.ItemTemplate>
+              <ListView.ItemTemplate><DataTemplate><Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding ChapterNumber}" VerticalAlignment="Center"/><TextBox Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" Header="Chapter title" TextChanged="TextEdit_Changed"/><NumberBox Grid.Column="2" Value="{Binding DurationSeconds, Mode=TwoWay}" Header="Seconds" Minimum="0.001" SpinButtonPlacementMode="Compact" ValueChanged="NumberEdit_Changed"/><Button Grid.Column="3" Content="Artwork…" Click="ChapterArtwork_Click" VerticalAlignment="Bottom"/></Grid></DataTemplate></ListView.ItemTemplate>
             </ListView>
             </StackPanel>
-            <StackPanel x:Name="TranscribePanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
-            <TextBlock Text="Transcribe" Style="{ThemeResource TitleTextBlockStyle}" />
+            <StackPanel x:Name="TranscriptPanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
+            <TextBlock Text="Transcript" Style="{ThemeResource TitleTextBlockStyle}" />
             <ComboBox x:Name="Provider" Header="Local transcription engine" AutomationProperties.Name="Local transcription engine" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Content="Transcribe locally" Click="Transcribe_Click" />
@@ -52,6 +53,50 @@
             <ListView x:Name="TranscriptList" AutomationProperties.Name="Transcript segments">
               <ListView.ItemTemplate><DataTemplate><Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBox Text="{Binding Speaker, Mode=TwoWay}" Header="Speaker" TextChanged="TextEdit_Changed"/><TextBox Grid.Column="1" Text="{Binding Text, Mode=TwoWay}" Header="Transcript text" AcceptsReturn="True" TextWrapping="Wrap" TextChanged="TextEdit_Changed"/></Grid></DataTemplate></ListView.ItemTemplate>
             </ListView>
+            </StackPanel>
+            <StackPanel x:Name="VideoPanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
+              <TextBlock Text="Video" Style="{ThemeResource TitleTextBlockStyle}" />
+              <TextBlock Text="Create one MP4 directly from this project's original chapter audio and artwork." Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Select All" Click="VideoSelectAll_Click" />
+                <Button Content="Select None" Click="VideoSelectNone_Click" />
+                <Button Content="Move Up" Click="VideoMoveUp_Click" />
+                <Button Content="Move Down" Click="VideoMoveDown_Click" />
+              </StackPanel>
+              <ListView x:Name="VideoChapterList" AutomationProperties.Name="Video chapter selection" CanReorderItems="True" AllowDrop="True" DragItemsCompleted="VideoChapterDrag_Completed" DoubleTapped="VideoChapter_DoubleTapped">
+                <ListView.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal" Spacing="10"><Image Source="{Binding ArtworkUri}" Width="44" Height="44" Stretch="UniformToFill"/><CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Click="VideoSelection_Click"/><TextBlock Text="{Binding Title}"/><TextBlock Text="{Binding Timeline}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+              </ListView>
+              <TextBlock x:Name="VideoTotal" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <ComboBox x:Name="VideoPresetPicker" Header="Social preset" SelectionChanged="VideoPreset_Changed" MinWidth="320" />
+                <ComboBox x:Name="VideoCodec" Header="Codec" SelectedIndex="0" SelectionChanged="VideoSettingSelection_Changed"><x:String>h264</x:String><x:String>hevc</x:String></ComboBox>
+                <ComboBox x:Name="VideoEncoding" Header="Encoding" SelectedIndex="0" SelectionChanged="VideoSettingSelection_Changed"><x:String>automatic</x:String><x:String>hardware</x:String><x:String>software</x:String></ComboBox>
+                <NumberBox x:Name="VideoFps" Header="FPS" Value="30" Minimum="1" Maximum="120" SpinButtonPlacementMode="Compact" ValueChanged="VideoSettingNumber_Changed" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <NumberBox x:Name="VideoWidth" Header="Width" Value="1920" Minimum="2" Maximum="8192" SpinButtonPlacementMode="Compact" ValueChanged="VideoSettingNumber_Changed" />
+                <NumberBox x:Name="VideoHeight" Header="Height" Value="1080" Minimum="2" Maximum="8192" SpinButtonPlacementMode="Compact" ValueChanged="VideoSettingNumber_Changed" />
+                <ComboBox x:Name="VideoAudioBitrate" Header="Audio bitrate" SelectedIndex="2" SelectionChanged="VideoSettingSelection_Changed"><x:String>64k</x:String><x:String>96k</x:String><x:String>128k</x:String><x:String>160k</x:String><x:String>192k</x:String><x:String>256k</x:String><x:String>320k</x:String></ComboBox>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <CheckBox x:Name="VideoFlipHorizontal" Content="Flip horizontally" Click="VideoSetting_Click" />
+                <CheckBox x:Name="VideoFlipVertical" Content="Flip vertically" Click="VideoSetting_Click" />
+                <ComboBox x:Name="VideoPreviewQuality" Header="Preview quality" SelectedIndex="0" SelectionChanged="VideoSettingSelection_Changed"><x:String>automatic</x:String><x:String>low</x:String><x:String>medium</x:String><x:String>high</x:String></ComboBox>
+              </StackPanel>
+              <TextBlock Text="Timeline Preview" Style="{ThemeResource SubtitleTextBlockStyle}" />
+              <Grid x:Name="VideoPreviewCanvas" Width="520" Height="292" Background="Black" HorizontalAlignment="Left">
+                <Image x:Name="VideoPreviewBackground" Stretch="UniformToFill" Opacity="0.45" />
+                <Image x:Name="VideoPreviewForeground" Stretch="Uniform" />
+              </Grid>
+              <MediaPlayerElement x:Name="VideoPreviewPlayer" Width="1" Height="1" AreTransportControlsEnabled="False" />
+              <Slider x:Name="VideoPreviewSeek" Minimum="0" Maximum="1" ValueChanged="VideoPreviewSeek_Changed" AutomationProperties.Name="Video timeline position" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Previous" Click="VideoPreviewPrevious_Click" />
+                <Button x:Name="VideoPreviewPlay" Content="Play" Click="VideoPreviewPlay_Click" />
+                <Button Content="Next" Click="VideoPreviewNext_Click" />
+                <TextBlock x:Name="VideoPreviewTime" VerticalAlignment="Center" FontFamily="Consolas" />
+              </StackPanel>
+              <Button Content="Export MP4…" Click="ExportVideo_Click" HorizontalAlignment="Left" />
             </StackPanel>
           </Grid>
         </ScrollViewer>

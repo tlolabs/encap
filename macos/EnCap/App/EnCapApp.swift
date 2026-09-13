@@ -21,11 +21,13 @@ struct EnCapApp: App {
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(!store.isProjectLoaded || store.isWorking)
             }
-            CommandMenu("Workspace") {
-                Button("Process Audio") { store.workspace = .process }
+            CommandMenu("Mode") {
+                Button("Audio") { store.switchWorkspace(to: .audio) }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("Transcribe") { store.workspace = .transcribe }
+                Button("Transcript") { store.switchWorkspace(to: .transcript) }
                     .keyboardShortcut("2", modifiers: .command)
+                Button("Video") { store.switchWorkspace(to: .video) }
+                    .keyboardShortcut("3", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
                 Button("Check for Updates…") { store.checkForUpdates() }

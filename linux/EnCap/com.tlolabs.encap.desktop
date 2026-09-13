@@ -1,11 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=EnCap
-Comment=Assemble, chapter, transcribe, and encode audio
+Comment=Create audio, transcripts, and social video from one portable project
 Exec=encap %F
 Icon=com.tlolabs.encap
 Terminal=false
 Categories=AudioVideo;Audio;
 MimeType=application/x-encap;
 StartupNotify=true
-

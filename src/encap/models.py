@@ -96,12 +96,7 @@ class ChapterEntry:
     link_url: str = ""
     image_path: Path | None = None
     image_stored_path: str | None = None
-    id: str = field(
-        default_factory=lambda: uuid4().hex,
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    id: str = field(default_factory=lambda: uuid4().hex, repr=False, compare=False)
 
 
 @dataclass
@@ -119,6 +114,8 @@ class TranscriptSegment:
     end_time_seconds: float
     speaker: str = ""
     text: str = ""
+    id: str = field(default_factory=lambda: uuid4().hex)
+    words: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass
@@ -143,12 +140,37 @@ class CapabilityFlags:
 
 @dataclass
 class ProjectDocument:
-    schema_version: int = 1
+    schema_version: int = 2
     audio_sources: list[AudioSourceEntry] = field(default_factory=list)
     metadata: EpisodeMetadata = field(default_factory=EpisodeMetadata)
     chapters: list[ChapterEntry] = field(default_factory=list)
     transcript_segments: list[TranscriptSegment] = field(default_factory=list)
+    transcript_settings: dict[str, object] = field(
+        default_factory=lambda: {"include_word_timestamps": False}
+    )
     export_settings: ExportSettings = field(default_factory=ExportSettings)
+    active_mode: str = "audio"
+    video: dict[str, object] = field(
+        default_factory=lambda: {
+            "schema_version": 1,
+            "export_settings": {
+                "platform": "Instagram",
+                "aspect": "Horizontal video (16:9)",
+                "width": 1920,
+                "height": 1080,
+                "codec": "h264",
+                "encoding": "automatic",
+                "audio_bitrate": "128k",
+                "fps": 30,
+                "flip_horizontal": False,
+                "flip_vertical": False,
+                "preview_quality": "automatic",
+                "selected_chapter_ids": [],
+                "selection_initialized": False,
+            },
+            "compositions": [],
+        }
+    )
     project_title: str = "Untitled"
     source_folder: Path | None = None
     project_path: Path | None = None

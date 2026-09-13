@@ -13,10 +13,11 @@ path = "src/main.rs"
 clap.workspace = true
 ctrlc.workspace = true
 directories.workspace = true
-encap-assemble = { path = "../encap-assemble" }
+encap-audio = { path = "../encap-audio" }
 encap-core = { path = "../encap-core" }
 encap-ffmpeg = { path = "../encap-ffmpeg" }
-encap-transcribe = { path = "../encap-transcribe" }
+encap-transcript = { path = "../encap-transcript" }
+encap-video = { path = "../encap-video" }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

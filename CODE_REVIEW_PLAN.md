@@ -159,7 +159,7 @@ The continuation audit found and repaired the following gaps after independently
 - Packaged engine provider query: succeeded.
 - Dependency consistency: `pip check` clean.
 - Python compilation, workflow YAML parsing, and `git diff --check`: clean.
-- Visual inspection: packaged native Process Audio and Transcribe empty states, workspace switching, toolbar enablement, layout, and status presentation rendered correctly.
+- Visual inspection: packaged native Audio and Transcript empty states, workspace switching, toolbar enablement, layout, and status presentation rendered correctly.
 - Security: sealed standard scan report at [report.md](/private/var/folders/pb/b82nxwv91c5d4vcc7cnxm3tm0000gn/T/codex-security-scans-JnwOz7/encap/ff465b6faa891b48dee216e434ccfaf7420f6f1a_20260912T063952Z_tgmnyk4y/report.md).
 
 ### Residual Risks and Deferred Improvements

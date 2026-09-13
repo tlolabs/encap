@@ -1,4 +1,4 @@
-//! Audio ingest, chapter assembly, and final encode mode.
+//! Audio-mode ingest, chapter editing, and final encode support.
 
 use encap_core::{replace_staged_file, EncapError, ProjectDocument, Result};
 use encap_ffmpeg::{os, CancellationToken, MediaTools};

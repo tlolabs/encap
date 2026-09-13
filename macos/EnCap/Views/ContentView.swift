@@ -6,8 +6,11 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Workspace", selection: $store.workspace) {
-                ForEach(AppStore.Workspace.allCases) { workspace in
+            Picker("Mode", selection: Binding(
+                get: { store.workspace },
+                set: { store.switchWorkspace(to: $0) }
+            )) {
+                ForEach(WorkspaceMode.allCases) { workspace in
                     Text(workspace.rawValue).tag(workspace)
                 }
             }
@@ -19,10 +22,13 @@ struct ContentView: View {
             Divider()
 
             Group {
-                if store.workspace == .process {
-                    ProcessAudioView(store: store)
-                } else {
-                    TranscribeView(store: store)
+                switch store.workspace {
+                case .audio:
+                    AudioView(store: store)
+                case .transcript:
+                    TranscriptView(store: store)
+                case .video:
+                    VideoView(store: store)
                 }
             }
             .disabled(store.isWorking)
@@ -82,7 +88,10 @@ struct ContentView: View {
         } message: {
             Text(store.errorMessage ?? "Unknown error")
         }
-        .onAppear { store.loadProviders() }
+        .onAppear {
+            store.loadProviders()
+            store.loadVideoSupport()
+        }
     }
 
     private var fileImporterContentTypes: [UTType] {

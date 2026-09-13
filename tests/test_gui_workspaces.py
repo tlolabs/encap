@@ -128,37 +128,37 @@ class GuiWorkspacesTest(unittest.TestCase):
 
         self.assertEqual(tabs.count(), 2)
         self.assertEqual([tabs.tabText(index) for index in range(tabs.count())], [
-            "Process Audio",
-            "Transcribe",
+            "Audio",
+            "Transcript",
         ])
         self.assertEqual(tabs.tabPosition(), QTabWidget.North)
-        self.assertIs(tabs.widget(0), self.window.process_audio_page)
-        self.assertIs(tabs.widget(1), self.window.transcribe_page)
+        self.assertIs(tabs.widget(0), self.window.audio_page)
+        self.assertIs(tabs.widget(1), self.window.transcript_page)
 
         # The controls belong to their activity page, rather than remaining visible around it.
-        self.assertTrue(self.window.process_audio_page.isAncestorOf(self.window.podcast_edit))
-        self.assertTrue(self.window.process_audio_page.isAncestorOf(self.window.chapter_table))
-        self.assertTrue(self.window.transcribe_page.isAncestorOf(self.window.transcript_edit))
+        self.assertTrue(self.window.audio_page.isAncestorOf(self.window.podcast_edit))
+        self.assertTrue(self.window.audio_page.isAncestorOf(self.window.chapter_table))
+        self.assertTrue(self.window.transcript_page.isAncestorOf(self.window.transcript_edit))
         self.assertTrue(
-            self.window.transcribe_page.isAncestorOf(self.window.transcript_segment_table)
+            self.window.transcript_page.isAncestorOf(self.window.transcript_segment_table)
         )
 
-        tabs.setCurrentWidget(self.window.process_audio_page)
+        tabs.setCurrentWidget(self.window.audio_page)
         self.app.processEvents()
-        self.assertIs(tabs.currentWidget(), self.window.process_audio_page)
-        self.assertTrue(self.window.process_audio_page.isVisible())
+        self.assertIs(tabs.currentWidget(), self.window.audio_page)
+        self.assertTrue(self.window.audio_page.isVisible())
         self.assertTrue(self.window.podcast_edit.isVisible())
-        self.assertFalse(self.window.transcribe_page.isVisible())
+        self.assertFalse(self.window.transcript_page.isVisible())
 
-        tabs.setCurrentWidget(self.window.transcribe_page)
+        tabs.setCurrentWidget(self.window.transcript_page)
         self.app.processEvents()
-        self.assertIs(tabs.currentWidget(), self.window.transcribe_page)
-        self.assertTrue(self.window.transcribe_page.isVisible())
+        self.assertIs(tabs.currentWidget(), self.window.transcript_page)
+        self.assertTrue(self.window.transcript_page.isVisible())
         self.assertIs(
-            self.window.transcribe_page.content_stack.currentWidget(),
+            self.window.transcript_page.content_stack.currentWidget(),
             self.window.transcript_segment_table,
         )
-        self.assertFalse(self.window.process_audio_page.isVisible())
+        self.assertFalse(self.window.audio_page.isVisible())
         self.assertFalse(self.window.podcast_edit.isVisible())
         self.assertFalse(self.window.chapter_table.isVisible())
 
@@ -166,7 +166,7 @@ class GuiWorkspacesTest(unittest.TestCase):
         styles = "\n".join(
             (
                 self.window.activity_tabs.styleSheet(),
-                self.window.transcribe_page.styleSheet(),
+                self.window.transcript_page.styleSheet(),
             )
         ).lower()
 
@@ -197,12 +197,12 @@ class GuiWorkspacesTest(unittest.TestCase):
 
     def test_live_appearance_changes_reapply_styles_once_after_palette_settles(self) -> None:
         original_activity_style = self.window.activity_tabs.styleSheet()
-        original_transcribe_style = self.window.transcribe_page.styleSheet()
+        original_transcribe_style = self.window.transcript_page.styleSheet()
 
         with patch.object(
-            self.window.transcribe_page,
+            self.window.transcript_page,
             "refresh_appearance",
-            wraps=self.window.transcribe_page.refresh_appearance,
+            wraps=self.window.transcript_page.refresh_appearance,
         ) as refresh_transcribe:
             # macOS/Qt can deliver application, widget palette, and theme events
             # for a single appearance toggle. They should collapse into one repaint.
@@ -222,7 +222,7 @@ class GuiWorkspacesTest(unittest.TestCase):
 
         self.assertEqual(refresh_transcribe.call_count, 1)
         self.assertEqual(self.window.activity_tabs.styleSheet(), original_activity_style)
-        self.assertEqual(self.window.transcribe_page.styleSheet(), original_transcribe_style)
+        self.assertEqual(self.window.transcript_page.styleSheet(), original_transcribe_style)
         self.assertTrue(self.window.updatesEnabled())
 
     def test_log_is_a_persistent_dock_toggled_from_the_view_menu(self) -> None:
@@ -277,11 +277,11 @@ class GuiWorkspacesTest(unittest.TestCase):
             QAction.MenuRole.NoRole,
         )
         self.assertEqual(
-            self.window.process_audio_view_action.shortcut(),
+            self.window.audio_view_action.shortcut(),
             QKeySequence("Ctrl+1"),
         )
         self.assertEqual(
-            self.window.transcribe_view_action.shortcut(),
+            self.window.transcript_view_action.shortcut(),
             QKeySequence("Ctrl+2"),
         )
         self.assertEqual(
@@ -305,7 +305,7 @@ class GuiWorkspacesTest(unittest.TestCase):
         self.assertFalse(self.window.log_dock.isVisible())
         self.assertFalse(self.window.log_action.isChecked())
 
-    def test_toolbar_hides_process_only_actions_in_transcribe_workspace(self) -> None:
+    def test_toolbar_hides_process_only_actions_in_transcript_workspace(self) -> None:
         process_only = {"choose_artwork", "export_audio", "ai_summary", "ai_title"}
         shared = {
             "import_audio",
@@ -316,25 +316,25 @@ class GuiWorkspacesTest(unittest.TestCase):
             "transcribe",
         }
 
-        self.window.activity_tabs.setCurrentWidget(self.window.process_audio_page)
+        self.window.activity_tabs.setCurrentWidget(self.window.audio_page)
         self.app.processEvents()
         # Qt may place wide actions in the toolbar overflow on some platforms.
         # Membership plus QAction visibility is the stable workspace contract.
         for key in process_only | shared:
-            with self.subTest(workspace="Process Audio", action=key):
+            with self.subTest(workspace="Audio", action=key):
                 widget = self.window.main_toolbar.widgetForAction(self.window.toolbar_actions[key])
                 self.assertIsNotNone(widget)
                 self.assertTrue(self.window.toolbar_actions[key].isVisible())
 
-        self.window.activity_tabs.setCurrentWidget(self.window.transcribe_page)
+        self.window.activity_tabs.setCurrentWidget(self.window.transcript_page)
         self.app.processEvents()
         for key in process_only:
-            with self.subTest(workspace="Transcribe", action=key):
+            with self.subTest(workspace="Transcript", action=key):
                 widget = self.window.main_toolbar.widgetForAction(self.window.toolbar_actions[key])
                 self.assertIsNone(widget)
                 self.assertTrue(self.window.toolbar_actions[key].isVisible())
         for key in shared:
-            with self.subTest(workspace="Transcribe", action=key):
+            with self.subTest(workspace="Transcript", action=key):
                 widget = self.window.main_toolbar.widgetForAction(self.window.toolbar_actions[key])
                 self.assertIsNotNone(widget)
                 self.assertTrue(self.window.toolbar_actions[key].isVisible())
@@ -348,7 +348,7 @@ class GuiWorkspacesTest(unittest.TestCase):
             project_title="Episode",
             audio_sources=[AudioSourceEntry(Path("/audio/one.wav"), "one.wav", 1.0)],
         )
-        self.window.transcribe_page.set_project(self.window.project)
+        self.window.transcript_page.set_project(self.window.project)
         self.window._update_export_actions()
         self.assertTrue(self.window.toolbar_actions["export_audio"].isEnabled())
         for key in export_keys:
@@ -357,7 +357,7 @@ class GuiWorkspacesTest(unittest.TestCase):
         self.window.project.transcript_segments = [
             TranscriptSegment(0.0, 1.0, "Host", "A finished transcript")
         ]
-        self.window.transcribe_page.set_project(self.window.project)
+        self.window.transcript_page.set_project(self.window.project)
         for key in export_keys:
             self.assertTrue(self.window.toolbar_actions[key].isEnabled())
 
@@ -578,7 +578,7 @@ class GuiWorkspacesTest(unittest.TestCase):
             self.assertIsNotNone(loaded.metadata.artwork_path)
             self.assertTrue(loaded.metadata.artwork_path.exists())
 
-    def test_process_audio_layout_prioritizes_text_and_square_artwork(self) -> None:
+    def test_audio_layout_prioritizes_text_and_square_artwork(self) -> None:
         self.assertEqual(self.window.artwork_label.heightForWidth(240), 240)
         self.assertLessEqual(self.window.format_box.maximumWidth(), 115)
         self.assertLessEqual(self.window.quality_box.maximumWidth(), 115)
@@ -731,7 +731,7 @@ class GuiWorkspacesTest(unittest.TestCase):
             ],
         )
         self.window._populate_form_from_project()
-        workspace = self.window.transcribe_page
+        workspace = self.window.transcript_page
         workspace.editor_mode_button.click()
         self.app.processEvents()
 

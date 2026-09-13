@@ -8,14 +8,16 @@ The Rust workspace is intentionally layered:
   transcript rendering, and safe file replacement.
 - `encap-ffmpeg`: bundled-tool discovery, validation, subprocess execution,
   logging, and cancellation.
-- `encap-assemble`: folder ingest, normalization, chapter assembly, metadata,
+- `encap-audio`: folder ingest, normalization, chapter editing, metadata,
   and MP3/AAC export.
-- `encap-transcribe`: local provider discovery, model lifecycle, Apple Speech,
+- `encap-transcript`: local provider discovery, model lifecycle, Apple Speech,
   and whisper.cpp execution.
+- `encap-video`: social presets, chapter timeline construction, artwork composition,
+  encoder capability selection, and atomic MP4 publication.
 - `encap-engine`: a small JSON command boundary consumed by native apps.
 
-`encap-assemble` and `encap-transcribe` are sibling modes. Do not add a dependency
-between them. Shared media-process behavior belongs in `encap-ffmpeg`; shared
+The three mode crates are siblings. Do not add dependencies between them. Shared
+media-process behavior belongs in `encap-ffmpeg`; shared
 application data belongs in `encap-core`.
 
 ## Engine protocol
@@ -26,7 +28,8 @@ shell fragments. One JSON value is written to stdout. Success exits zero; failur
 exits nonzero and writes `{ "error": "plain-language message" }` to stdout while
 detailed diagnostics remain in the local rotating log.
 
-Commands are `inspect`, `open`, `save`, `export`, `export-transcript`,
+Commands are `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
+`video-capabilities`, `export-transcript`,
 `transcribe`, `providers`, `models`, `install-model`, `remove-model`, and
 `validate-tools`, plus `save-recovery`, `load-recovery`, and `clear-recovery`
 for the crash-safe edit journal. Long-running native tasks keep a handle only to the process

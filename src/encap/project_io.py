@@ -8,6 +8,7 @@ import stat
 import tempfile
 import zipfile
 from pathlib import Path
+from uuid import uuid4
 
 from .models import (
     AudioSourceEntry,
@@ -19,7 +20,7 @@ from .models import (
 )
 from .wav_tools import EncapError
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 _MAX_PROJECT_ENTRIES = 4096
 _MAX_PROJECT_MANIFEST_BYTES = 8 * 1024 * 1024
 _MAX_PROJECT_MEMBER_BYTES = 32 * 1024 * 1024 * 1024
@@ -45,6 +46,7 @@ def save_project(project: ProjectDocument, target_path: Path) -> Path:
         "audio_sources": [],
         "chapters": [],
         "transcript_segments": [],
+        "transcript_settings": project.transcript_settings,
         "export_settings": {
             "output_format": project.export_settings.output_format,
             "quality_preset": project.export_settings.quality_preset,
@@ -52,6 +54,8 @@ def save_project(project: ProjectDocument, target_path: Path) -> Path:
             "encoder": project.export_settings.encoder,
             "channels": project.export_settings.channels,
         },
+        "active_mode": project.active_mode,
+        "video": project.video,
     }
 
     temp_path: Path | None = None
@@ -92,6 +96,7 @@ def save_project(project: ProjectDocument, target_path: Path) -> Path:
 
             for index, chapter in enumerate(project.chapters, start=1):
                 chapter_record = {
+                    "id": chapter.id,
                     "start_time_seconds": chapter.start_time_seconds,
                     "duration_seconds": chapter.duration_seconds,
                     "chapter_number": chapter.chapter_number,
@@ -112,10 +117,12 @@ def save_project(project: ProjectDocument, target_path: Path) -> Path:
             for segment in project.transcript_segments:
                 manifest["transcript_segments"].append(
                     {
+                        "id": segment.id,
                         "start_time_seconds": segment.start_time_seconds,
                         "end_time_seconds": segment.end_time_seconds,
                         "speaker": segment.speaker,
                         "text": segment.text,
+                        "words": segment.words,
                     }
                 )
 
@@ -166,7 +173,7 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     _validate_manifest(manifest)
-    if manifest.get("schema_version") != PROJECT_SCHEMA_VERSION:
+    if manifest.get("schema_version", 1) not in {1, PROJECT_SCHEMA_VERSION}:
         raise EncapError(
             f"Unsupported project schema version: {manifest.get('schema_version')!r}."
         )
@@ -197,6 +204,7 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
     for item in manifest["chapters"]:
         chapters.append(
             ChapterEntry(
+                id=item.get("id", uuid4().hex),
                 start_time_seconds=float(item.get("start_time_seconds", 0.0)),
                 duration_seconds=float(item.get("duration_seconds", 0.0)),
                 chapter_number=int(item.get("chapter_number", len(chapters) + 1)),
@@ -211,10 +219,12 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
     for item in manifest["transcript_segments"]:
         transcript_segments.append(
             TranscriptSegment(
+                id=item.get("id", uuid4().hex),
                 start_time_seconds=float(item.get("start_time_seconds", 0.0)),
                 end_time_seconds=float(item.get("end_time_seconds", 0.0)),
                 speaker=item.get("speaker", ""),
                 text=item.get("text", ""),
+                words=item.get("words", []),
             )
         )
 
@@ -246,7 +256,18 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
         metadata=metadata,
         chapters=chapters,
         transcript_segments=transcript_segments,
+        transcript_settings=manifest.get(
+            "transcript_settings", {"include_word_timestamps": False}
+        ),
         export_settings=export_settings,
+        active_mode={
+            "assemble": "audio",
+            "process": "audio",
+            "process_audio": "audio",
+            "transcribe": "transcript",
+        }.get(manifest.get("active_mode", manifest.get("workspace", "audio")),
+              manifest.get("active_mode", manifest.get("workspace", "audio"))),
+        video=manifest.get("video", ProjectDocument().video),
         project_path=project_path,
         working_dir=temp_dir,
     )

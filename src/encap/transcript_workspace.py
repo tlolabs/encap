@@ -65,7 +65,7 @@ _SPEAKER_COLORS = (
 )
 
 
-class TranscribeWorkspace(QWidget):
+class TranscriptWorkspace(QWidget):
     """A complete transcription editor suitable for a top-level workspace.
 
     Transcript edits made in the segment table update ``ProjectDocument``
@@ -81,7 +81,7 @@ class TranscribeWorkspace(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("transcribeWorkspace")
+        self.setObjectName("transcriptWorkspace")
 
         self._project: ProjectDocument | None = None
         self._refreshing_editor = False
@@ -410,7 +410,7 @@ class TranscribeWorkspace(QWidget):
         self.setStyleSheet("")
         self.setStyleSheet(
             """
-            QWidget#transcribeWorkspace {
+            QWidget#transcriptWorkspace {
                 background: palette(window);
             }
             QFrame#transcriptHeader {
@@ -1216,4 +1216,4 @@ def _format_clock_ms(milliseconds: int) -> str:
     return _format_time(max(0, milliseconds) / 1000.0)
 
 
-__all__ = ["TranscribeWorkspace"]
+__all__ = ["TranscriptWorkspace"]
