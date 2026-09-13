@@ -179,3 +179,29 @@ fn validate_binary(path: &Path, name: &str) -> Result<()> {
 pub fn os(value: impl AsRef<OsStr>) -> OsString {
     value.as_ref().to_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_terminates_the_owned_child() {
+        let cancellation = CancellationToken::default();
+        let worker_token = cancellation.clone();
+        let started = std::time::Instant::now();
+        let worker = std::thread::spawn(move || {
+            run(
+                Path::new("/bin/sleep"),
+                &[os("10")],
+                &worker_token,
+                "Test child",
+            )
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        cancellation.cancel();
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(error.to_string().contains("cancelled safely"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+}

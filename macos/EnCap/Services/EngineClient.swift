@@ -17,8 +17,10 @@ enum EngineError: LocalizedError {
     }
 }
 
-struct EngineClient: Sendable {
+final class EngineClient: @unchecked Sendable {
     private struct ErrorResponse: Decodable { let error: String }
+    private let processLock = NSLock()
+    private var currentProcesses: [ObjectIdentifier: Process] = [:]
     let sessionDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("encap-native-session-\(UUID().uuidString)", isDirectory: true)
 
@@ -32,6 +34,13 @@ struct EngineClient: Sendable {
 
     func cleanupSession() {
         try? FileManager.default.removeItem(at: sessionDirectory)
+    }
+
+    func cancelCurrentOperation() {
+        processLock.lock()
+        let processes = Array(currentProcesses.values)
+        processLock.unlock()
+        for process in processes where process.isRunning { process.terminate() }
     }
 
     func inspect(folder: URL) async throws -> ProjectDocument {
@@ -66,6 +75,18 @@ struct EngineClient: Sendable {
         try decode([TranscriptionProvider].self, from: await run(["providers"]))
     }
 
+    func models() async throws -> [TranscriptionModelInfo] {
+        try decode([TranscriptionModelInfo].self, from: await run(["models"]))
+    }
+
+    func installModel(id: String) async throws -> TranscriptionModelInfo {
+        try decode(TranscriptionModelInfo.self, from: await run(["install-model", id]))
+    }
+
+    func removeModel(id: String) async throws -> TranscriptionModelInfo {
+        try decode(TranscriptionModelInfo.self, from: await run(["remove-model", id]))
+    }
+
     func transcribe(_ project: ProjectDocument, providerID: String) async throws -> [TranscriptSegment] {
         let payload = try temporaryPayload(for: project)
         defer { try? FileManager.default.removeItem(at: payload) }
@@ -73,9 +94,38 @@ struct EngineClient: Sendable {
         return try decode([TranscriptSegment].self, from: data)
     }
 
+    func exportTranscript(
+        _ project: ProjectDocument,
+        to destination: URL,
+        format: String
+    ) async throws -> URL {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        let data = try await run(["export-transcript", payload.path, destination.path, format])
+        return try decode(PathResponse.self, from: data).url
+    }
+
+    func saveRecovery(_ project: ProjectDocument) async throws {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        _ = try await run(["save-recovery", payload.path])
+    }
+
+    func loadRecovery() async throws -> ProjectDocument? {
+        try decode(RecoveryResponse.self, from: await run(["load-recovery"])).project
+    }
+
+    func clearRecovery() async throws {
+        _ = try await run(["clear-recovery"])
+    }
+
     private struct PathResponse: Decodable {
         let path: String
         var url: URL { URL(fileURLWithPath: path) }
+    }
+
+    private struct RecoveryResponse: Decodable {
+        let project: ProjectDocument?
     }
 
     private func temporaryPayload(for project: ProjectDocument) throws -> URL {
@@ -102,14 +152,30 @@ struct EngineClient: Sendable {
         return try await Self.runProcess(
             executable: invocation.executable,
             arguments: invocation.arguments,
-            environment: invocation.environment
+            environment: invocation.environment,
+            processChanged: { [weak self] process, started in
+                self?.updateCurrentProcess(process, started: started)
+            }
         )
+    }
+
+    private func updateCurrentProcess(_ process: Process, started: Bool) {
+        processLock.lock()
+        if started {
+            currentProcesses[ObjectIdentifier(process)] = process
+        } else {
+            currentProcesses.removeValue(forKey: ObjectIdentifier(process))
+        }
+        processLock.unlock()
     }
 
     // Drain both pipes while the child runs. Waiting first deadlocks once either
     // pipe fills (large projects/transcripts or verbose encoder diagnostics).
     static func runProcess(
-        executable: URL, arguments: [String], environment: [String: String]
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        processChanged: (@Sendable (Process, Bool) -> Void)? = nil
     ) async throws -> Data {
         try await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -121,6 +187,8 @@ struct EngineClient: Sendable {
             process.standardOutput = stdout
             process.standardError = stderr
             try process.run()
+            processChanged?(process, true)
+            defer { processChanged?(process, false) }
             let errorReader = Task.detached {
                 stderr.fileHandleForReading.readDataToEndOfFile()
             }

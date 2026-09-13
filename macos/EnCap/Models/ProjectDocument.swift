@@ -87,6 +87,7 @@ struct ProjectDocument: Codable, Hashable {
     var chapters: [Chapter] = []
     var transcriptSegments: [TranscriptSegment] = []
     var exportSettings = ExportSettings()
+    var compatibilityPayload: String?
 
     var outputBaseName: String {
         let value = metadata.episodeTitle.isEmpty ? projectTitle : metadata.episodeTitle
@@ -101,4 +102,14 @@ struct TranscriptionProvider: Codable, Identifiable, Hashable {
     var id: String
     var name: String
     var detail: String
+}
+
+struct TranscriptionModelInfo: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var downloadSize: String
+    var languages: String
+    var description: String
+    var installed: Bool
+    var downloadAllowed: Bool
 }

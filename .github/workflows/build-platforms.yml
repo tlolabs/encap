@@ -1,846 +1,257 @@
-name: Build platform apps
-
-env:
-  FFMPEG_BINARY_RELEASE: "b6.1.1"
-  FFMPEG_STATIC_VERSION: "5.3.0"
-  LAME_WINDOWS_SHA256: "9a9c815203316e5203847e93100c6acf0d5d7a5be7744c9018825ded037052e7"
-  MACOSX_DEPLOYMENT_TARGET: "13.0"
-  NODE_LAME_VERSION: "2.0.2"
-  SPARKLE_VERSION: "2.9.6"
-  SPARKLE_SHA256: "52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192"
-  WHISPER_CPP_VERSION: "v1.9.1"
-  WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
+name: Build native platform apps
 
 on:
-  workflow_dispatch:
+  pull_request:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  FFMPEG_VERSION: "9.0.1"
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  WHISPER_CPP_VERSION: "v1.9.1"
+  WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
+
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
+  quality:
+    name: Shared engine and compatibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install legacy reference application
+        run: python -m pip install --disable-pip-version-check --editable .
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Check formatting and lints
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test Rust workspace
+        run: cargo test --workspace --locked
+      - name: Build compatibility engine
+        run: cargo build --package encap-engine --locked
+      - name: Test legacy behavior and file compatibility
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ENCAP_REQUIRE_MEDIA_TESTS: "1"
+        run: python -m unittest discover -s tests -v
+
+  macos:
+    name: macOS ${{ matrix.label }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15-intel
-            platform: macos-intel
-          - os: macos-15
-            platform: macos-arm64
-          - os: windows-latest
-            platform: windows-x64
-          - os: ubuntu-latest
-            platform: linux-x64
-
+          - runner: macos-15
+            label: arm64
+          - runner: macos-15-intel
+            label: intel
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - name: Configure update verification key
-        shell: bash
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* && -z "$UPDATE_PUBLIC_KEY" ]]; then
-            echo "ENCAP_UPDATE_PUBLIC_KEY repository variable is required for releases." >&2
-            exit 1
-          fi
           if [[ -n "$UPDATE_PUBLIC_KEY" ]]; then
             printf '%s\n' "$UPDATE_PUBLIC_KEY" > src/encap/update_public_key.txt
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-
-      - name: Install platform media tools
-        shell: bash
-        run: |
-          packages=("ffmpeg-static@$FFMPEG_STATIC_VERSION")
-          if [[ "$RUNNER_OS" != "Windows" ]]; then
-            packages+=("node-lame@$NODE_LAME_VERSION")
-          fi
-          npm install --no-save --no-package-lock "${packages[@]}"
-
-      - name: Download and verify matching FFprobe
-        shell: bash
-        run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import platform
-          import stat
-          import subprocess
-          import sys
-          import time
-          import urllib.request
-          import zipfile
-          from pathlib import Path
-
-          machine = platform.machine().lower()
-          architecture = {
-              "amd64": "x64",
-              "x86_64": "x64",
-              "aarch64": "arm64",
-              "arm64": "arm64",
-          }.get(machine, machine)
-          platform_name = {
-              "darwin": "darwin",
-              "linux": "linux",
-              "win32": "win32",
-          }[sys.platform]
-          platform_key = f"{platform_name}-{architecture}"
-          suffix = ".exe" if sys.platform == "win32" else ""
-
-          expected_hashes = {
-              "darwin-arm64": {
-                  "ffmpeg": "a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584",
-                  "ffprobe": "bb2db6f5d8cef919da12fbf592119a987202a8c060a886f3cab091f9cab90b64",
-              },
-              "darwin-x64": {
-                  "ffmpeg": "ebdddc936f61e14049a2d4b549a412b8a40deeff6540e58a9f2a2da9e6b18894",
-                  "ffprobe": "fa3add0ce901f7241abe0dfc0155d958fc834aca3f8ce61f87cc712ae669c1e0",
-              },
-              "linux-x64": {
-                  "ffmpeg": "e7e7fb30477f717e6f55f9180a70386c62677ef8a4d4d1a5d948f4098aa3eb99",
-                  "ffprobe": "4f231a1960d83e403d08f7971e271707bec278a9ae18e21b8b5b03186668450d",
-              },
-              "win32-x64": {
-                  "ffmpeg": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
-                  "ffprobe": "3a7e2dc003dc2cd1472827e4c7c4f056ae1ae0ae7c5bbc580c99b49827351ba4",
-              },
-          }
-          if platform_key not in expected_hashes:
-              raise SystemExit(f"No pinned FFmpeg tools are configured for {platform_key}")
-
-          installed_ffmpeg_package = json.loads(
-              Path("node_modules/ffmpeg-static/package.json").read_text(encoding="utf-8")
-          )["version"]
-          expected_ffmpeg_package = os.environ["FFMPEG_STATIC_VERSION"]
-          if installed_ffmpeg_package != expected_ffmpeg_package:
-              raise SystemExit(
-                  f"ffmpeg-static {installed_ffmpeg_package} is installed, expected "
-                  f"{expected_ffmpeg_package}"
-              )
-
-          ffmpeg_path = Path("node_modules/ffmpeg-static") / f"ffmpeg{suffix}"
-          if not ffmpeg_path.is_file():
-              raise SystemExit(f"ffmpeg binary was not found at {ffmpeg_path}")
-
-          tools_dir = Path(".build-tools")
-          tools_dir.mkdir(exist_ok=True)
-          ffprobe_path = tools_dir / f"ffprobe{suffix}"
-          ffprobe_url = (
-              "https://github.com/eugeneware/ffmpeg-static/releases/download/"
-              f"{os.environ['FFMPEG_BINARY_RELEASE']}/ffprobe-{platform_key}"
-          )
-          request = urllib.request.Request(ffprobe_url, headers={"User-Agent": "EnCap build"})
-          with urllib.request.urlopen(request, timeout=120) as response:
-              ffprobe_path.write_bytes(response.read())
-          ffprobe_path.chmod(ffprobe_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-          tools = {"ffmpeg": ffmpeg_path, "ffprobe": ffprobe_path}
-          if sys.platform == "win32":
-              lame_archive_url = "https://www.rarewares.org/files/mp3/lame3.100.1-x64.zip"
-              lame_archive_path = tools_dir / "lame3.100.1-x64.zip"
-              last_error = None
-              for attempt in range(1, 5):
-                  try:
-                      request = urllib.request.Request(
-                          lame_archive_url,
-                          headers={"User-Agent": "EnCap release builder"},
-                      )
-                      with urllib.request.urlopen(request, timeout=120) as response:
-                          lame_archive_path.write_bytes(response.read())
-                      last_error = None
-                      break
-                  except Exception as error:
-                      last_error = error
-                      if attempt < 4:
-                          time.sleep(attempt * 2)
-              if last_error is not None:
-                  raise SystemExit(
-                      f"Could not download the pinned Windows LAME archive: {last_error}"
-                  )
-
-              lame_archive_digest = hashlib.sha256(
-                  lame_archive_path.read_bytes()
-              ).hexdigest()
-              expected_lame_archive_digest = os.environ["LAME_WINDOWS_SHA256"]
-              if lame_archive_digest != expected_lame_archive_digest:
-                  raise SystemExit(
-                      "Windows LAME archive SHA-256 mismatch: "
-                      f"{lame_archive_digest}"
-                  )
-
-              with zipfile.ZipFile(lame_archive_path) as archive:
-                  member = next(
-                      (
-                          name
-                          for name in archive.namelist()
-                          if Path(name).name.lower() == "lame.exe"
-                      ),
-                      None,
-                  )
-                  if member is None:
-                      raise SystemExit("The Windows LAME archive does not contain lame.exe")
-                  lame_path = tools_dir / "lame.exe"
-                  lame_path.write_bytes(archive.read(member))
-                  lame_path.chmod(
-                      lame_path.stat().st_mode
-                      | stat.S_IXUSR
-                      | stat.S_IXGRP
-                      | stat.S_IXOTH
-                  )
-              tools["lame"] = lame_path
-
-          for name, tool_path in tools.items():
-              digest = hashlib.sha256(tool_path.read_bytes()).hexdigest()
-              expected_digest = expected_hashes[platform_key].get(name)
-              if expected_digest is not None and digest != expected_digest:
-                  raise SystemExit(
-                      f"{name} SHA-256 mismatch for {platform_key}: {digest}"
-                  )
-              completed = subprocess.run(
-                  [
-                      str(tool_path.resolve()),
-                      "--version" if name == "lame" else "-version",
-                  ],
-                  capture_output=True,
-                  text=True,
-              )
-              if completed.returncode != 0:
-                  raise SystemExit(
-                      f"{name} binary failed its version check:\n{completed.stderr}"
-                  )
-              version_output = completed.stdout.strip() or completed.stderr.strip()
-              if not version_output:
-                  raise SystemExit(f"{name} did not report a version")
-              print(f"Using pinned {name}: {version_output.splitlines()[0]}")
-
-          if sys.platform != "win32":
-              installed_lame_package = json.loads(
-                  Path("node_modules/node-lame/package.json").read_text(encoding="utf-8")
-              )["version"]
-              expected_lame_package = "${{ env.NODE_LAME_VERSION }}"
-              if installed_lame_package != expected_lame_package:
-                  raise SystemExit(
-                      f"node-lame {installed_lame_package} is installed, expected "
-                      f"{expected_lame_package}"
-                  )
-          PY
-
-      - name: Add platform media tools to PATH
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          with Path(os.environ["GITHUB_PATH"]).open("a", encoding="utf-8") as github_path:
-              print(Path("node_modules/ffmpeg-static").resolve(), file=github_path)
-              print(Path(".build-tools").resolve(), file=github_path)
-          PY
-
-      - name: Install Linux GUI runtime dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libegl1 \
-            libgl1 \
-            libxcb-cursor0 \
-            libxkbcommon-x11-0
-
-      - name: Install Python build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --editable . pyinstaller
-
-      - name: Run required test suite
-        env:
-          ENCAP_REQUIRE_MEDIA_TESTS: "1"
-          QT_QPA_PLATFORM: "offscreen"
-        run: python -m unittest discover -s tests -v
-
-      - name: Read package version
-        shell: bash
-        run: |
-          python - <<'PY' >> "$GITHUB_ENV"
-          import runpy
-
-          print(f"APP_VERSION={runpy.run_path('src/encap/version.py')['__version__']}")
-          PY
-
-      - name: Download and verify Sparkle framework
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          mkdir -p .sparkle
-          curl --fail --location --silent --show-error \
-            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" \
-            --output .sparkle/Sparkle.tar.xz
-          echo "${SPARKLE_SHA256}  .sparkle/Sparkle.tar.xz" | shasum -a 256 --check
-          tar -xJf .sparkle/Sparkle.tar.xz -C .sparkle
-          test -d .sparkle/Sparkle.framework
-
-      - name: Build local Whisper runtime
-        shell: bash
-        run: |
-          git clone --branch "$WHISPER_CPP_VERSION" --depth 1 \
-            https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
-          test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
-          cmake_arguments=(
-            -DCMAKE_BUILD_TYPE=Release
-            -DBUILD_SHARED_LIBS=OFF
-            -DGGML_BLAS=OFF
-            -DGGML_NATIVE=OFF
-            -DGGML_OPENMP=OFF
-            -DWHISPER_BUILD_TESTS=OFF
-            -DWHISPER_BUILD_SERVER=OFF
-          )
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            cmake_arguments+=("-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET")
-          fi
-          cmake -S .whisper-cpp -B .whisper-cpp/build "${cmake_arguments[@]}"
-          cmake --build .whisper-cpp/build --config Release --target whisper-cli
-
-      - name: Build Apple platform helpers
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p .build-tools
-          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            swift_arch="arm64"
           else
-            swift_arch="x86_64"
+            printf '%s\n' 'development-build-no-update-key' > src/encap/update_public_key.txt
           fi
-          swift_target="${swift_arch}-apple-macosx${MACOSX_DEPLOYMENT_TARGET}"
-          swiftc -swift-version 5 -O helpers/apple_transcriber.swift \
-            -target "$swift_target" \
-            -o .build-tools/apple-transcriber
-          swiftc -swift-version 5 -O helpers/apple_aac_info.swift \
-            -target "$swift_target" \
-            -o .build-tools/apple-aac-info
-          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            whisperkit_target="arm64-apple-macosx14.0"
-            swift build \
-              --package-path helpers/whisperkit_transcriber \
-              --scratch-path .build-tools/whisperkit-transcriber-build \
-              --configuration release \
-              --triple "$whisperkit_target" \
-              --product whisperkit-transcriber
-            whisperkit_bin_dir="$(swift build \
-              --package-path helpers/whisperkit_transcriber \
-              --scratch-path .build-tools/whisperkit-transcriber-build \
-              --configuration release \
-              --triple "$whisperkit_target" \
-              --show-bin-path)"
-            cp "$whisperkit_bin_dir/whisperkit-transcriber" \
-              .build-tools/whisperkit-transcriber
-            chmod +x .build-tools/whisperkit-transcriber
-          fi
-
-      - name: Build CLI
-        run: python -m PyInstaller --noconfirm encap.spec
-
-      - name: Build GUI
-        if: runner.os != 'macOS'
-        env:
-          ENCAP_PLATFORM: ${{ matrix.platform }}
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
-        run: python -m PyInstaller --noconfirm encap_gui.spec
-
-      - name: Build native macOS application
-        if: runner.os == 'macOS'
-        shell: bash
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Build, test, sign, and package native app
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+        run: ./script/build_and_run.sh --package
+      - name: Verify packaged media tools
         run: |
-          xcode_build_dir="$PWD/build/xcode"
-          engine_dist_dir="$PWD/build/native-engine-dist"
-          engine_work_dir="$PWD/build/native-engine-work"
-          app_bundle="$PWD/dist/EnCap.app"
-          app_contents="$app_bundle/Contents"
-          app_macos="$app_contents/MacOS"
-          app_resources="$app_contents/Resources"
-
-          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            native_arch=arm64
-          else
-            native_arch=x86_64
-          fi
-          swift test \
-            --package-path macos \
-            --scratch-path build/native-swift-tests
-          xcodebuild \
-            -project macos/EnCap.xcodeproj \
-            -scheme EnCap \
-            -configuration Release \
-            -derivedDataPath "$xcode_build_dir" \
-            CODE_SIGNING_ALLOWED=NO \
-            ARCHS="$native_arch" \
-            ONLY_ACTIVE_ARCH=YES \
-            MARKETING_VERSION="$APP_VERSION" \
-            CURRENT_PROJECT_VERSION="$APP_VERSION" \
-            PRODUCT_BUNDLE_IDENTIFIER=com.tlolabs.encap \
-            build
-          xcode_app="$xcode_build_dir/Build/Products/Release/EnCap.app"
-          test -x "$xcode_app/Contents/MacOS/EnCap"
-
-          python -m PyInstaller \
-            --noconfirm \
-            --clean \
-            --distpath "$engine_dist_dir" \
-            --workpath "$engine_work_dir" \
-            encap_engine.spec
-
-          rm -rf "$app_bundle"
-          ditto "$xcode_app" "$app_bundle"
-          mkdir -p "$app_macos" "$app_resources" "$app_contents/Frameworks"
-          cp "$engine_dist_dir/encap-engine" "$app_macos/encap-engine"
-          cp THIRD_PARTY_NOTICES.md "$app_resources/THIRD_PARTY_NOTICES.md"
-          ditto .sparkle/Sparkle.framework "$app_contents/Frameworks/Sparkle.framework"
-          chmod +x "$app_macos/EnCap" "$app_macos/encap-engine"
-          /usr/libexec/PlistBuddy \
-            -c "Add :SUFeedURL string https://github.com/tlolabs/encap/releases/latest/download/appcast-${{ matrix.platform }}.xml" \
-            "$app_contents/Info.plist"
-          /usr/libexec/PlistBuddy \
-            -c "Add :SUPublicEDKey string $ENCAP_UPDATE_PUBLIC_KEY" \
-            "$app_contents/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$app_contents/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$app_contents/Info.plist"
-
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app_contents/Info.plist")" = "AppIcon"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app_contents/Info.plist")" = "AppIcon"
-          test -s "$app_resources/AppIcon.icns"
-          test -s "$app_resources/Assets.car"
-          assetutil --info "$app_resources/Assets.car" > build/icon-assets.json
-          grep '"AssetType" : "IconImageStack"' build/icon-assets.json
-
-      - name: Build standalone update helper
-        if: runner.os != 'macOS'
-        run: python -m PyInstaller --noconfirm encap_updater.spec
-
-      - name: Include media encoder binaries
-        shell: bash
-        run: |
-          python - <<'PY'
-          import shutil
-          import stat
-          import sys
-          from pathlib import Path
-
-          suffix = ".exe" if sys.platform == "win32" else ""
-          platform_name = {"darwin": "darwin", "linux": "linux", "win32": "win32"}[sys.platform]
-          machine = __import__("platform").machine().lower()
-          architecture = {
-              "amd64": "x64",
-              "x86_64": "x64",
-              "aarch64": "arm64",
-              "arm64": "arm64",
-          }.get(machine, machine)
-          if sys.platform == "win32":
-              lame_path = Path(".build-tools/lame.exe")
-          else:
-              lame_path = (
-                  Path("node_modules/node-lame/vendor/lame")
-                  / f"{platform_name}-{architecture}"
-                  / f"lame{suffix}"
-              )
-          sources = {
-              "ffmpeg": str(
-                  Path("node_modules/ffmpeg-static") / f"ffmpeg{suffix}"
-              ),
-              "ffprobe": str(Path(".build-tools") / f"ffprobe{suffix}"),
-              "lame": str(lame_path),
-          }
-          targets = [Path("dist/EnCap"), Path("dist/encap_cli")]
-          if sys.platform == "darwin":
-              targets.append(Path("dist/EnCap.app/Contents/MacOS"))
-
-          for tool, source in sources.items():
-              source_path = Path(source)
-              if not source_path.exists():
-                  raise SystemExit(f"{tool} was not found at {source}")
-
-              for target in targets:
-                  if not target.exists():
-                      continue
-                  destination = target / f"{tool}{suffix}"
-                  shutil.copy2(source_path, destination)
-                  destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-                  library_source = source_path.parent / "lib"
-                  if tool == "lame" and library_source.is_dir():
-                      library_target = target / "lame-libs"
-                      if library_target.exists():
-                          shutil.rmtree(library_target)
-                      shutil.copytree(library_source, library_target)
-          PY
-
-      - name: Include local transcription runtimes
-        shell: bash
-        run: |
-          python - <<'PY'
-          import shutil
-          import stat
-          import sys
-          from pathlib import Path
-
-          suffix = ".exe" if sys.platform == "win32" else ""
-          candidates = [
-              Path(".whisper-cpp/build/bin") / f"whisper-cli{suffix}",
-              Path(".whisper-cpp/build/bin/Release") / f"whisper-cli{suffix}",
-          ]
-          whisper_cli = next((path for path in candidates if path.is_file()), None)
-          if whisper_cli is None:
-              raise SystemExit("The whisper-cli build output was not found")
-
-          targets = [Path("dist/EnCap")]
-          if sys.platform == "darwin":
-              targets.append(Path("dist/EnCap.app/Contents/MacOS"))
-          for target in targets:
-              destination = target / f"whisper-cli{suffix}"
-              shutil.copy2(whisper_cli, destination)
-              destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-          if sys.platform == "darwin":
-              destination = Path("dist/EnCap.app/Contents/MacOS/apple-transcriber")
-              shutil.copy2(Path(".build-tools/apple-transcriber"), destination)
-              destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-              destination = Path("dist/EnCap.app/Contents/MacOS/apple-aac-info")
-              shutil.copy2(Path(".build-tools/apple-aac-info"), destination)
-              destination.chmod(destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-              whisperkit_transcriber = Path(".build-tools/whisperkit-transcriber")
-              if whisperkit_transcriber.is_file():
-                  destination = Path("dist/EnCap.app/Contents/MacOS/whisperkit-transcriber")
-                  shutil.copy2(whisperkit_transcriber, destination)
-                  destination.chmod(
-                      destination.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-                  )
-          PY
-
-      - name: Verify bundled media tools
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import platform
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          suffix = ".exe" if sys.platform == "win32" else ""
-          if sys.platform == "darwin":
-              required = [
-                  Path("dist/EnCap.app/Contents/MacOS/encap-engine"),
-              ]
-              required.extend(
-                  [
-                      Path("dist/EnCap.app/Contents/MacOS") / "ffmpeg",
-                      Path("dist/EnCap.app/Contents/MacOS") / "ffprobe",
-                      Path("dist/EnCap.app/Contents/MacOS") / "lame",
-                      Path("dist/EnCap.app/Contents/MacOS") / "whisper-cli",
-                      Path("dist/EnCap.app/Contents/MacOS") / "apple-transcriber",
-                      Path("dist/EnCap.app/Contents/MacOS") / "apple-aac-info",
-                  ]
-              )
-              if platform.machine().lower() in {"arm64", "aarch64"}:
-                  required.append(
-                      Path("dist/EnCap.app/Contents/MacOS") / "whisperkit-transcriber"
-                  )
-          else:
-              required = [
-                  Path("dist/EnCap") / f"ffmpeg{suffix}",
-                  Path("dist/EnCap") / f"ffprobe{suffix}",
-                  Path("dist/EnCap") / f"lame{suffix}",
-                  Path("dist/EnCap") / f"whisper-cli{suffix}",
-              ]
-
-          missing = [str(path) for path in required if not path.exists()]
-          if missing:
-              raise SystemExit(f"Missing bundled media tools: {', '.join(missing)}")
-
-          for path in required:
-              if path.name.startswith("ffmpeg") or path.name.startswith("ffprobe"):
-                  arguments = ["-version"]
-              elif path.name.startswith("lame"):
-                  arguments = ["--version"]
-              elif path.name == "apple-aac-info":
-                  arguments = []
-              else:
-                  continue
-              environment = os.environ.copy()
-              if path.name.startswith("lame") and sys.platform.startswith("linux"):
-                  bundled_libraries = path.parent / "lame-libs"
-                  if not bundled_libraries.is_dir():
-                      raise SystemExit(
-                          f"Bundled LAME libraries are missing: {bundled_libraries}"
-                      )
-                  existing = environment.get("LD_LIBRARY_PATH", "")
-                  environment["LD_LIBRARY_PATH"] = (
-                      str(bundled_libraries)
-                      if not existing
-                      else f"{bundled_libraries}{os.pathsep}{existing}"
-                  )
-              completed = subprocess.run(
-                  [str(path), *arguments],
-                  capture_output=True,
-                  text=True,
-                  env=environment,
-              )
-              if completed.returncode != 0:
-                  raise SystemExit(
-                      f"Bundled tool failed: {path}\n{completed.stderr}"
-                  )
-          if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
-              helper = Path("dist/EnCap.app/Contents/MacOS/whisperkit-transcriber")
-              completed = subprocess.run(
-                  [str(helper)],
-                  capture_output=True,
-                  text=True,
-              )
-              if completed.returncode == 0 or "Usage:" not in completed.stderr:
-                  raise SystemExit(
-                      "Bundled WhisperKit helper did not launch and report its usage.\n"
-                      f"{completed.stderr}"
-                  )
-          PY
-
-      - name: Include update helper
-        if: runner.os != 'macOS'
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp dist/encap_updater.exe dist/EnCap/encap_updater.exe
-          else
-            cp dist/encap_updater dist/EnCap/encap_updater
-            chmod +x dist/EnCap/encap_updater
-          fi
-
-      - name: Sign and verify native macOS application
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/ffmpeg
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/ffprobe
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/lame
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/whisper-cli
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/apple-transcriber
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/apple-aac-info
-          codesign --force --sign - dist/EnCap.app/Contents/MacOS/encap-engine
-          if [[ -f dist/EnCap.app/Contents/MacOS/whisperkit-transcriber ]]; then
-            codesign --force --sign - dist/EnCap.app/Contents/MacOS/whisperkit-transcriber
-          fi
-          codesign --force --sign - dist/EnCap.app/Contents/Frameworks/Sparkle.framework
-          codesign --force --sign - dist/EnCap.app
+          dist/EnCap.app/Contents/MacOS/encap-engine validate-tools
+          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
           codesign --verify --deep --strict dist/EnCap.app
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/EnCap.app/Contents/Info.plist)" = "com.tlolabs.encap"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' dist/EnCap.app/Contents/Info.plist)" = "$APP_VERSION"
-          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            expected_arch=arm64
-          else
-            expected_arch=x86_64
-          fi
-          for binary in \
-            dist/EnCap.app/Contents/MacOS/EnCap \
-            dist/EnCap.app/Contents/MacOS/ffmpeg \
-            dist/EnCap.app/Contents/MacOS/ffprobe \
-            dist/EnCap.app/Contents/MacOS/lame \
-            dist/EnCap.app/Contents/MacOS/whisper-cli \
-            dist/EnCap.app/Contents/MacOS/apple-transcriber \
-            dist/EnCap.app/Contents/MacOS/apple-aac-info \
-            dist/EnCap.app/Contents/MacOS/encap-engine
-          do
-            lipo "$binary" -verify_arch "$expected_arch"
-          done
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' dist/EnCap.app/Contents/Info.plist >/dev/null
-            /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' dist/EnCap.app/Contents/Info.plist | grep "appcast-${{ matrix.platform }}.xml"
-          fi
-          if [[ -f dist/EnCap.app/Contents/MacOS/whisperkit-transcriber ]]; then
-            lipo dist/EnCap.app/Contents/MacOS/whisperkit-transcriber \
-              -verify_arch "$expected_arch"
-          fi
-          python - <<'PY'
-          import re
-          import subprocess
-          from pathlib import Path
-
-          binaries = [
-              Path("dist/EnCap.app/Contents/MacOS/EnCap"),
-              Path("dist/EnCap.app/Contents/MacOS/ffmpeg"),
-              Path("dist/EnCap.app/Contents/MacOS/ffprobe"),
-              Path("dist/EnCap.app/Contents/MacOS/lame"),
-              Path("dist/EnCap.app/Contents/MacOS/whisper-cli"),
-              Path("dist/EnCap.app/Contents/MacOS/apple-transcriber"),
-              Path("dist/EnCap.app/Contents/MacOS/apple-aac-info"),
-              Path("dist/EnCap.app/Contents/MacOS/encap-engine"),
-          ]
-
-          def version_key(value: str) -> tuple[int, ...]:
-              return tuple(int(part) for part in value.split("."))
-
-          maximum = version_key("13.0")
-          for binary in binaries:
-              load_commands = subprocess.check_output(
-                  ["otool", "-l", str(binary)], text=True
-              )
-              versions = re.findall(r"\bminos\s+([0-9.]+)", load_commands)
-              versions.extend(
-                  re.findall(
-                      r"LC_VERSION_MIN_MACOSX.*?\bversion\s+([0-9.]+)",
-                      load_commands,
-                      flags=re.DOTALL,
-                  )
-              )
-              if not versions:
-                  raise SystemExit(f"No macOS deployment target found in {binary}")
-              if any(version_key(value) > maximum for value in versions):
-                  raise SystemExit(
-                      f"{binary} requires macOS {max(versions, key=version_key)}; "
-                      "the app promises macOS 13"
-                  )
-              print(f"{binary}: minimum macOS {max(versions, key=version_key)}")
-          PY
-
-      - name: Package macOS DMG
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p dist/release
-          mkdir -p dist/dmg-root
-          ditto dist/EnCap.app dist/dmg-root/EnCap.app
-          ln -s /Applications dist/dmg-root/Applications
-          hdiutil create \
-            -volname EnCap \
-            -srcfolder dist/dmg-root \
-            -ov \
-            -format UDZO \
-            "dist/release/EnCap-${APP_VERSION}-${{ matrix.platform }}.dmg"
-
-      - name: Package Windows and Linux archives
-        if: runner.os != 'macOS'
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import shutil
-          from pathlib import Path
-
-          version = os.environ["APP_VERSION"]
-          platform = os.environ["RUNNER_OS"].lower()
-          platform_name = "windows-x64" if platform == "windows" else "linux-x64"
-          release_dir = Path("dist/release")
-          staging_dir = Path("dist/staging") / f"EnCap-{version}-{platform_name}"
-
-          if staging_dir.exists():
-              shutil.rmtree(staging_dir)
-          release_dir.mkdir(parents=True, exist_ok=True)
-          staging_dir.mkdir(parents=True)
-
-          shutil.copytree("dist/EnCap", staging_dir / "EnCap")
-          shutil.copytree("dist/encap_cli", staging_dir / "encap_cli")
-
-          archive_format = "zip" if platform == "windows" else "gztar"
-          archive_path = Path(
-              shutil.make_archive(
-                  str(release_dir / staging_dir.name),
-                  archive_format,
-                  staging_dir.parent,
-                  staging_dir.name,
-              )
-          )
-          expected_suffix = ".zip" if platform == "windows" else ".tar.gz"
-          expected_path = release_dir / f"{staging_dir.name}{expected_suffix}"
-          if archive_path.resolve() != expected_path.resolve() or not expected_path.is_file():
-              raise SystemExit(
-                  f"Created {archive_path}; expected release artifact {expected_path}"
-              )
-          PY
-
-      - name: Upload platform artifact
+      - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-${{ matrix.platform }}
-          path: dist/release/*
+          name: EnCap-macos-${{ matrix.label }}
+          path: dist/EnCap-*-macos-${{ matrix.label }}.dmg
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x64
+            rust_target: x86_64-pc-windows-msvc
+            runtime: win-x64
+            platform: x64
+            cmake_arch: x64
+            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-9.0.zip
+            ffmpeg_sha256: e536631f802a668172209a7f3f12bd7b87cd05dccebb498da7a518a3d6d3d037
+          - label: arm64
+            rust_target: aarch64-pc-windows-msvc
+            runtime: win-arm64
+            platform: ARM64
+            cmake_arch: ARM64
+            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-winarm64-gpl-9.0.zip
+            ffmpeg_sha256: db61f2b7a34c4682666f364e6b144489c0bbf8e861a936dbdb4ca3164a60f377
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust target
+        shell: pwsh
+        run: rustup target add '${{ matrix.rust_target }}'
+      - name: Download checksum-pinned FFmpeg 9.0.1 tools
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-12-13-12/${{ matrix.ffmpeg_archive }}'
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne '${{ matrix.ffmpeg_sha256 }}') { throw "FFmpeg archive SHA-256 mismatch: $actual" }
+          Expand-Archive ffmpeg.zip -DestinationPath .build-tools/ffmpeg
+      - name: Build local Whisper runtime
+        shell: pwsh
+        run: |
+          git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
+          if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
+          cmake -S .whisper-cpp -B .whisper-cpp/build -A '${{ matrix.cmake_arch }}' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          cmake --build .whisper-cpp/build --config Release --target whisper-cli
+      - name: Build shared Rust engine
+        shell: pwsh
+        run: cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+      - name: Publish native WinUI 3 app
+        shell: pwsh
+        run: dotnet publish windows/EnCap/EnCap.csproj -c Release -r '${{ matrix.runtime }}' --self-contained true -p:Platform='${{ matrix.platform }}' -o dist/staging/EnCap
+      - name: Assemble and verify portable package
+        shell: pwsh
+        run: |
+          $stage = Resolve-Path dist/staging/EnCap
+          Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
+          $ffmpeg = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $ffprobe = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffprobe.exe | Select-Object -First 1
+          if (!$ffmpeg -or !$ffprobe) { throw 'FFmpeg archive is incomplete' }
+          Copy-Item $ffmpeg.FullName "$stage/ffmpeg.exe"
+          Copy-Item $ffprobe.FullName "$stage/ffprobe.exe"
+          $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
+          if (!$whisper) { throw 'whisper-cli build is missing' }
+          Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
+          Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
+          & "$stage/encap-engine.exe" validate-tools
+          & "$stage/ffmpeg.exe" -hide_banner -version | Select-String "ffmpeg version $env:FFMPEG_VERSION"
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-windows-${{ matrix.label }}
+          path: dist/release/*.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes autoconf automake build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libtool meson nasm ninja-build xz-utils zlib1g-dev
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Build shared engine and bundled media tools
+        run: |
+          cargo build --package encap-engine --release --locked
+          ./script/build_ffmpeg_linux.sh
+      - name: Build local Whisper runtime
+        run: |
+          git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
+          test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
+          cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          cmake --build .whisper-cpp/build --config Release --target whisper-cli
+      - name: Build and assemble GTK 4 package
+        run: |
+          prefix="$PWD/dist/staging/EnCap"
+          meson setup build/linux-native linux/EnCap --prefix="$prefix"
+          meson compile -C build/linux-native
+          meson install -C build/linux-native
+          ffmpeg_prefix="$(./script/build_ffmpeg_linux.sh | tail -n 1)"
+          cp target/release/encap-engine "$prefix/bin/encap-engine"
+          cp "$ffmpeg_prefix/bin/ffmpeg" "$prefix/bin/ffmpeg"
+          cp "$ffmpeg_prefix/bin/ffprobe" "$prefix/bin/ffprobe"
+          cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
+          cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
+          "$prefix/bin/encap-engine" validate-tools
+          "$prefix/bin/ffmpeg" -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          mkdir -p dist/release
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-x64.tar.gz" EnCap
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-linux-x64
+          path: dist/release/*.tar.gz
           if-no-files-found: error
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [quality, macos, windows, linux]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Download platform artifacts
+      - name: Download packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
         with:
           path: release-assets
           merge-multiple: true
-
-      - name: Read package version
-        shell: bash
-        run: |
-          python - <<'PY' >> "$GITHUB_ENV"
-          import runpy
-
-          print(f"APP_VERSION={runpy.run_path('src/encap/version.py')['__version__']}")
-          PY
-
-      - name: Prepare draft GitHub release
+      - name: Prepare draft release and signed update metadata
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
-          gh release create "$TAG_NAME" --draft --title "$TAG_NAME" --generate-notes
-          gh release view "$TAG_NAME" --json body --jq .body > release-notes.md
-
-      - name: Install metadata signing dependency
-        run: python -m pip install --disable-pip-version-check "cryptography==43.0.3"
-
-      - name: Build signed update metadata
-        env:
           ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
           ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
-          TAG_NAME: ${{ github.ref_name }}
         run: |
-          python scripts/build_release_metadata.py \
-            --assets-dir release-assets \
-            --version "$APP_VERSION" \
-            --tag "$TAG_NAME" \
-            --notes-file release-notes.md
-
-      - name: Upload assets and publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          gh release upload "$TAG_NAME" release-assets/* --clobber
-          gh release edit "$TAG_NAME" --draft=false
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
+          python -m pip install --disable-pip-version-check "cryptography==43.0.3"
+          python scripts/build_release_metadata.py --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false

@@ -77,6 +77,16 @@ struct ManifestChapter {
     extensions: BTreeMap<String, Value>,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct CompatibilityPayload {
+    top_level: BTreeMap<String, Value>,
+    metadata: BTreeMap<String, Value>,
+    audio_sources: Vec<BTreeMap<String, Value>>,
+    chapters: Vec<BTreeMap<String, Value>>,
+    transcript_segments: Vec<BTreeMap<String, Value>>,
+    export_settings: BTreeMap<String, Value>,
+}
+
 fn schema_one() -> u64 {
     1
 }
@@ -86,6 +96,11 @@ fn untitled() -> String {
 
 pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<PathBuf> {
     project.validate()?;
+    let preserved = project
+        .compatibility_payload
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<CompatibilityPayload>(value).ok())
+        .unwrap_or_default();
     let target = if requested_path.extension().and_then(|value| value.to_str()) == Some("encap") {
         requested_path.to_path_buf()
     } else {
@@ -113,7 +128,10 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                 display_name: source.display_name.clone(),
                 duration_seconds: source.duration_seconds,
                 stored_path: stored,
-                extensions: source.extensions.clone(),
+                extensions: merged_extensions(
+                    preserved.audio_sources.get(index),
+                    &source.extensions,
+                ),
             });
         }
         let artwork_stored_path = if let Some(path) = &project.metadata.artwork_path {
@@ -141,9 +159,22 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                 title: chapter.title.clone(),
                 link_url: chapter.link_url.clone(),
                 image_stored_path,
-                extensions: chapter.extensions.clone(),
+                extensions: merged_extensions(preserved.chapters.get(index), &chapter.extensions),
             });
         }
+        let transcript_segments = project
+            .transcript_segments
+            .iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                let mut segment = segment.clone();
+                segment.extensions = merged_extensions(
+                    preserved.transcript_segments.get(index),
+                    &segment.extensions,
+                );
+                segment
+            })
+            .collect();
         let manifest = Manifest {
             schema_version: PROJECT_SCHEMA_VERSION,
             project_title: project.project_title.clone(),
@@ -152,13 +183,22 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                 episode_title: project.metadata.episode_title.clone(),
                 summary: project.metadata.summary.clone(),
                 artwork_stored_path,
-                extensions: project.metadata.extensions.clone(),
+                extensions: merged_extensions(
+                    Some(&preserved.metadata),
+                    &project.metadata.extensions,
+                ),
             },
             audio_sources: audio_records,
             chapters: chapter_records,
-            transcript_segments: project.transcript_segments.clone(),
-            export_settings: project.export_settings.clone(),
-            extensions: project.extensions.clone(),
+            transcript_segments,
+            export_settings: ExportSettings {
+                extensions: merged_extensions(
+                    Some(&preserved.export_settings),
+                    &project.export_settings.extensions,
+                ),
+                ..project.export_settings.clone()
+            },
+            extensions: merged_extensions(Some(&preserved.top_level), &project.extensions),
         };
         let json = serde_json::to_vec_pretty(&manifest)?;
         archive.start_file("manifest.json", options)?;
@@ -353,6 +393,26 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
             supported: PROJECT_SCHEMA_VERSION,
         });
     }
+    let compatibility_payload = serde_json::to_string(&CompatibilityPayload {
+        top_level: manifest.extensions.clone(),
+        metadata: manifest.metadata.extensions.clone(),
+        audio_sources: manifest
+            .audio_sources
+            .iter()
+            .map(|item| item.extensions.clone())
+            .collect(),
+        chapters: manifest
+            .chapters
+            .iter()
+            .map(|item| item.extensions.clone())
+            .collect(),
+        transcript_segments: manifest
+            .transcript_segments
+            .iter()
+            .map(|item| item.extensions.clone())
+            .collect(),
+        export_settings: manifest.export_settings.extensions.clone(),
+    })?;
     let resolve = |stored: &str| -> Result<PathBuf> {
         let path = root.join(safe_stored_path(stored)?);
         if !path.is_file() {
@@ -417,10 +477,20 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
         chapters,
         transcript_segments: manifest.transcript_segments,
         export_settings: normalize_export(manifest.export_settings),
+        compatibility_payload: Some(compatibility_payload),
         extensions: manifest.extensions,
     };
     project.validate()?;
     Ok(project)
+}
+
+fn merged_extensions(
+    preserved: Option<&BTreeMap<String, Value>>,
+    current: &BTreeMap<String, Value>,
+) -> BTreeMap<String, Value> {
+    let mut output = preserved.cloned().unwrap_or_default();
+    output.extend(current.clone());
+    output
 }
 
 fn normalize_export(mut value: ExportSettings) -> ExportSettings {
@@ -536,6 +606,83 @@ mod tests {
         assert_eq!(
             fs::read(&loaded.audio_sources[0].source_path).unwrap(),
             b"audio"
+        );
+    }
+
+    #[test]
+    fn native_client_round_trip_preserves_unknown_manifest_fields() {
+        let temporary = tempfile::tempdir().unwrap();
+        let media = temporary.path().join("part.wav");
+        fs::write(&media, b"audio").unwrap();
+        let mut project = ProjectDocument {
+            project_title: "Forward-compatible".into(),
+            ..ProjectDocument::default()
+        };
+        project.extensions.insert(
+            "future_top_level".into(),
+            serde_json::json!({"enabled": true}),
+        );
+        project
+            .metadata
+            .extensions
+            .insert("future_metadata".into(), serde_json::json!([1, 2, 3]));
+        project.audio_sources.push(AudioSource {
+            source_path: media,
+            display_name: "Part".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::from([("future_audio".into(), serde_json::json!("kept"))]),
+        });
+        project.chapters.push(Chapter {
+            id: crate::model::new_id(),
+            start_time_seconds: 0.0,
+            duration_seconds: 1.0,
+            chapter_number: 1,
+            title: "Part".into(),
+            link_url: String::new(),
+            image_path: None,
+            image_stored_path: None,
+            extensions: BTreeMap::from([("future_chapter".into(), serde_json::json!(42))]),
+        });
+        project
+            .export_settings
+            .extensions
+            .insert("future_export".into(), serde_json::json!(false));
+
+        let first = save_project(&project, &temporary.path().join("first.encap")).unwrap();
+        let mut through_native = load_project(&first, Some(temporary.path())).unwrap();
+        assert!(through_native.compatibility_payload.is_some());
+        through_native.extensions.clear();
+        through_native.metadata.extensions.clear();
+        through_native.audio_sources[0].extensions.clear();
+        through_native.chapters[0].extensions.clear();
+        through_native.export_settings.extensions.clear();
+
+        let second = save_project(
+            &through_native,
+            &temporary.path().join("through-native.encap"),
+        )
+        .unwrap();
+        let restored = load_project(&second, Some(temporary.path())).unwrap();
+        assert_eq!(
+            restored.extensions["future_top_level"],
+            serde_json::json!({"enabled": true})
+        );
+        assert_eq!(
+            restored.metadata.extensions["future_metadata"],
+            serde_json::json!([1, 2, 3])
+        );
+        assert_eq!(
+            restored.audio_sources[0].extensions["future_audio"],
+            serde_json::json!("kept")
+        );
+        assert_eq!(
+            restored.chapters[0].extensions["future_chapter"],
+            serde_json::json!(42)
+        );
+        assert_eq!(
+            restored.export_settings.extensions["future_export"],
+            serde_json::json!(false)
         );
     }
 

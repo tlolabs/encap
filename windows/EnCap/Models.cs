@@ -15,6 +15,7 @@ public sealed class ProjectDocument
     public List<Chapter> Chapters { get; set; } = [];
     public List<TranscriptSegment> TranscriptSegments { get; set; } = [];
     public ExportSettings ExportSettings { get; set; } = new();
+    public string? CompatibilityPayload { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
 }
 
@@ -74,3 +75,13 @@ public sealed class TranscriptionProvider
     public override string ToString() => $"{Name} — {Detail}";
 }
 
+public sealed class TranscriptionModelInfo
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string DownloadSize { get; set; } = "";
+    public string Languages { get; set; } = "";
+    public string Description { get; set; } = "";
+    public bool Installed { get; set; }
+    public bool DownloadAllowed { get; set; }
+}

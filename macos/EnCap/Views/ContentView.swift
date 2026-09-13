@@ -14,6 +14,7 @@ struct ContentView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 320)
             .padding(.vertical, 10)
+            .disabled(store.isWorking)
 
             Divider()
 
@@ -24,11 +25,13 @@ struct ContentView: View {
                     TranscribeView(store: store)
                 }
             }
+            .disabled(store.isWorking)
 
             Divider()
             HStack(spacing: 8) {
                 if store.isWorking {
                     ProgressView().controlSize(.small)
+                    Button("Cancel", action: store.cancelCurrentOperation)
                 }
                 Text(store.status)
                     .font(.caption)
@@ -42,24 +45,25 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .frame(height: 28)
         }
-        .disabled(store.isWorking)
         .frame(minWidth: 980, minHeight: 700)
         .toolbar {
             ToolbarItemGroup {
                 Button { store.presentFileImporter(.audioFolder) } label: {
                     Label("Import Audio", systemImage: "folder.badge.plus")
                 }
+                .disabled(store.isWorking)
                 Button { store.presentFileImporter(.project) } label: {
                     Label("Open Project", systemImage: "folder")
                 }
+                .disabled(store.isWorking)
                 Button { store.presentSavePanel() } label: {
                     Label("Save Project", systemImage: "square.and.arrow.down")
                 }
-                .disabled(!store.isProjectLoaded)
+                .disabled(!store.isProjectLoaded || store.isWorking)
                 Button { store.presentSavePanel(exportAudio: true) } label: {
                     Label("Export Audio", systemImage: "waveform.badge.plus")
                 }
-                .disabled(!store.isProjectLoaded)
+                .disabled(!store.isProjectLoaded || store.isWorking)
             }
         }
         .fileImporter(

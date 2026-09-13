@@ -107,7 +107,11 @@ pub fn export_arguments(
     {
         "aac" | "m4a" => args.extend([
             os("-c:a"),
-            os("aac"),
+            os(if project.export_settings.encoder == "audio_toolbox" {
+                "aac_at"
+            } else {
+                "aac"
+            }),
             os("-b:a"),
             os(&project.export_settings.quality_preset),
             os("-movflags"),
@@ -160,6 +164,15 @@ fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> 
     if project.chapters.is_empty() {
         return Err(EncapError::Message(
             "At least one chapter is required.".into(),
+        ));
+    }
+    if project
+        .chapters
+        .iter()
+        .any(|chapter| chapter.image_path.is_some())
+    {
+        return Err(EncapError::Message(
+            "Per-chapter artwork cannot be embedded safely yet. Remove chapter images before exporting audio.".into(),
         ));
     }
     let destination = absolute(destination)?;

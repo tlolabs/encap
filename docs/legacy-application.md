@@ -4,6 +4,11 @@ This record was produced before the Rust engine replaced the Python engine. It
 combines source inspection, automated tests, Git history, and a launch of the
 installed Python/PySide6 application on macOS.
 
+Reference captures: [Process Audio](legacy-ui/process-audio.png) and
+[Transcribe](legacy-ui/transcribe.png).
+The configured GitHub repository had no open or closed issues at the time of
+the audit, so no additional issue-only compatibility contracts were found.
+
 ## Product behavior
 
 EnCap assembles a naturally sorted folder of WAV and AIFF recordings into one
@@ -53,6 +58,9 @@ disabled.
 - The legacy repository did not state explicit Windows or Linux version
   minimums. The replacement retains Windows 10 version 1809 as the defensible
   WinUI baseline and targets currently supported GTK 4/libadwaita distributions.
+- Source and runtime inspection found no persisted QSettings/preferences store
+  to migrate. The rewrite therefore leaves the legacy installation untouched
+  and uses native state facilities only for new UI state.
 
 ## Pre-rewrite verification
 
@@ -60,4 +68,3 @@ disabled.
 - Native macOS Swift suite: 8 passed.
 - Installed Python application launched successfully and exposed the expected
   Process Audio empty state, controls, tab order, and accessible control names.
-

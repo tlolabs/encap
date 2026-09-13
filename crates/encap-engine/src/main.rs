@@ -50,6 +50,18 @@ enum Commands {
         provider: String,
     },
     Providers,
+    Models,
+    InstallModel {
+        model: String,
+    },
+    RemoveModel {
+        model: String,
+    },
+    SaveRecovery {
+        payload: PathBuf,
+    },
+    LoadRecovery,
+    ClearRecovery,
     ValidateTools,
 }
 
@@ -64,9 +76,19 @@ struct PathResponse {
     path: PathBuf,
 }
 
+#[derive(Serialize)]
+struct RecoveryResponse {
+    project: Option<ProjectDocument>,
+}
+
 fn main() {
     let _log_guard = init_logging();
-    match run(Cli::parse()) {
+    let cancellation = CancellationToken::default();
+    let signal_cancellation = cancellation.clone();
+    if let Err(error) = ctrlc::set_handler(move || signal_cancellation.cancel()) {
+        tracing::warn!(%error, "could not install the cancellation signal handler");
+    }
+    match run(Cli::parse(), &cancellation) {
         Ok(value) => match serde_json::to_writer(std::io::stdout(), &value) {
             Ok(()) => println!(),
             Err(error) => {
@@ -86,7 +108,7 @@ fn main() {
     }
 }
 
-fn run(cli: Cli) -> Result<Value> {
+fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
     match cli.command {
         Commands::Inspect { folder } => json(encap_assemble::inspect(&folder)?),
         Commands::Open {
@@ -104,7 +126,7 @@ fn run(cli: Cli) -> Result<Value> {
         }
         Commands::Export { payload, output } => {
             let project = read_payload(&payload)?;
-            let path = encap_assemble::export(&project, &output, &CancellationToken::default())?;
+            let path = encap_assemble::export(&project, &output, cancellation)?;
             json(PathResponse { path })
         }
         Commands::ExportTranscript {
@@ -127,14 +149,82 @@ fn run(cli: Cli) -> Result<Value> {
             json(encap_transcribe::transcribe(
                 &project.audio_sources,
                 &provider,
-                &CancellationToken::default(),
+                cancellation,
             )?)
         }
         Commands::Providers => json(encap_transcribe::providers()),
+        Commands::Models => json(encap_transcribe::models()),
+        Commands::InstallModel { model } => {
+            json(encap_transcribe::install_model(&model, cancellation)?)
+        }
+        Commands::RemoveModel { model } => json(encap_transcribe::remove_model(&model)?),
+        Commands::SaveRecovery { payload } => {
+            let project = read_payload(&payload)?;
+            save_recovery_at(&project, &recovery_path()?)?;
+            json(serde_json::json!({ "ok": true }))
+        }
+        Commands::LoadRecovery => json(RecoveryResponse {
+            project: load_recovery_at(&recovery_path()?)?,
+        }),
+        Commands::ClearRecovery => {
+            clear_recovery_at(&recovery_path()?)?;
+            json(serde_json::json!({ "ok": true }))
+        }
         Commands::ValidateTools => {
             MediaTools::discover()?;
             json(serde_json::json!({ "ok": true }))
         }
+    }
+}
+
+fn recovery_path() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("ENCAP_RECOVERY_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+    ProjectDirs::from("com", "TLO Labs", "EnCap")
+        .map(|directories| directories.data_local_dir().join("recovery.json"))
+        .ok_or_else(|| EncapError::Message("The recovery storage location is unavailable.".into()))
+}
+
+fn save_recovery_at(project: &ProjectDocument, path: &Path) -> Result<()> {
+    project.validate()?;
+    atomic_write(path, &serde_json::to_vec_pretty(project)?)
+}
+
+fn load_recovery_at(path: &Path) -> Result<Option<ProjectDocument>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(EncapError::Read {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    let project: ProjectDocument = serde_json::from_slice(&bytes)?;
+    project.validate()?;
+    if project
+        .audio_sources
+        .iter()
+        .any(|source| !source.source_path.is_file())
+    {
+        return Err(EncapError::Message(
+            "The recovery record refers to audio that is no longer available. The record was preserved for manual recovery."
+                .into(),
+        ));
+    }
+    Ok(Some(project))
+}
+
+fn clear_recovery_at(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(EncapError::Write {
+            path: path.to_path_buf(),
+            source,
+        }),
     }
 }
 
@@ -206,4 +296,32 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
         .try_init()
         .ok()?;
     Some(guard)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_is_lightweight_atomic_and_non_destructive() {
+        let temporary = tempfile::tempdir().unwrap();
+        let audio = temporary.path().join("source.wav");
+        fs::write(&audio, b"audio placeholder").unwrap();
+        let path = temporary.path().join("recovery.json");
+        let mut project = ProjectDocument::default();
+        project.audio_sources.push(encap_core::AudioSource {
+            source_path: audio.clone(),
+            display_name: "source.wav".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: Default::default(),
+        });
+        save_recovery_at(&project, &path).unwrap();
+        assert_eq!(load_recovery_at(&path).unwrap(), Some(project));
+        fs::remove_file(audio).unwrap();
+        assert!(load_recovery_at(&path).is_err());
+        assert!(path.exists(), "invalid recovery must be preserved");
+        clear_recovery_at(&path).unwrap();
+        assert!(!path.exists());
+    }
 }
