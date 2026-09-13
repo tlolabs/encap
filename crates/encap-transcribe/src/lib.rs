@@ -14,11 +14,15 @@ use std::process::Command;
 use std::time::Duration;
 
 const SUPERWHISPER_ID: &str = "superwhisper-large-v3";
+#[cfg(target_os = "macos")]
 const SUPERWHISPER_FILENAME: &str = "ggml-large-v3.bin";
+#[cfg(target_os = "macos")]
 const SUPERWHISPER_SIZE: u64 = 3_095_033_483;
+#[cfg(target_os = "macos")]
 const SUPERWHISPER_SHA256: &str =
     "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2";
 
+#[cfg(target_os = "macos")]
 const MACWHISPER_MODELS: &[(&str, &str, &str, &str)] = &[
     (
         "openai_whisper-large-v3-v20240930_626MB",
@@ -269,6 +273,7 @@ pub fn transcribe(
                     offset,
                     cancellation,
                 )?,
+                #[cfg(target_os = "macos")]
                 Backend::WhisperKit { model, tokenizer } => transcribe_whisperkit(
                     &tools,
                     &source.source_path,
@@ -286,6 +291,7 @@ pub fn transcribe(
     Ok(output)
 }
 
+#[cfg(target_os = "macos")]
 fn transcribe_whisperkit(
     tools: &MediaTools,
     source: &Path,
@@ -546,8 +552,15 @@ struct Model {
 
 #[derive(Clone)]
 enum Backend {
-    WhisperCpp { model: PathBuf, sha256: String },
-    WhisperKit { model: PathBuf, tokenizer: PathBuf },
+    WhisperCpp {
+        model: PathBuf,
+        sha256: String,
+    },
+    #[cfg(target_os = "macos")]
+    WhisperKit {
+        model: PathBuf,
+        tokenizer: PathBuf,
+    },
 }
 
 #[derive(Clone)]
@@ -563,6 +576,7 @@ impl ResolvedProvider {
     fn info(&self) -> Provider {
         let engine = match self.backend {
             Backend::WhisperCpp { .. } => "whisper.cpp",
+            #[cfg(target_os = "macos")]
             Backend::WhisperKit { .. } => "WhisperKit",
         };
         Provider {
