@@ -16,7 +16,8 @@
           <AppBarButton Icon="Download" Label="Export audio" Click="Export_Click" />
         </CommandBar>
         <ScrollViewer Grid.Row="1">
-          <StackPanel x:Name="AssemblePanel" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
+          <Grid>
+            <StackPanel x:Name="AssemblePanel" Spacing="12" MaxWidth="900" HorizontalAlignment="Stretch">
             <TextBlock Text="Assemble &amp; Encode" Style="{ThemeResource TitleTextBlockStyle}" />
             <TextBox x:Name="PodcastTitle" Header="Podcast title" AutomationProperties.Name="Podcast title" TextChanged="TextEdit_Changed" />
             <TextBox x:Name="EpisodeTitle" Header="Episode title" AutomationProperties.Name="Episode title" TextChanged="TextEdit_Changed" />
@@ -38,8 +39,8 @@
             <ListView x:Name="ChapterList" AutomationProperties.Name="Project chapters">
               <ListView.ItemTemplate><DataTemplate><Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="{Binding ChapterNumber}" VerticalAlignment="Center"/><TextBox Grid.Column="1" Text="{Binding Title, Mode=TwoWay}" Header="Chapter title" TextChanged="TextEdit_Changed"/><NumberBox Grid.Column="2" Value="{Binding DurationSeconds, Mode=TwoWay}" Header="Seconds" Minimum="0.001" SpinButtonPlacementMode="Compact" ValueChanged="NumberEdit_Changed"/></Grid></DataTemplate></ListView.ItemTemplate>
             </ListView>
-          </StackPanel>
-          <StackPanel x:Name="TranscribePanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
+            </StackPanel>
+            <StackPanel x:Name="TranscribePanel" Spacing="12" MaxWidth="900" Visibility="Collapsed">
             <TextBlock Text="Transcribe" Style="{ThemeResource TitleTextBlockStyle}" />
             <ComboBox x:Name="Provider" Header="Local transcription engine" AutomationProperties.Name="Local transcription engine" />
             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -51,7 +52,8 @@
             <ListView x:Name="TranscriptList" AutomationProperties.Name="Transcript segments">
               <ListView.ItemTemplate><DataTemplate><Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBox Text="{Binding Speaker, Mode=TwoWay}" Header="Speaker" TextChanged="TextEdit_Changed"/><TextBox Grid.Column="1" Text="{Binding Text, Mode=TwoWay}" Header="Transcript text" AcceptsReturn="True" TextWrapping="Wrap" TextChanged="TextEdit_Changed"/></Grid></DataTemplate></ListView.ItemTemplate>
             </ListView>
-          </StackPanel>
+            </StackPanel>
+          </Grid>
         </ScrollViewer>
         <InfoBar x:Name="Status" Grid.Row="2" IsOpen="True" Severity="Informational" Message="Import an audio folder to begin." />
       </Grid>

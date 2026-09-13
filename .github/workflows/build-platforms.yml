@@ -107,6 +107,7 @@ jobs:
             runtime: win-x64
             platform: x64
             cmake_arch: x64
+            cmake_toolset: ""
             ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-9.0.zip
             ffmpeg_sha256: e536631f802a668172209a7f3f12bd7b87cd05dccebb498da7a518a3d6d3d037
           - label: arm64
@@ -114,6 +115,7 @@ jobs:
             runtime: win-arm64
             platform: ARM64
             cmake_arch: ARM64
+            cmake_toolset: ClangCL
             ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-winarm64-gpl-9.0.zip
             ffmpeg_sha256: db61f2b7a34c4682666f364e6b144489c0bbf8e861a936dbdb4ca3164a60f377
     runs-on: windows-latest
@@ -138,7 +140,10 @@ jobs:
         run: |
           git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
           if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
-          cmake -S .whisper-cpp -B .whisper-cpp/build -A '${{ matrix.cmake_arch }}' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', '${{ matrix.cmake_arch }}')
+          if ('${{ matrix.cmake_toolset }}') { $configure += @('-T', '${{ matrix.cmake_toolset }}') }
+          $configure += @('-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DWHISPER_BUILD_TESTS=OFF', '-DWHISPER_BUILD_SERVER=OFF')
+          cmake @configure
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
