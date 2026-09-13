@@ -709,6 +709,9 @@ if missing_gui_dependency is None:
             self._build_ui()
             QApplication.instance().installEventFilter(self)
             self._refresh_quality_options()
+            self._empty_project_settings_snapshot = (
+                self._current_export_settings_snapshot()
+            )
             if self.capabilities.audio_toolbox_aac_available:
                 self.append_log(
                     "Apple AudioToolbox AAC: "
@@ -1791,19 +1794,23 @@ if missing_gui_dependency is None:
             self.append_log(f"Saved project: {saved_path}")
             return True
 
+        def _current_export_settings_snapshot(self) -> tuple[str, str, int, str]:
+            return (
+                str(self.format_box.currentData() or "mp3"),
+                str(self.encoder_box.currentData() or "ffmpeg"),
+                int(self.channels_box.currentData() or 2),
+                str(self.quality_box.currentData() or "320k"),
+            )
+
         def _has_unsaved_project_changes(self) -> bool:
             if self.project is None:
-                defaults = ExportSettings()
                 return bool(
                     self.podcast_edit.text().strip()
                     or self.episode_edit.text().strip()
                     or self.summary_edit.toPlainText().strip()
                     or self.transcript_edit.toPlainText().strip()
-                    or str(self.format_box.currentData() or "mp3") != defaults.output_format
-                    or str(self.encoder_box.currentData() or "lame") != defaults.encoder
-                    or int(self.channels_box.currentData() or 2) != defaults.channels
-                    or str(self.quality_box.currentData() or "320k")
-                    != defaults.quality_preset
+                    or self._current_export_settings_snapshot()
+                    != self._empty_project_settings_snapshot
                 )
             try:
                 self._sync_project_from_form()

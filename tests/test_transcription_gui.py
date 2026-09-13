@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from encap.gui import EncapWindow, ModelManagerDialog
 from encap.transcription_models import (
@@ -22,6 +22,7 @@ from encap.transcription_models import (
     TranscriptionProvider,
 )
 from encap.transcription_service import APPLE_PROVIDER_ID
+from encap.wav_tools import EncapError
 
 
 class SharedModelManagerTest(unittest.TestCase):
@@ -85,6 +86,26 @@ class SharedModelManagerTest(unittest.TestCase):
         ]
         self.assertEqual(provider_ids, [SUPERWHISPER_PROVIDER_ID, APPLE_PROVIDER_ID])
         self.assertEqual(window.transcription_provider_box.currentData(), SUPERWHISPER_PROVIDER_ID)
+
+    def test_empty_window_is_clean_when_lame_is_unavailable(self) -> None:
+        with patch(
+            "encap.gui.ensure_lame",
+            side_effect=EncapError("LAME is unavailable"),
+        ), patch.object(
+            EncapWindow,
+            "_initialize_updates",
+            return_value=None,
+        ):
+            window = EncapWindow()
+        try:
+            self.assertEqual(window.encoder_box.currentData(), "ffmpeg")
+            self.assertFalse(window._has_unsaved_project_changes())
+        finally:
+            with patch(
+                "encap.gui.QMessageBox.question",
+                return_value=QMessageBox.StandardButton.Discard,
+            ):
+                window.close()
 
 
 if __name__ == "__main__":
