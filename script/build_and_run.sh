@@ -20,7 +20,7 @@ case "$NATIVE_ARCH" in
 esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="$ROOT_DIR/.venv-packaging/bin/python"
+CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -32,8 +32,7 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 XCODE_PROJECT="$ROOT_DIR/macos/EnCap.xcodeproj"
 XCODE_BUILD_DIR="$ROOT_DIR/build/xcode"
 XCODE_APP="$XCODE_BUILD_DIR/Build/Products/Release/EnCap.app"
-ENGINE_DIST_DIR="$ROOT_DIR/build/native-engine-dist"
-ENGINE_WORK_DIR="$ROOT_DIR/build/native-engine-work"
+RUST_ENGINE="$ROOT_DIR/target/release/encap-engine"
 SPARKLE_DIR="$ROOT_DIR/.sparkle"
 SPARKLE_VERSION_DIR="$SPARKLE_DIR/$SPARKLE_VERSION"
 SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle-$SPARKLE_VERSION.tar.xz"
@@ -49,14 +48,14 @@ XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer
 ICON_DOCUMENT="$ROOT_DIR/assets/icons/liquid-glass/AppIcon.icon"
 ICON_REPORT="$ROOT_DIR/build/icon-assets.json"
 
-if [[ ! -x "$PYTHON" ]]; then
-  echo "Missing packaging environment: $PYTHON" >&2
-  echo "Create it and install the project plus PyInstaller first." >&2
+if [[ ! -x "$CARGO" ]]; then
+  echo "Missing Rust toolchain: $CARGO" >&2
+  echo "Install Rust with rustup before building EnCap." >&2
   exit 1
 fi
 if [[ ! -s "$PUBLIC_KEY_FILE" ]]; then
   echo "Missing update public key: $PUBLIC_KEY_FILE" >&2
-  echo "Run: $PYTHON scripts/configure_update_keys.py" >&2
+  echo "Run the legacy key setup helper under legacy-python before building a release." >&2
   exit 1
 fi
 if [[ ! -x "$XCODE_DEVELOPER_DIR/usr/bin/xcodebuild" ]]; then
@@ -70,9 +69,10 @@ fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-APP_VERSION="$($PYTHON -c "import runpy; print(runpy.run_path('$ROOT_DIR/src/encap/version.py')['__version__'])")"
+APP_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)"
 UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
 ENCAP_PLATFORM_NAME="macos-$DMG_ARCH_LABEL"
+FFMPEG_INSTALL_DIR="$("$ROOT_DIR/script/build_ffmpeg.sh" | tail -n 1)"
 
 mkdir -p "$SPARKLE_DIR"
 if [[ ! -f "$SPARKLE_ARCHIVE" ]]; then
@@ -104,12 +104,8 @@ DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" xcodebuild \
 test -x "$XCODE_APP/Contents/MacOS/EnCap"
 
 cd "$ROOT_DIR"
-"$PYTHON" -m PyInstaller \
-  --noconfirm \
-  --clean \
-  --distpath "$ENGINE_DIST_DIR" \
-  --workpath "$ENGINE_WORK_DIR" \
-  encap_engine.spec
+"$CARGO" build --locked --release --package encap-engine
+test -x "$RUST_ENGINE"
 
 if [[ ! -d "$WHISPER_CPP_DIR/.git" ]]; then
   git clone --branch "$WHISPER_CPP_VERSION" --depth 1 \
@@ -149,7 +145,7 @@ fi
 rm -rf "$APP_BUNDLE"
 ditto "$XCODE_APP" "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
-cp "$ENGINE_DIST_DIR/encap-engine" "$ENGINE_BINARY"
+cp "$RUST_ENGINE" "$ENGINE_BINARY"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
 ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
 chmod +x "$APP_BINARY" "$ENGINE_BINARY"
@@ -158,9 +154,8 @@ chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$INFO_PLIST"
 
-for TOOL_NAME in ffmpeg ffprobe lame; do
-  TOOL_PATH="$(command -v "$TOOL_NAME")"
-  cp "$TOOL_PATH" "$APP_MACOS/$TOOL_NAME"
+for TOOL_NAME in ffmpeg ffprobe; do
+  cp "$FFMPEG_INSTALL_DIR/bin/$TOOL_NAME" "$APP_MACOS/$TOOL_NAME"
   chmod +x "$APP_MACOS/$TOOL_NAME"
 done
 cp "$WHISPER_CPP_DIR/build/bin/whisper-cli" "$APP_MACOS/whisper-cli"

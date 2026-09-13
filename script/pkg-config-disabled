@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Minimal pkg-config protocol for source builds that explicitly disable every
+# optional pkg-config dependency. Autoconf still requires a version probe.
+case "${1:-}" in
+  --atleast-pkgconfig-version) exit 0 ;;
+  --version) printf '%s\n' '0.29.2' ;;
+  *) exit 1 ;;
+esac

@@ -1,0 +1,16 @@
+[package]
+name = "encap-transcribe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+directories.workspace = true
+encap-core = { path = "../encap-core" }
+encap-ffmpeg = { path = "../encap-ffmpeg" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+uuid.workspace = true
+

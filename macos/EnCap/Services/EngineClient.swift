@@ -147,7 +147,7 @@ struct EngineClient: Sendable {
         arguments: [String],
         environment: [String: String]
     ) {
-        var environment = ProcessInfo.processInfo.environment
+        let environment = ProcessInfo.processInfo.environment
         if let bundled = Bundle.main.executableURL?
             .deletingLastPathComponent()
             .appendingPathComponent("encap-engine"),
@@ -159,13 +159,11 @@ struct EngineClient: Sendable {
             throw EngineError.unavailable
         }
         let root = URL(fileURLWithPath: sourceRoot)
-        let packagingPython = root.appendingPathComponent(".venv-packaging/bin/python")
-        let developmentPython = root.appendingPathComponent(".venv/bin/python")
-        guard let python = [packagingPython, developmentPython].first(where: {
+        let releaseEngine = root.appendingPathComponent("target/release/encap-engine")
+        let debugEngine = root.appendingPathComponent("target/debug/encap-engine")
+        guard let engine = [releaseEngine, debugEngine].first(where: {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }) else { throw EngineError.unavailable }
-        environment["PYTHONPATH"] = root.appendingPathComponent("src").path
-        // Do not let the checkout's legacy encap.py wrapper shadow the package.
-        return (python, ["-P", "-m", "encap.native_bridge"] + arguments, environment)
+        return (engine, arguments, environment)
     }
 }

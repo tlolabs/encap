@@ -1,0 +1,12 @@
+[package]
+name = "encap-ffmpeg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+encap-core = { path = "../encap-core" }
+tempfile.workspace = true
+tracing.workspace = true
+
