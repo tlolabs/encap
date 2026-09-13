@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import stat
@@ -19,6 +20,13 @@ from .models import (
 from .wav_tools import EncapError
 
 PROJECT_SCHEMA_VERSION = 1
+_MAX_PROJECT_ENTRIES = 4096
+_MAX_PROJECT_MANIFEST_BYTES = 8 * 1024 * 1024
+_MAX_PROJECT_MEMBER_BYTES = 32 * 1024 * 1024 * 1024
+_MAX_PROJECT_TOTAL_BYTES = 64 * 1024 * 1024 * 1024
+_MAX_PROJECT_COMPRESSION_RATIO = 1000
+_MIN_FREE_BYTES_AFTER_EXTRACTION = 2 * 1024 * 1024 * 1024
+_EXTRACTION_CHUNK_BYTES = 1024 * 1024
 
 
 def save_project(project: ProjectDocument, target_path: Path) -> Path:
@@ -133,15 +141,19 @@ def save_project(project: ProjectDocument, target_path: Path) -> Path:
     return target_path
 
 
-def load_project(project_path: Path) -> ProjectDocument:
+def load_project(project_path: Path, *, extraction_parent: Path | None = None) -> ProjectDocument:
     if not project_path.exists():
         raise EncapError(f"Project file does not exist: {project_path}")
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="encap-project-"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="encap-project-", dir=extraction_parent))
     try:
         with zipfile.ZipFile(project_path, "r") as archive:
             _safe_extract_archive(archive, temp_dir)
         return _load_extracted_project(project_path, temp_dir)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError,
+            zipfile.BadZipFile, RuntimeError) as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise EncapError(f"Project could not be opened: {exc}") from exc
     except BaseException:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
@@ -153,6 +165,7 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
         raise EncapError(f"{project_path} does not contain a manifest.json file.")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _validate_manifest(manifest)
     if manifest.get("schema_version") != PROJECT_SCHEMA_VERSION:
         raise EncapError(
             f"Unsupported project schema version: {manifest.get('schema_version')!r}."
@@ -170,7 +183,7 @@ def _load_extracted_project(project_path: Path, temp_dir: Path) -> ProjectDocume
     audio_sources: list[AudioSourceEntry] = []
     for item in manifest["audio_sources"]:
         stored_path = item["stored_path"]
-        source_path = _resolve_stored_path(temp_dir, stored_path)
+        source_path = _resolve_media_path(temp_dir, stored_path)
         audio_sources.append(
             AudioSourceEntry(
                 source_path=source_path,
@@ -248,16 +261,126 @@ def cleanup_loaded_project(project: ProjectDocument) -> None:
 def _resolve_optional_path(root: Path, value: str | None) -> Path | None:
     if not value:
         return None
-    return _resolve_stored_path(root, value)
+    return _resolve_media_path(root, value)
+
+
+def _resolve_media_path(root: Path, value: object) -> Path:
+    path = _resolve_stored_path(root, value)
+    if not path.is_file():
+        raise EncapError(f"Project media is missing: {value}")
+    return path
+
+
+def _validate_manifest(manifest: object) -> None:
+    """Reject malformed values before they reach UI controls or time arithmetic."""
+    if not isinstance(manifest, dict):
+        raise EncapError("The project manifest must be an object.")
+
+    def record(value: object, name: str) -> dict:
+        if not isinstance(value, dict):
+            raise EncapError(f"Invalid project {name}.")
+        return value
+
+    def text_fields(item: dict, names: tuple[str, ...]) -> None:
+        for name in names:
+            if name in item and not isinstance(item[name], str):
+                raise EncapError(f"Project {name} must be text.")
+
+    def time_value(item: dict, name: str) -> float:
+        value = item.get(name, 0.0)
+        if isinstance(value, bool):
+            raise EncapError(f"Invalid project {name}.")
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise EncapError(f"Project {name} must be a finite, nonnegative number.")
+        return number
+
+    text_fields(manifest, ("project_title",))
+    metadata = record(manifest.get("metadata"), "metadata")
+    text_fields(metadata, ("podcast_title", "episode_title", "summary"))
+    settings = record(manifest.get("export_settings"), "export settings")
+    text_fields(settings, ("output_format", "quality_preset", "bitrate", "encoder"))
+    for collection, times, texts in (
+        ("audio_sources", ("duration_seconds",), ("display_name",)),
+        ("chapters", ("start_time_seconds", "duration_seconds"), ("title", "link_url")),
+        ("transcript_segments", ("start_time_seconds", "end_time_seconds"), ("speaker", "text")),
+    ):
+        items = manifest.get(collection)
+        if not isinstance(items, list):
+            raise EncapError(f"Project {collection} must be a list.")
+        for item in items:
+            item = record(item, collection)
+            text_fields(item, texts)
+            values = [time_value(item, name) for name in times]
+            if collection == "transcript_segments" and values[1] < values[0]:
+                raise EncapError("Transcript end time precedes its start time.")
 
 
 def _safe_extract_archive(archive: zipfile.ZipFile, destination: Path) -> None:
-    for member in archive.infolist():
-        _resolve_stored_path(destination, member.filename)
+    members = archive.infolist()
+    if len(members) > _MAX_PROJECT_ENTRIES:
+        raise EncapError("The project archive contains too many files.")
+
+    seen: set[Path] = set()
+    targets: dict[str, Path] = {}
+    total_size = 0
+    manifest_found = False
+    for member in members:
+        target = _resolve_stored_path(destination, member.filename)
+        if target in seen:
+            raise EncapError("The project archive contains duplicate paths.")
+        seen.add(target)
+        targets[member.filename] = target
+
         unix_mode = member.external_attr >> 16
         if stat.S_ISLNK(unix_mode):
             raise EncapError("The project archive contains an unsafe path.")
-    archive.extractall(destination)
+        file_type = stat.S_IFMT(unix_mode)
+        if file_type and not (stat.S_ISREG(unix_mode) or stat.S_ISDIR(unix_mode)):
+            raise EncapError("The project archive contains an unsafe file type.")
+
+        if member.is_dir():
+            continue
+        if member.file_size < 0 or member.file_size > _MAX_PROJECT_MEMBER_BYTES:
+            raise EncapError("A file in the project archive is too large.")
+        total_size += member.file_size
+        if total_size > _MAX_PROJECT_TOTAL_BYTES:
+            raise EncapError("The project archive is too large to open safely.")
+        if member.file_size and member.file_size > max(member.compress_size, 1) * _MAX_PROJECT_COMPRESSION_RATIO:
+            raise EncapError("The project archive has an unsafe compression ratio.")
+        if target == destination.resolve() / "manifest.json":
+            manifest_found = True
+            if member.file_size > _MAX_PROJECT_MANIFEST_BYTES:
+                raise EncapError("The project manifest is too large.")
+
+    if not manifest_found:
+        raise EncapError("The project does not contain a manifest.json file.")
+
+    destination.mkdir(parents=True, exist_ok=True)
+    free_bytes = shutil.disk_usage(destination).free
+    if total_size > max(0, free_bytes - _MIN_FREE_BYTES_AFTER_EXTRACTION):
+        raise EncapError("There is not enough free space to open this project safely.")
+
+    extracted_size = 0
+    for member in members:
+        target = targets[member.filename]
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        member_size = 0
+        with archive.open(member, "r") as source, target.open("xb") as output:
+            while True:
+                chunk = source.read(_EXTRACTION_CHUNK_BYTES)
+                if not chunk:
+                    break
+                member_size += len(chunk)
+                extracted_size += len(chunk)
+                if member_size > member.file_size or extracted_size > _MAX_PROJECT_TOTAL_BYTES:
+                    raise EncapError("The project archive expanded beyond its declared size.")
+                output.write(chunk)
+        if member_size != member.file_size:
+            raise EncapError("A file in the project archive has an invalid size.")
 
 
 def _resolve_stored_path(root: Path, value: object) -> Path:

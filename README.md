@@ -79,7 +79,9 @@ overwrite themselves.
 
 ## Install from source
 
-EnCap requires Python 3.11 or newer. The desktop interface uses PySide6/Qt 6.
+EnCap requires Python 3.11 or newer. The shipping macOS app is a native
+SwiftUI application backed by the existing Python audio engine. Windows and
+Linux use the PySide6/Qt interface.
 
 ```bash
 git clone https://github.com/tlolabs/encap.git
@@ -90,11 +92,25 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 ```
 
-Launch the desktop app:
+Launch the cross-platform Qt interface:
 
 ```bash
 encap-gui
 ```
+
+To build and launch the native macOS application, install Xcode 26 and create
+the packaging environment once:
+
+```bash
+python3 -m venv .venv-packaging
+.venv-packaging/bin/python -m pip install --upgrade pip
+.venv-packaging/bin/python -m pip install -e . pyinstaller
+./script/build_and_run.sh
+```
+
+The macOS build uses the checked-in Xcode project so Apple’s asset compiler can
+link the Icon Composer document into the application bundle. The SwiftUI source
+and unit tests are also available as a Swift package under `macos/`.
 
 Run the CLI:
 

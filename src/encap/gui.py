@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import re
 import sys
 import urllib.error
@@ -19,7 +20,7 @@ if __package__ in {None, ""}:
         ensure_lame,
         media_encoder_available,
     )
-    from encap.models import CapabilityFlags, ChapterEntry, ProjectDocument
+    from encap.models import CapabilityFlags, ChapterEntry, ExportSettings, ProjectDocument
     from encap.project_io import cleanup_loaded_project, load_project, save_project
     from encap.service import audio_path_sort_key, build_project_document
     from encap.transcript_tools import (
@@ -61,7 +62,7 @@ else:
         ensure_lame,
         media_encoder_available,
     )
-    from .models import CapabilityFlags, ChapterEntry, ProjectDocument
+    from .models import CapabilityFlags, ChapterEntry, ExportSettings, ProjectDocument
     from .project_io import cleanup_loaded_project, load_project, save_project
     from .service import audio_path_sort_key, build_project_document
     from .transcript_tools import (
@@ -663,6 +664,7 @@ if missing_gui_dependency is None:
             )
             self.model_store = TranscriptionModelStore()
             self.project: ProjectDocument | None = None
+            self._saved_project_snapshot: ProjectDocument | None = None
             self._updating_chapter_table = False
             self._chapter_url_states: dict[str, tuple[str, str]] = {}
             self._url_validation_timer = QTimer(self)
@@ -758,6 +760,9 @@ if missing_gui_dependency is None:
             self.update()
 
         def closeEvent(self, event) -> None:  # pragma: no cover - GUI lifecycle
+            if not self._confirm_pending_project_changes("closing EnCap"):
+                event.ignore()
+                return
             if hasattr(self, "transcribe_page"):
                 self.transcribe_page.stop_playback()
             if self.project is not None:
@@ -1615,7 +1620,7 @@ if missing_gui_dependency is None:
                     folder,
                     prompt_for_conversion=self.confirm_conversion,
                 )
-            except EncapError as exc:
+            except (EncapError, OSError) as exc:
                 QMessageBox.critical(self, "Import failed", str(exc))
                 return
 
@@ -1628,7 +1633,7 @@ if missing_gui_dependency is None:
                 self._sync_project_from_form()
                 try:
                     self._merge_imported_audio(imported, insertion)
-                except EncapError as exc:
+                except (EncapError, OSError) as exc:
                     cleanup_loaded_project(imported)
                     QMessageBox.critical(self, "Import failed", str(exc))
                     return
@@ -1739,9 +1744,11 @@ if missing_gui_dependency is None:
             path, _ = QFileDialog.getOpenFileName(self, "Open project", "", "EnCap Project (*.encap)")
             if not path:
                 return
+            if not self._confirm_pending_project_changes("opening another project"):
+                return
             try:
                 project = load_project(Path(path))
-            except EncapError as exc:
+            except (EncapError, OSError) as exc:
                 QMessageBox.critical(self, "Open failed", str(exc))
                 return
 
@@ -1749,17 +1756,18 @@ if missing_gui_dependency is None:
                 self.transcribe_page.stop_playback()
                 cleanup_loaded_project(self.project)
             self.project = project
+            self._saved_project_snapshot = deepcopy(project)
             self._populate_form_from_project()
             self._set_status(f"Opened project: {Path(path).name}")
             self.append_log(f"Opened project: {path}")
 
-        def save_project_file(self) -> None:
+        def save_project_file(self) -> bool:
             if self.project is None:
                 self._ensure_project_from_form()
             try:
                 self._sync_project_from_form()
             except EncapError:
-                return
+                return False
             initial_name = (
                 self.project.project_path.name
                 if self.project.project_path
@@ -1772,14 +1780,55 @@ if missing_gui_dependency is None:
                 "EnCap Project (*.encap)",
             )
             if not path:
-                return
+                return False
             try:
                 saved_path = save_project(self.project, Path(path))
-            except EncapError as exc:
+            except (EncapError, OSError) as exc:
                 QMessageBox.critical(self, "Save failed", str(exc))
-                return
+                return False
+            self._saved_project_snapshot = deepcopy(self.project)
             self._set_status(f"Saved project: {saved_path.name}")
             self.append_log(f"Saved project: {saved_path}")
+            return True
+
+        def _has_unsaved_project_changes(self) -> bool:
+            if self.project is None:
+                defaults = ExportSettings()
+                return bool(
+                    self.podcast_edit.text().strip()
+                    or self.episode_edit.text().strip()
+                    or self.summary_edit.toPlainText().strip()
+                    or self.transcript_edit.toPlainText().strip()
+                    or str(self.format_box.currentData() or "mp3") != defaults.output_format
+                    or str(self.encoder_box.currentData() or "lame") != defaults.encoder
+                    or int(self.channels_box.currentData() or 2) != defaults.channels
+                    or str(self.quality_box.currentData() or "320k")
+                    != defaults.quality_preset
+                )
+            try:
+                self._sync_project_from_form()
+            except EncapError:
+                return True
+            return (
+                self._saved_project_snapshot is None
+                or self.project != self._saved_project_snapshot
+            )
+
+        def _confirm_pending_project_changes(self, action: str) -> bool:
+            if not self._has_unsaved_project_changes():
+                return True
+            response = QMessageBox.question(
+                self,
+                "Save project changes?",
+                f"This project has unsaved changes. Save them before {action}?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if response == QMessageBox.StandardButton.Save:
+                return self.save_project_file()
+            return response == QMessageBox.StandardButton.Discard
 
         def choose_artwork(self) -> None:
             path, _ = QFileDialog.getOpenFileName(
@@ -1931,7 +1980,7 @@ if missing_gui_dependency is None:
                     prompt_for_conversion=self.confirm_conversion,
                     output_path=requested_path,
                 )
-            except EncapError as exc:
+            except (EncapError, OSError) as exc:
                 QMessageBox.critical(self, "Export failed", str(exc))
                 self.append_log(f"Export failed: {exc}")
                 return
@@ -1998,10 +2047,14 @@ if missing_gui_dependency is None:
             output_path = Path(path)
             if output_path.suffix.lower() != extension:
                 output_path = output_path.with_suffix(extension)
-            if format_name == "srt":
-                export_transcript_srt(self.project, output_path)
-            else:
-                export_transcript_txt(self.project, output_path)
+            try:
+                if format_name == "srt":
+                    export_transcript_srt(self.project, output_path)
+                else:
+                    export_transcript_txt(self.project, output_path)
+            except (EncapError, OSError, ValueError) as exc:
+                QMessageBox.critical(self, "Export failed", str(exc))
+                return
             self._set_status(f"Exported transcript: {output_path.name}")
             self.append_log(f"Exported transcript: {output_path}")
 

@@ -4,20 +4,15 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="EnCap"
 BUNDLE_ID="com.tlolabs.encap"
-SPARKLE_VERSION="2.9.4"
-SPARKLE_SHA256="ce89daf967db1e1893ed3ebd67575ed82d3902563e3191ca92aaec9164fbdef9"
+SPARKLE_VERSION="2.9.6"
+SPARKLE_SHA256="52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192"
 WHISPER_CPP_VERSION="v1.9.1"
+WHISPER_CPP_COMMIT="f049fff95a089aa9969deb009cdd4892b3e74916"
 
 NATIVE_ARCH="$(uname -m)"
 case "$NATIVE_ARCH" in
-  arm64)
-    ENCAP_PLATFORM_NAME="macos-arm64"
-    DMG_ARCH_LABEL="arm64"
-    ;;
-  x86_64)
-    ENCAP_PLATFORM_NAME="macos-intel"
-    DMG_ARCH_LABEL="intel"
-    ;;
+  arm64) DMG_ARCH_LABEL="arm64" ;;
+  x86_64) DMG_ARCH_LABEL="intel" ;;
   *)
     echo "Unsupported macOS architecture: $NATIVE_ARCH" >&2
     exit 1
@@ -27,26 +22,32 @@ esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$ROOT_DIR/.venv-packaging/bin/python"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
-APP_BINARY="$APP_BUNDLE/Contents/MacOS/EnCap"
+APP_CONTENTS="$APP_BUNDLE/Contents"
+APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
+APP_BINARY="$APP_MACOS/EnCap"
+ENGINE_BINARY="$APP_MACOS/encap-engine"
+INFO_PLIST="$APP_CONTENTS/Info.plist"
+XCODE_PROJECT="$ROOT_DIR/macos/EnCap.xcodeproj"
+XCODE_BUILD_DIR="$ROOT_DIR/build/xcode"
+XCODE_APP="$XCODE_BUILD_DIR/Build/Products/Release/EnCap.app"
+ENGINE_DIST_DIR="$ROOT_DIR/build/native-engine-dist"
+ENGINE_WORK_DIR="$ROOT_DIR/build/native-engine-work"
 SPARKLE_DIR="$ROOT_DIR/.sparkle"
-SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle.tar.xz"
-SPARKLE_FRAMEWORK="$SPARKLE_DIR/Sparkle.framework"
+SPARKLE_VERSION_DIR="$SPARKLE_DIR/$SPARKLE_VERSION"
+SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle-$SPARKLE_VERSION.tar.xz"
+SPARKLE_FRAMEWORK="$SPARKLE_VERSION_DIR/Sparkle.framework"
 PUBLIC_KEY_FILE="$ROOT_DIR/src/encap/update_public_key.txt"
 WHISPER_CPP_DIR="$ROOT_DIR/.whisper-cpp"
 APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/apple-transcriber"
+APPLE_AAC_INFO="$ROOT_DIR/.build-tools/apple-aac-info"
 WHISPERKIT_PACKAGE="$ROOT_DIR/helpers/whisperkit_transcriber"
 WHISPERKIT_BUILD_DIR="$ROOT_DIR/.build-tools/whisperkit-transcriber-build"
 WHISPERKIT_TRANSCRIBER="$ROOT_DIR/.build-tools/whisperkit-transcriber"
 XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
-ACTOOL="$XCODE_DEVELOPER_DIR/usr/bin/actool"
-ICON_COMPOSER_TOOL="/Applications/Icon Composer.app/Contents/Executables/ictool"
 ICON_DOCUMENT="$ROOT_DIR/assets/icons/liquid-glass/AppIcon.icon"
-ICON_BUILD_DIR="$ROOT_DIR/build/icon-composer-compiled"
-ICON_ASSET_CAR="$ICON_BUILD_DIR/Assets.car"
-ICON_FALLBACK="$ICON_BUILD_DIR/AppIcon.icns"
-ICON_FALLBACK_SOURCE="$ICON_BUILD_DIR/AppIcon-default.png"
-ICON_FALLBACK_SET="$ICON_BUILD_DIR/AppIcon.iconset"
-ICON_PARTIAL_PLIST="$ICON_BUILD_DIR/assetcatalog_generated_info.plist"
+ICON_REPORT="$ROOT_DIR/build/icon-assets.json"
 
 if [[ ! -x "$PYTHON" ]]; then
   echo "Missing packaging environment: $PYTHON" >&2
@@ -58,12 +59,8 @@ if [[ ! -s "$PUBLIC_KEY_FILE" ]]; then
   echo "Run: $PYTHON scripts/configure_update_keys.py" >&2
   exit 1
 fi
-if [[ ! -x "$ACTOOL" ]]; then
-  echo "Missing Xcode 26 asset compiler: $ACTOOL" >&2
-  exit 1
-fi
-if [[ ! -x "$ICON_COMPOSER_TOOL" ]]; then
-  echo "Missing Icon Composer export tool: $ICON_COMPOSER_TOOL" >&2
+if [[ ! -x "$XCODE_DEVELOPER_DIR/usr/bin/xcodebuild" ]]; then
+  echo "Missing Xcode build tool: $XCODE_DEVELOPER_DIR/usr/bin/xcodebuild" >&2
   exit 1
 fi
 if [[ ! -d "$ICON_DOCUMENT" ]]; then
@@ -73,55 +70,9 @@ fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-mkdir -p "$ICON_BUILD_DIR"
-DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" "$ACTOOL" \
-  "$ICON_DOCUMENT" \
-  --compile "$ICON_BUILD_DIR" \
-  --output-format human-readable-text \
-  --notices \
-  --warnings \
-  --output-partial-info-plist "$ICON_PARTIAL_PLIST" \
-  --app-icon AppIcon \
-  --compress-pngs \
-  --enable-on-demand-resources NO \
-  --development-region en \
-  --minimum-deployment-target 13.0 \
-  --platform macosx
-test -s "$ICON_ASSET_CAR"
-test -s "$ICON_FALLBACK"
-
-# The asset compiler's compatibility ICNS currently tops out at 256 px. Build
-# a complete static fallback from the Default (light) rendition for legacy
-# macOS, while retaining Assets.car for appearance-aware current systems.
-rm -rf "$ICON_FALLBACK_SET"
-mkdir -p "$ICON_FALLBACK_SET"
-"$ICON_COMPOSER_TOOL" \
-  "$ICON_DOCUMENT" \
-  --export-image \
-  --output-file "$ICON_FALLBACK_SOURCE" \
-  --platform macOS \
-  --rendition Default \
-  --width 1024 \
-  --height 1024 \
-  --scale 1 \
-  --light-angle -45 >/dev/null
-for ICON_SPEC in \
-  "16 icon_16x16.png" \
-  "32 icon_16x16@2x.png" \
-  "32 icon_32x32.png" \
-  "64 icon_32x32@2x.png" \
-  "128 icon_128x128.png" \
-  "256 icon_128x128@2x.png" \
-  "256 icon_256x256.png" \
-  "512 icon_256x256@2x.png" \
-  "512 icon_512x512.png" \
-  "1024 icon_512x512@2x.png"; do
-  read -r ICON_SIZE ICON_NAME <<< "$ICON_SPEC"
-  sips -z "$ICON_SIZE" "$ICON_SIZE" "$ICON_FALLBACK_SOURCE" \
-    --out "$ICON_FALLBACK_SET/$ICON_NAME" >/dev/null
-done
-iconutil -c icns "$ICON_FALLBACK_SET" -o "$ICON_FALLBACK"
-test "$(sips -g pixelWidth "$ICON_FALLBACK" | awk '/pixelWidth/ {print $2}')" = "1024"
+APP_VERSION="$($PYTHON -c "import runpy; print(runpy.run_path('$ROOT_DIR/src/encap/version.py')['__version__'])")"
+UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
+ENCAP_PLATFORM_NAME="macos-$DMG_ARCH_LABEL"
 
 mkdir -p "$SPARKLE_DIR"
 if [[ ! -f "$SPARKLE_ARCHIVE" ]]; then
@@ -131,14 +82,41 @@ if [[ ! -f "$SPARKLE_ARCHIVE" ]]; then
 fi
 echo "$SPARKLE_SHA256  $SPARKLE_ARCHIVE" | shasum -a 256 --check
 if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
-  tar -xJf "$SPARKLE_ARCHIVE" -C "$SPARKLE_DIR"
+  mkdir -p "$SPARKLE_VERSION_DIR"
+  tar -xJf "$SPARKLE_ARCHIVE" -C "$SPARKLE_VERSION_DIR"
 fi
+
+# Building the application through its Xcode target is required for Icon
+# Composer. Xcode links the layered icon stack and generates the compatibility
+# renditions as one atomic asset-catalog operation.
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" xcodebuild \
+  -project "$XCODE_PROJECT" \
+  -scheme EnCap \
+  -configuration Release \
+  -derivedDataPath "$XCODE_BUILD_DIR" \
+  CODE_SIGNING_ALLOWED=NO \
+  ARCHS="$NATIVE_ARCH" \
+  ONLY_ACTIVE_ARCH=YES \
+  MARKETING_VERSION="$APP_VERSION" \
+  CURRENT_PROJECT_VERSION="$APP_VERSION" \
+  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+  build
+test -x "$XCODE_APP/Contents/MacOS/EnCap"
+
+cd "$ROOT_DIR"
+"$PYTHON" -m PyInstaller \
+  --noconfirm \
+  --clean \
+  --distpath "$ENGINE_DIST_DIR" \
+  --workpath "$ENGINE_WORK_DIR" \
+  encap_engine.spec
 
 if [[ ! -d "$WHISPER_CPP_DIR/.git" ]]; then
   git clone --branch "$WHISPER_CPP_VERSION" --depth 1 \
     https://github.com/ggml-org/whisper.cpp.git "$WHISPER_CPP_DIR"
 fi
 test "$(git -C "$WHISPER_CPP_DIR" describe --tags --exact-match)" = "$WHISPER_CPP_VERSION"
+test "$(git -C "$WHISPER_CPP_DIR" rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
 cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_CPP_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF \
@@ -149,15 +127,17 @@ cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_CPP_DIR/build" \
 cmake --build "$WHISPER_CPP_DIR/build" --config Release --target whisper-cli
 
 mkdir -p "$(dirname "$APPLE_TRANSCRIBER")"
-swiftc -swift-version 5 -O "$ROOT_DIR/helpers/apple_transcriber.swift" \
-  -o "$APPLE_TRANSCRIBER"
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
+  "$ROOT_DIR/helpers/apple_transcriber.swift" -o "$APPLE_TRANSCRIBER"
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
+  "$ROOT_DIR/helpers/apple_aac_info.swift" -o "$APPLE_AAC_INFO"
 if [[ "$NATIVE_ARCH" == "arm64" ]]; then
-  swift build \
+  DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build \
     --package-path "$WHISPERKIT_PACKAGE" \
     --scratch-path "$WHISPERKIT_BUILD_DIR" \
     --configuration release \
     --product whisperkit-transcriber
-  WHISPERKIT_BIN_DIR="$(swift build \
+  WHISPERKIT_BIN_DIR="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build \
     --package-path "$WHISPERKIT_PACKAGE" \
     --scratch-path "$WHISPERKIT_BUILD_DIR" \
     --configuration release \
@@ -166,53 +146,52 @@ if [[ "$NATIVE_ARCH" == "arm64" ]]; then
   chmod +x "$WHISPERKIT_TRANSCRIBER"
 fi
 
-APP_VERSION="$($PYTHON -c "import runpy; print(runpy.run_path('$ROOT_DIR/src/encap/version.py')['__version__'])")"
-UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
+rm -rf "$APP_BUNDLE"
+ditto "$XCODE_APP" "$APP_BUNDLE"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
+cp "$ENGINE_DIST_DIR/encap-engine" "$ENGINE_BINARY"
+cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
+ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
+chmod +x "$APP_BINARY" "$ENGINE_BINARY"
+/usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/tlolabs/encap/releases/latest/download/appcast-$ENCAP_PLATFORM_NAME.xml" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $UPDATE_PUBLIC_KEY" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$INFO_PLIST"
 
-cd "$ROOT_DIR"
-ENCAP_PLATFORM="$ENCAP_PLATFORM_NAME" \
-ENCAP_UPDATE_PUBLIC_KEY="$UPDATE_PUBLIC_KEY" \
-  "$PYTHON" -m PyInstaller --noconfirm --clean encap_gui.spec
-
-cp "$ICON_ASSET_CAR" "$APP_BUNDLE/Contents/Resources/Assets.car"
-cp "$ICON_FALLBACK" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile AppIcon' "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Delete :CFBundleIconName' "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || true
-/usr/libexec/PlistBuddy -c 'Add :CFBundleIconName string AppIcon' "$APP_BUNDLE/Contents/Info.plist"
-
-for TOOL_NAME in ffmpeg ffprobe; do
+for TOOL_NAME in ffmpeg ffprobe lame; do
   TOOL_PATH="$(command -v "$TOOL_NAME")"
-  cp "$TOOL_PATH" "$APP_BUNDLE/Contents/MacOS/$TOOL_NAME"
-  chmod +x "$APP_BUNDLE/Contents/MacOS/$TOOL_NAME"
-  codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/$TOOL_NAME"
+  cp "$TOOL_PATH" "$APP_MACOS/$TOOL_NAME"
+  chmod +x "$APP_MACOS/$TOOL_NAME"
 done
-
-cp "$WHISPER_CPP_DIR/build/bin/whisper-cli" "$APP_BUNDLE/Contents/MacOS/whisper-cli"
-chmod +x "$APP_BUNDLE/Contents/MacOS/whisper-cli"
-codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/whisper-cli"
-cp "$APPLE_TRANSCRIBER" "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
-chmod +x "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
-codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/apple-transcriber"
+cp "$WHISPER_CPP_DIR/build/bin/whisper-cli" "$APP_MACOS/whisper-cli"
+cp "$APPLE_TRANSCRIBER" "$APP_MACOS/apple-transcriber"
+cp "$APPLE_AAC_INFO" "$APP_MACOS/apple-aac-info"
+chmod +x "$APP_MACOS/whisper-cli" "$APP_MACOS/apple-transcriber" "$APP_MACOS/apple-aac-info"
 if [[ "$NATIVE_ARCH" == "arm64" && -x "$WHISPERKIT_TRANSCRIBER" ]]; then
-  cp "$WHISPERKIT_TRANSCRIBER" "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
-  chmod +x "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
-  codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/whisperkit-transcriber"
+  cp "$WHISPERKIT_TRANSCRIBER" "$APP_MACOS/whisperkit-transcriber"
+  chmod +x "$APP_MACOS/whisperkit-transcriber"
 fi
 
-ditto "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-codesign --force --sign - "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+for SIGNABLE in "$APP_MACOS"/*; do
+  codesign --force --sign - "$SIGNABLE"
+done
+codesign --force --sign - "$APP_FRAMEWORKS/Sparkle.framework"
 codesign --force --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
-plutil -lint "$APP_BUNDLE/Contents/Info.plist"
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Contents/Info.plist")" = "$BUNDLE_ID"
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_BUNDLE/Contents/Info.plist")" = "$APP_VERSION"
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP_BUNDLE/Contents/Info.plist")" = "AppIcon"
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP_BUNDLE/Contents/Info.plist")" = "AppIcon"
-assetutil --info "$APP_BUNDLE/Contents/Resources/Assets.car" > "$ICON_BUILD_DIR/bundle-assets.json"
-grep '"AssetType" : "IconGroup"' "$ICON_BUILD_DIR/bundle-assets.json" >/dev/null
+plutil -lint "$INFO_PLIST"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" = "$BUNDLE_ID"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")" = "$APP_VERSION"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$INFO_PLIST")" = "AppIcon"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$INFO_PLIST")" = "AppIcon"
+test -s "$APP_RESOURCES/AppIcon.icns"
+test -s "$APP_RESOURCES/Assets.car"
+assetutil --info "$APP_RESOURCES/Assets.car" > "$ICON_REPORT"
+grep '"AssetType" : "IconImageStack"' "$ICON_REPORT" >/dev/null
 file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 
 open_app() {
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$APP_BUNDLE" >/dev/null
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
@@ -228,12 +207,8 @@ package_dmg() {
 }
 
 case "$MODE" in
-  run)
-    open_app
-    ;;
-  --debug|debug)
-    lldb -- "$APP_BINARY"
-    ;;
+  run) open_app ;;
+  --debug|debug) lldb -- "$APP_BINARY" ;;
   --logs|logs)
     open_app
     /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\""
@@ -247,9 +222,7 @@ case "$MODE" in
     sleep 2
     pgrep -x "$APP_NAME" >/dev/null
     ;;
-  --package|package)
-    package_dmg
-    ;;
+  --package|package) package_dmg ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package]" >&2
     exit 2

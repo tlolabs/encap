@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
 import struct
 from collections.abc import Iterator
 from pathlib import Path
 
+from .file_tools import atomic_output
 from .models import CueMarker, StitchPlan, WavFormat, WavSource
 
 RIFF_HEADER_SIZE = 12
@@ -52,6 +54,8 @@ def load_wav_source(path: Path) -> WavSource:
 
             if chunk_id == b"fmt ":
                 source_file.seek(chunk_data_offset)
+                if chunk_size > 65553:
+                    raise UnsupportedWavError(f"{path} has an oversized fmt chunk.")
                 fmt_chunk_data = _read_exact(source_file, chunk_size, path, "fmt chunk")
             elif chunk_id == b"data":
                 data_offset = chunk_data_offset
@@ -67,8 +71,24 @@ def load_wav_source(path: Path) -> WavSource:
     audio_format, channels, sample_rate, byte_rate, block_align, bits_per_sample = struct.unpack(
         "<HHIIHH", fmt_chunk_data[:16]
     )
-    if block_align == 0:
-        raise UnsupportedWavError(f"{path} has an invalid block alignment.")
+    encoding = audio_format
+    if encoding == 65534:
+        if len(fmt_chunk_data) < 40 or struct.unpack_from("<H", fmt_chunk_data, 16)[0] < 22:
+            raise UnsupportedWavError(f"{path} has an invalid extensible WAV format.")
+        # KSDATAFORMAT_SUBTYPE_PCM / IEEE_FLOAT share the standard GUID suffix.
+        if fmt_chunk_data[28:40] != bytes.fromhex("00001000800000aa00389b71"):
+            raise UnsupportedWavError(f"{path} uses an unsupported WAV encoding.")
+        encoding = struct.unpack_from("<I", fmt_chunk_data, 24)[0]
+        valid_bits = struct.unpack_from("<H", fmt_chunk_data, 18)[0]
+        if not 0 < valid_bits <= bits_per_sample:
+            raise UnsupportedWavError(f"{path} has an invalid WAV sample precision.")
+    supported_bits = {1: {8, 16, 24, 32}, 3: {32, 64}}
+    if encoding not in supported_bits or bits_per_sample not in supported_bits[encoding]:
+        raise UnsupportedWavError(f"{path} uses an unsupported WAV encoding or bit depth.")
+    if channels == 0 or sample_rate == 0:
+        raise UnsupportedWavError(f"{path} has an invalid channel count or sample rate.")
+    if block_align != channels * (bits_per_sample // 8) or byte_rate != sample_rate * block_align:
+        raise UnsupportedWavError(f"{path} has an invalid block alignment or byte rate.")
     if data_size % block_align != 0:
         raise UnsupportedWavError(f"{path} has a data chunk that is not frame aligned.")
 
@@ -126,7 +146,7 @@ def load_aiff_source(path: Path) -> WavSource:
                 raise UnsupportedWavError(f"{path} has a truncated {chunk_id!r} chunk.")
             if chunk_id == b"COMM":
                 source_file.seek(chunk_data_offset)
-                comm_chunk_data = _read_exact(source_file, chunk_size, path, "COMM chunk")
+                comm_chunk_data = _read_exact(source_file, min(chunk_size, 18), path, "COMM chunk")
             elif chunk_id == b"SSND":
                 if chunk_size < 8:
                     raise UnsupportedWavError(f"{path} has an invalid AIFF audio chunk.")
@@ -156,6 +176,8 @@ def load_aiff_source(path: Path) -> WavSource:
         raise UnsupportedWavError(f"{path} has truncated AIFF sample data.")
 
     byte_rate = sample_rate * block_align
+    if block_align > 65535 or byte_rate > RIFF_MAX_SIZE:
+        raise UnsupportedWavError(f"{path} uses an unsupported AIFF PCM format.")
     fmt_chunk_data = struct.pack(
         "<HHIIHH",
         1,
@@ -190,26 +212,27 @@ def _decode_extended_float(raw: bytes) -> int:
         raise UnsupportedWavError("Invalid AIFF sample-rate value.")
     exponent = struct.unpack(">H", raw[:2])[0]
     mantissa = int.from_bytes(raw[2:], byteorder="big")
-    if exponent == 0 and mantissa == 0:
-        return 0
-    if exponent & 0x8000:
-        raise UnsupportedWavError("Negative AIFF sample rates are not supported.")
-    value = mantissa * (2.0 ** ((exponent & 0x7FFF) - 16383 - 63))
-    sample_rate = int(round(value))
-    if sample_rate <= 0:
+    if exponent & 0x8000 or exponent == 0x7FFF:
         raise UnsupportedWavError("Invalid AIFF sample rate.")
-    return sample_rate
+    try:
+        value = math.ldexp(mantissa, exponent - 16383 - 63)
+    except OverflowError as exc:
+        raise UnsupportedWavError("Invalid AIFF sample rate.") from exc
+    if not math.isfinite(value) or not 1 <= value <= RIFF_MAX_SIZE:
+        raise UnsupportedWavError("Invalid AIFF sample rate.")
+    return int(round(value))
 
 
 def formats_match(left: WavFormat, right: WavFormat) -> bool:
     return (
-        left.audio_format == right.audio_format
+        left.encoding == right.encoding
         and left.channels == right.channels
         and left.sample_rate == right.sample_rate
         and left.byte_rate == right.byte_rate
         and left.block_align == right.block_align
         and left.bits_per_sample == right.bits_per_sample
-        and left.fmt_chunk_data == right.fmt_chunk_data
+        and left.valid_bits == right.valid_bits
+        and (not left.channel_mask or not right.channel_mask or left.channel_mask == right.channel_mask)
     )
 
 
@@ -272,19 +295,20 @@ def write_wav(plan: StitchPlan) -> None:
             "Export shorter sections, use 16-bit audio, or downsample the sources before exporting."
         )
 
-    with plan.output_path.open("wb") as output_file:
-        output_file.write(b"RIFF")
-        output_file.write(struct.pack("<I", riff_size))
-        output_file.write(b"WAVE")
-        output_file.write(fmt_chunk)
-        output_file.write(b"data")
-        output_file.write(struct.pack("<I", data_size))
-        for source in plan.sources:
-            for chunk in _iter_pcm_chunks(source):
-                output_file.write(chunk)
-        if data_padding_size:
-            output_file.write(b"\x00")
-        output_file.write(extra_chunks)
+    with atomic_output(plan.output_path) as temporary:
+        with temporary.open("wb") as output_file:
+            output_file.write(b"RIFF")
+            output_file.write(struct.pack("<I", riff_size))
+            output_file.write(b"WAVE")
+            output_file.write(fmt_chunk)
+            output_file.write(b"data")
+            output_file.write(struct.pack("<I", data_size))
+            for source in plan.sources:
+                for chunk in _iter_pcm_chunks(source):
+                    output_file.write(chunk)
+            if data_padding_size:
+                output_file.write(b"\x00")
+            output_file.write(extra_chunks)
 
     if plan.report_path is not None:
         lines = ["E.N.C.A.P. marker report", f"Output: {plan.output_path}", ""]
@@ -297,7 +321,8 @@ def write_wav(plan: StitchPlan) -> None:
             lines.append(f"Marker {marker.label}: frame {marker.sample_offset}")
         lines.append("")
         lines.append(f"Total frames: {total_frames}")
-        plan.report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with atomic_output(plan.report_path) as temporary_report:
+            temporary_report.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _chunk(chunk_id: bytes, payload: bytes) -> bytes:
@@ -336,8 +361,10 @@ def _iter_pcm_chunks(source: WavSource) -> Iterator[bytes]:
 
 def _swap_sample_byte_order(chunk: bytes, sample_width: int) -> bytes:
     converted = bytearray(len(chunk))
-    for offset in range(0, len(chunk), sample_width):
-        converted[offset : offset + sample_width] = chunk[offset : offset + sample_width][::-1]
+    if len(chunk) % sample_width:
+        raise UnsupportedWavError("PCM data is not sample aligned.")
+    for byte in range(sample_width):
+        converted[byte::sample_width] = chunk[sample_width - 1 - byte::sample_width]
     return bytes(converted)
 
 

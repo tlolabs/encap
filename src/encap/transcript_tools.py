@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .file_tools import atomic_output
 from .models import ProjectDocument, TranscriptSegment
 
 
@@ -10,7 +11,8 @@ def export_transcript_txt(project: ProjectDocument, output_path: Path) -> Path:
     for segment in project.transcript_segments:
         prefix = f"{segment.speaker}: " if segment.speaker.strip() else ""
         lines.append(f"{prefix}{segment.text}".rstrip())
-    output_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    with atomic_output(output_path) as temporary:
+        temporary.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return output_path
 
 
@@ -29,7 +31,8 @@ def export_transcript_srt(project: ProjectDocument, output_path: Path) -> Path:
                 ]
             )
         )
-    output_path.write_text("\n\n".join(blocks).strip() + "\n", encoding="utf-8")
+    with atomic_output(output_path) as temporary:
+        temporary.write_text("\n\n".join(blocks).strip() + "\n", encoding="utf-8")
     return output_path
 
 

@@ -16,6 +16,24 @@ class WavFormat:
     fmt_chunk_data: bytes
 
     @property
+    def encoding(self) -> int:
+        if self.audio_format == 65534 and len(self.fmt_chunk_data) >= 40:
+            return int.from_bytes(self.fmt_chunk_data[24:28], "little")
+        return self.audio_format
+
+    @property
+    def valid_bits(self) -> int:
+        if self.audio_format == 65534 and len(self.fmt_chunk_data) >= 40:
+            return int.from_bytes(self.fmt_chunk_data[18:20], "little")
+        return self.bits_per_sample
+
+    @property
+    def channel_mask(self) -> int:
+        if self.audio_format == 65534 and len(self.fmt_chunk_data) >= 40:
+            return int.from_bytes(self.fmt_chunk_data[20:24], "little")
+        return 0
+
+    @property
     def sample_width_bytes(self) -> int:
         return self.bits_per_sample // 8
 

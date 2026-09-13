@@ -15,19 +15,31 @@ def _wait_for_exit(pid: int, timeout_seconds: float = 120.0) -> None:
     if sys.platform == "win32":
         import ctypes
 
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
         synchronize = 0x00100000
         wait_object_0 = 0x00000000
         wait_timeout = 0x00000102
-        handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, pid)
+        handle = kernel32.OpenProcess(synchronize, False, pid)
         if not handle:
-            return
+            # ERROR_INVALID_PARAMETER means the process no longer exists.
+            if ctypes.get_last_error() == 87:
+                return
+            raise ctypes.WinError(ctypes.get_last_error())
         try:
-            result = ctypes.windll.kernel32.WaitForSingleObject(
+            result = kernel32.WaitForSingleObject(
                 handle,
                 int(timeout_seconds * 1000),
             )
         finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            kernel32.CloseHandle(handle)
         if result == wait_object_0:
             return
         if result == wait_timeout:
@@ -38,7 +50,7 @@ def _wait_for_exit(pid: int, timeout_seconds: float = 120.0) -> None:
     while time.monotonic() < deadline:
         try:
             os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
+        except ProcessLookupError:
             return
         time.sleep(0.25)
     raise RuntimeError("Timed out waiting for EnCap to exit.")

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 import tempfile
+from contextlib import nullcontext
+from dataclasses import replace
+from datetime import datetime
 from collections.abc import Callable
 from pathlib import Path
 
@@ -59,11 +62,15 @@ def sort_wav_files(paths: list[Path]) -> list[Path]:
     return sorted(paths, key=audio_path_sort_key)
 
 
-def audio_path_sort_key(path: Path) -> tuple[int, tuple[int, int, int, int, int, int], str]:
+def audio_path_sort_key(path: Path) -> tuple:
     parsed = parse_recorder_timestamp(path.stem)
+    natural_name = tuple(
+        (1, int(part)) if part.isdigit() else (0, part)
+        for part in re.split(r"([0-9]+)", path.name.lower())
+    )
     if parsed is not None:
-        return (0, parsed, path.name.lower())
-    return (1, (0, 0, 0, 0, 0, 0), path.name.lower())
+        return (0, parsed, natural_name, path.name)
+    return (1, (0, 0, 0, 0, 0, 0), natural_name, path.name)
 
 
 def discover_wav_groups(source_dir: Path) -> list[tuple[RecordingDate | None, list[Path]]]:
@@ -98,7 +105,7 @@ def parse_recorder_timestamp(stem: str) -> tuple[int, int, int, int, int, int] |
     match = RECORDER_NAME_PATTERN.match(stem)
     if match is None:
         return None
-    return (
+    timestamp = (
         int(match.group("yyyy")),
         int(match.group("mm")),
         int(match.group("dd")),
@@ -106,6 +113,11 @@ def parse_recorder_timestamp(stem: str) -> tuple[int, int, int, int, int, int] |
         int(match.group("min")),
         int(match.group("ss")),
     )
+    try:
+        datetime(*timestamp)
+    except ValueError:
+        return None
+    return timestamp
 
 
 def build_project_document(
@@ -195,6 +207,8 @@ def prepare_sources(
 def prepare_sources_for_paths(
     wav_paths: list[Path],
     prompt_for_conversion: ConversionPrompt,
+    *,
+    working_dir: Path | None = None,
 ) -> list[WavSource]:
     if not wav_paths:
         raise EncapError("No WAV files were selected for processing.")
@@ -203,9 +217,10 @@ def prepare_sources_for_paths(
     reference = load_audio_source(wav_paths[0])
     sources.append(reference)
 
-    with tempfile.TemporaryDirectory(prefix="encap-") as temp_dir_name:
+    temporary = tempfile.TemporaryDirectory(prefix="encap-") if working_dir is None else nullcontext(working_dir)
+    with temporary as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        for path in wav_paths[1:]:
+        for index, path in enumerate(wav_paths[1:]):
             source = load_audio_source(path)
             if formats_match(reference.wav_format, source.wav_format):
                 sources.append(source)
@@ -214,7 +229,7 @@ def prepare_sources_for_paths(
             if not prompt_for_conversion(path):
                 raise EncapError(f"Conversion declined for mismatched WAV: {path}")
 
-            converted_path = temp_dir / f"{path.stem}.converted.wav"
+            converted_path = temp_dir / f"{index}-{path.stem}.converted.wav"
             convert_to_match(path, converted_path, reference.wav_format)
             converted_source = load_wav_source(converted_path)
             if not formats_match(reference.wav_format, converted_source.wav_format):
@@ -223,7 +238,10 @@ def prepare_sources_for_paths(
                 WavSource(
                     path=path,
                     wav_format=converted_source.wav_format,
-                    data=read_source_pcm(converted_source),
+                    data=read_source_pcm(converted_source) if working_dir is None else None,
+                    data_path=converted_path if working_dir is not None else None,
+                    data_offset=converted_source.data_offset if working_dir is not None else 0,
+                    data_size=converted_source.data_size,
                 )
             )
 
@@ -240,9 +258,22 @@ def create_stitched_wav_for_paths(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_name
     report_path = output_path.with_suffix(".markers.txt") if write_report else None
-    sources = prepare_sources_for_paths(wav_paths=wav_paths, prompt_for_conversion=prompt_for_conversion)
-    plan = build_stitch_plan(sources=sources, output_path=output_path, report_path=report_path)
-    write_wav(plan)
+    with tempfile.TemporaryDirectory(prefix="encap-stitch-") as directory:
+        sources = prepare_sources_for_paths(
+            wav_paths=wav_paths, prompt_for_conversion=prompt_for_conversion,
+            working_dir=Path(directory),
+        )
+        plan = build_stitch_plan(sources=sources, output_path=output_path, report_path=report_path)
+        write_wav(plan)
+        # A returned plan must remain readable after conversion files are removed.
+        data_offset = load_wav_source(output_path).data_offset
+        retained_sources = []
+        for source in sources:
+            if source.data_path is not None and source.data_path.parent == Path(directory):
+                source = replace(source, data_path=output_path, data_offset=data_offset)
+            retained_sources.append(source)
+            data_offset += source.data_size
+        plan = replace(plan, sources=retained_sources)
     return plan
 
 
