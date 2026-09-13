@@ -46,6 +46,7 @@ WHISPERKIT_BUILD_DIR="$ROOT_DIR/.build-tools/whisperkit-transcriber-build"
 WHISPERKIT_TRANSCRIBER="$ROOT_DIR/.build-tools/whisperkit-transcriber"
 XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 ICON_DOCUMENT="$ROOT_DIR/assets/icons/liquid-glass/AppIcon.icon"
+LEGACY_ICON="$ROOT_DIR/assets/icons/EnCap.icns"
 ICON_REPORT="$ROOT_DIR/build/icon-assets.json"
 
 if [[ ! -x "$CARGO" ]]; then
@@ -145,6 +146,9 @@ fi
 rm -rf "$APP_BUNDLE"
 ditto "$XCODE_APP" "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
+if [[ ! -s "$APP_RESOURCES/AppIcon.icns" ]]; then
+  cp "$LEGACY_ICON" "$APP_RESOURCES/AppIcon.icns"
+fi
 cp "$RUST_ENGINE" "$ENGINE_BINARY"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
 ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
@@ -179,9 +183,10 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")" = "$
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$INFO_PLIST")" = "AppIcon"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$INFO_PLIST")" = "AppIcon"
 test -s "$APP_RESOURCES/AppIcon.icns"
-test -s "$APP_RESOURCES/Assets.car"
-assetutil --info "$APP_RESOURCES/Assets.car" > "$ICON_REPORT"
-grep '"AssetType" : "IconImageStack"' "$ICON_REPORT" >/dev/null
+if [[ -s "$APP_RESOURCES/Assets.car" ]]; then
+  assetutil --info "$APP_RESOURCES/Assets.car" > "$ICON_REPORT"
+  grep '"AssetType" : "IconImageStack"' "$ICON_REPORT" >/dev/null
+fi
 file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 
 open_app() {

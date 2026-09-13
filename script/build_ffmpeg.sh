@@ -15,6 +15,7 @@ LAME_INSTALL_DIR="$ROOT_DIR/.build-tools/lame-$LAME_VERSION-install-$(uname -m)"
 XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 CLANG="$XCODE_DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
 SDKROOT="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-path)"
+TARGET_ARCH="$(uname -m)"
 
 if [[ -x "$INSTALL_DIR/bin/ffmpeg" && -x "$INSTALL_DIR/bin/ffprobe" ]] && \
    ! otool -L "$INSTALL_DIR/bin/ffmpeg" "$INSTALL_DIR/bin/ffprobe" | grep -Eq '/(opt|usr/local)/homebrew|/Cellar/'; then
@@ -49,8 +50,8 @@ if [[ ! -f "$LAME_INSTALL_DIR/lib/libmp3lame.a" ]]; then
   cd "$LAME_SOURCE_DIR"
   make distclean >/dev/null 2>&1 || true
   CC="$CLANG" \
-  CFLAGS="--sysroot=$SDKROOT -mmacosx-version-min=13.0 -Wno-implicit-function-declaration" \
-  LDFLAGS="--sysroot=$SDKROOT -mmacosx-version-min=13.0" \
+  CFLAGS="--sysroot=$SDKROOT -arch $TARGET_ARCH -mmacosx-version-min=13.0 -Wno-implicit-function-declaration" \
+  LDFLAGS="--sysroot=$SDKROOT -arch $TARGET_ARCH -mmacosx-version-min=13.0" \
   PKG_CONFIG="$ROOT_DIR/script/pkg-config-disabled" \
   ac_cv_prog_cc_c23=no \
   ./configure \
@@ -73,8 +74,8 @@ PKG_CONFIG_PATH="$LAME_INSTALL_DIR/lib/pkgconfig" ./configure \
   --prefix="$INSTALL_DIR" \
   --cc="$CLANG" \
   --sysroot="$SDKROOT" \
-  --extra-cflags="-mmacosx-version-min=13.0 -I$LAME_INSTALL_DIR/include" \
-  --extra-ldflags="-mmacosx-version-min=13.0 -L$LAME_INSTALL_DIR/lib" \
+  --extra-cflags="-arch $TARGET_ARCH -mmacosx-version-min=13.0 -I$LAME_INSTALL_DIR/include" \
+  --extra-ldflags="-arch $TARGET_ARCH -mmacosx-version-min=13.0 -L$LAME_INSTALL_DIR/lib" \
   --host-cflags="--sysroot=$SDKROOT" \
   --host-ldflags="--sysroot=$SDKROOT" \
   --pkg-config-flags="--static" \
@@ -85,6 +86,7 @@ PKG_CONFIG_PATH="$LAME_INSTALL_DIR/lib/pkgconfig" ./configure \
   --disable-ffplay \
   --disable-network \
   --disable-autodetect \
+  --disable-x86asm \
   --enable-gpl \
   --enable-libmp3lame \
   --enable-zlib \
