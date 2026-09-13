@@ -241,7 +241,7 @@ pub fn transcribe(
         ));
     }
     if let Some(candidate) = resolved.as_ref() {
-        if let Backend::WhisperCpp { model, sha256 } = &candidate.backend {
+        if let Some((model, sha256)) = candidate.backend.whisper_cpp() {
             // Hash multi-gigabyte weights once per job, not once per source file.
             if let Err(error) = verify_path(model, sha256, &candidate.source_name) {
                 if candidate.id != SUPERWHISPER_ID {
@@ -251,7 +251,7 @@ pub fn transcribe(
                 let Some(fallback) = resolved.as_ref() else {
                     return Err(error);
                 };
-                if let Backend::WhisperCpp { model, sha256 } = &fallback.backend {
+                if let Some((model, sha256)) = fallback.backend.whisper_cpp() {
                     verify_path(model, sha256, &fallback.source_name)?;
                 }
             }
@@ -561,6 +561,16 @@ enum Backend {
         model: PathBuf,
         tokenizer: PathBuf,
     },
+}
+
+impl Backend {
+    fn whisper_cpp(&self) -> Option<(&Path, &str)> {
+        match self {
+            Self::WhisperCpp { model, sha256 } => Some((model, sha256)),
+            #[cfg(target_os = "macos")]
+            Self::WhisperKit { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone)]
