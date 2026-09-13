@@ -17,8 +17,14 @@ CLANG="$XCODE_DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
 SDKROOT="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-path)"
 TARGET_ARCH="$(uname -m)"
 
+has_linker_signature() {
+  codesign -dvv "$1" 2>&1 | grep 'linker-signed' >/dev/null
+}
+
 if [[ -x "$INSTALL_DIR/bin/ffmpeg" && -x "$INSTALL_DIR/bin/ffprobe" ]] && \
-   ! otool -L "$INSTALL_DIR/bin/ffmpeg" "$INSTALL_DIR/bin/ffprobe" | grep -Eq '/(opt|usr/local)/homebrew|/Cellar/'; then
+   ! otool -L "$INSTALL_DIR/bin/ffmpeg" "$INSTALL_DIR/bin/ffprobe" | grep -Eq '/(opt|usr/local)/homebrew|/Cellar/' && \
+   has_linker_signature "$INSTALL_DIR/bin/ffmpeg" && \
+   has_linker_signature "$INSTALL_DIR/bin/ffprobe"; then
   "$INSTALL_DIR/bin/ffmpeg" -version | grep -q "ffmpeg version $FFMPEG_VERSION"
   printf '%s\n' "$INSTALL_DIR"
   exit 0
@@ -75,7 +81,7 @@ PKG_CONFIG_PATH="$LAME_INSTALL_DIR/lib/pkgconfig" ./configure \
   --cc="$CLANG" \
   --sysroot="$SDKROOT" \
   --extra-cflags="-arch $TARGET_ARCH -mmacosx-version-min=13.0 -I$LAME_INSTALL_DIR/include" \
-  --extra-ldflags="-arch $TARGET_ARCH -mmacosx-version-min=13.0 -L$LAME_INSTALL_DIR/lib" \
+  --extra-ldflags="-arch $TARGET_ARCH -mmacosx-version-min=13.0 -Wl,-adhoc_codesign -L$LAME_INSTALL_DIR/lib" \
   --host-cflags="--sysroot=$SDKROOT" \
   --host-ldflags="--sysroot=$SDKROOT" \
   --pkg-config-flags="--static" \
@@ -97,4 +103,6 @@ make install
 
 "$INSTALL_DIR/bin/ffmpeg" -hide_banner -version | grep -q "ffmpeg version $FFMPEG_VERSION"
 "$INSTALL_DIR/bin/ffprobe" -hide_banner -version | grep -q "ffprobe version $FFMPEG_VERSION"
+has_linker_signature "$INSTALL_DIR/bin/ffmpeg"
+has_linker_signature "$INSTALL_DIR/bin/ffprobe"
 printf '%s\n' "$INSTALL_DIR"
