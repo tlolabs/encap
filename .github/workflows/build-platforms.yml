@@ -108,6 +108,7 @@ jobs:
             platform: x64
             cmake_arch: x64
             cmake_toolset: ""
+            pe_machine: "8664"
             ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-9.0.zip
             ffmpeg_sha256: e536631f802a668172209a7f3f12bd7b87cd05dccebb498da7a518a3d6d3d037
           - label: arm64
@@ -116,6 +117,7 @@ jobs:
             platform: ARM64
             cmake_arch: ARM64
             cmake_toolset: ClangCL
+            pe_machine: "AA64"
             ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-winarm64-gpl-9.0.zip
             ffmpeg_sha256: db61f2b7a34c4682666f364e6b144489c0bbf8e861a936dbdb4ca3164a60f377
     runs-on: windows-latest
@@ -165,8 +167,22 @@ jobs:
           if (!$whisper) { throw 'whisper-cli build is missing' }
           Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
-          & "$stage/encap-engine.exe" validate-tools
-          & "$stage/ffmpeg.exe" -hide_banner -version | Select-String "ffmpeg version $env:FFMPEG_VERSION"
+          function Assert-PeMachine([string] $path, [uint16] $expected) {
+            $bytes = [IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "$path is not a PE executable" }
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length) { throw "$path has an invalid PE header" }
+            $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+            if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
+          }
+          $expectedMachine = [Convert]::ToUInt16('${{ matrix.pe_machine }}', 16)
+          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
+            Assert-PeMachine "$stage/$executable" $expectedMachine
+          }
+          if ('${{ matrix.label }}' -eq 'x64') {
+            & "$stage/encap-engine.exe" validate-tools
+            & "$stage/ffmpeg.exe" -hide_banner -version | Select-String "ffmpeg version $env:FFMPEG_VERSION"
+          }
           New-Item -ItemType Directory -Force dist/release | Out-Null
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
