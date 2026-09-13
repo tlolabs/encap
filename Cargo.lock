@@ -457,6 +457,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "encap-release"
+version = "2.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "clap",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+]
+
+[[package]]
 name = "encap-transcript"
 version = "2.0.0"
 dependencies = [

@@ -4,6 +4,15 @@ __pycache__/
 *.egg-info/
 .venv/
 .venv-packaging/
+# Native main policy: Python lives only on archive/python-legacy.
+*.py
+*.pyi
+*.pyw
+*.pyx
+*.spec
+pyproject.toml
+Pipfile
+requirements*.txt
 .codex/
 node_modules/
 .sparkle/

@@ -86,15 +86,15 @@ Run the shared checks before committing:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-python3 -m unittest discover -s tests
+./script/check_no_python.sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --package-path macos --scratch-path build/native-swift
 ```
 
-The Python suite remains valuable because it encodes legacy format and behavior
-contracts. Cross-platform compilation and package validation run in
-`.github/workflows/build-platforms.yml`. Tests must not require network access;
-model downloads are validated through local streams and catalog metadata tests.
+Cross-platform compilation and package validation run in
+`.github/workflows/build-platforms.yml`. Native tests retain schema-1 compatibility
+coverage. Tests must not require network access; model downloads are validated
+through local streams and catalog metadata tests.
 
 ## Dependency and release policy
 
@@ -103,7 +103,8 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Tagged CI accepts the update private key via
-repository secrets and emits hashes plus signed metadata. macOS notarization and
+Do not commit signing credentials. Tagged CI uses the native `encap-release` tool
+with the update private key from repository secrets and emits hashes plus signed
+metadata. macOS notarization and
 Developer ID signing require external credentials and are intentionally outside
 an uncredentialed local build.

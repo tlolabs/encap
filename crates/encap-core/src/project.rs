@@ -625,7 +625,7 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn saves_and_loads_python_compatible_project() {
+    fn saves_and_loads_schema_one_compatible_project() {
         let temp = tempfile::tempdir().unwrap();
         let media = temp.path().join("part.wav");
         fs::write(&media, b"audio").unwrap();
