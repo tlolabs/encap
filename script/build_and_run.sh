@@ -49,6 +49,10 @@ ICON_DOCUMENT="$ROOT_DIR/assets/icons/liquid-glass/AppIcon.icon"
 LEGACY_ICON="$ROOT_DIR/assets/icons/EnCap.icns"
 ICON_REPORT="$ROOT_DIR/build/icon-assets.json"
 
+has_linker_signature() {
+  codesign -dvv "$1" 2>&1 | grep 'linker-signed' >/dev/null
+}
+
 if [[ ! -x "$CARGO" ]]; then
   echo "Missing Rust toolchain: $CARGO" >&2
   echo "Install Rust with rustup before building EnCap." >&2
@@ -105,8 +109,10 @@ DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" xcodebuild \
 test -x "$XCODE_APP/Contents/MacOS/EnCap"
 
 cd "$ROOT_DIR"
-"$CARGO" build --locked --release --package encap-engine
+RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-adhoc_codesign" \
+  "$CARGO" build --locked --release --package encap-engine
 test -x "$RUST_ENGINE"
+has_linker_signature "$RUST_ENGINE"
 
 if [[ ! -d "$WHISPER_CPP_DIR/.git" ]]; then
   git clone --branch "$WHISPER_CPP_VERSION" --depth 1 \
@@ -116,18 +122,24 @@ test "$(git -C "$WHISPER_CPP_DIR" describe --tags --exact-match)" = "$WHISPER_CP
 test "$(git -C "$WHISPER_CPP_DIR" rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
 cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_CPP_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_EXE_LINKER_FLAGS="-Wl,-adhoc_codesign" \
   -DBUILD_SHARED_LIBS=OFF \
   -DGGML_NATIVE=OFF \
   -DGGML_OPENMP=OFF \
   -DWHISPER_BUILD_TESTS=OFF \
   -DWHISPER_BUILD_SERVER=OFF
 cmake --build "$WHISPER_CPP_DIR/build" --config Release --target whisper-cli
+has_linker_signature "$WHISPER_CPP_DIR/build/bin/whisper-cli"
 
 mkdir -p "$(dirname "$APPLE_TRANSCRIBER")"
 DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
-  "$ROOT_DIR/helpers/apple_transcriber.swift" -o "$APPLE_TRANSCRIBER"
+  "$ROOT_DIR/helpers/apple_transcriber.swift" -Xlinker -adhoc_codesign \
+  -o "$APPLE_TRANSCRIBER"
 DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
-  "$ROOT_DIR/helpers/apple_aac_info.swift" -o "$APPLE_AAC_INFO"
+  "$ROOT_DIR/helpers/apple_aac_info.swift" -Xlinker -adhoc_codesign \
+  -o "$APPLE_AAC_INFO"
+has_linker_signature "$APPLE_TRANSCRIBER"
+has_linker_signature "$APPLE_AAC_INFO"
 if [[ "$NATIVE_ARCH" == "arm64" ]]; then
   DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build \
     --package-path "$WHISPERKIT_PACKAGE" \
