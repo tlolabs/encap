@@ -11,7 +11,7 @@
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <ApplicationIcon>Assets\EnCap.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\icons\EnCap.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
@@ -20,4 +20,3 @@
     <Content Include="..\..\assets\icons\EnCap.ico" Link="Assets\EnCap.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
-
