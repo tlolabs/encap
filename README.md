@@ -134,7 +134,7 @@ Its source, packaging files, and instructions remain intact under
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `0.2.0` uses `v0.2.0`). The native workflow builds
+version (for example, version `0.2.1` uses `v0.2.1`). The native workflow builds
 and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64 packages. Tagged
 runs additionally publish checksummed release assets and signed update metadata.
 macOS uses Sparkle with architecture-specific appcasts. Developer ID,
