@@ -4,29 +4,34 @@
 [![Native builds](https://github.com/tlolabs/encap/actions/workflows/build-platforms.yml/badge.svg)](https://github.com/tlolabs/encap/actions/workflows/build-platforms.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-EnCap turns a naturally ordered folder of recordings into a chaptered podcast
-file and can create, edit, and export a local transcript. Version 0.2 replaces
-the application engine with Rust and provides a native interface for macOS,
-Windows, and Linux. The original Python application remains in
+EnCap 2.0 turns a naturally ordered folder of recordings into audio, transcript,
+and social-video deliverables in one portable project. Its Rust engine has native
+interfaces for macOS, Windows, and Linux. The original Python application remains in
 [`legacy-python/`](legacy-python/) for comparison until the rewrite has been
 manually accepted.
 
 ## Architecture
 
-EnCap has two independent application modes over one shared project format:
+EnCap has three peer application modes over one shared project format:
 
-- **Assemble & Encode** imports and validates recordings, normalizes mismatched
+- **Audio** imports and validates recordings, normalizes mismatched
   sources, maintains chapter and episode metadata, and exports MP3 or AAC/M4A.
-- **Transcribe** discovers local providers, manages optional Whisper models,
+- **Transcript** discovers local providers, manages optional Whisper models,
   transcribes without uploading audio, edits timestamped segments and speakers,
-  and exports TXT or SRT.
+  and exports TXT or SRT. Word timestamps are optional and persist in the project.
+- **Video** selects and independently reorders chapters, previews the continuous
+  timeline, and exports one H.264 or HEVC MP4 using the original source audio and
+  chapter/main artwork. Social presets, custom dimensions/FPS, flips, preview
+  quality, and automatic/hardware/software encoding are included.
 
-The modes are separate Rust crates—`encap-assemble` and `encap-transcribe`—so
-neither mode depends on the other. Both use `encap-core` for the project model
+The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
+`encap-video`—so no workflow owns another. All use `encap-core` for the project model
 and persistence and `encap-ffmpeg` for controlled subprocess execution. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
 GTK 4/libadwaita applications thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
+Video's timing, encoder selection, and composition rules are documented in
+[`docs/video-mode.md`](docs/video-mode.md).
 
 ## Download
 
@@ -60,6 +65,8 @@ Control-click EnCap, choose **Open**, and confirm once.
 - Apple on-device Speech on macOS and verified local `whisper.cpp` models on all
   supported platforms.
 - Editable transcript text, timestamps, and speaker names with TXT/SRT export.
+- Hard-cut multi-chapter MP4 timelines with AVID's blurred full-canvas background,
+  sharp centered artwork, horizontal/vertical flips, and capability-tested encoders.
 - Responsive background operations with cancellation and owned-child cleanup.
 - Native menus, dialogs, appearance, scaling, accessibility semantics, and file
   opening on each desktop platform.
@@ -134,12 +141,15 @@ Its source, packaging files, and instructions remain intact under
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `0.2.1` uses `v0.2.1`). The native workflow builds
+version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
 and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64 packages. Tagged
 runs additionally publish checksummed release assets and signed update metadata.
 macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release
 steps and are never stored in the repository.
+
+EnCap 2.0 development builds use the normal CI workflow. The stable `v2.0.0` tag
+and release must not be created until the integrated application is manually approved.
 
 ## About and license
 

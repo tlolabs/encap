@@ -1,9 +1,7 @@
 import SwiftUI
 
-struct TranscribeView: View {
+struct TranscriptView: View {
     @ObservedObject var store: AppStore
-    @State private var query = ""
-    @State private var showSpeakers = true
 
     var body: some View {
         if store.project == nil {
@@ -31,9 +29,17 @@ struct TranscribeView: View {
                         Button("SRT Captions…") { store.presentTranscriptSavePanel(format: "srt") }
                     }
                     .disabled(store.project?.transcriptSegments.isEmpty != false)
-                    Toggle("Show Speakers", isOn: $showSpeakers)
+                    Toggle("Show Speakers", isOn: $store.transcriptShowsSpeakers)
+                    Toggle(
+                        "Word timing",
+                        isOn: Binding(
+                            get: { store.project?.transcriptSettings.includeWordTimestamps ?? false },
+                            set: { store.project?.transcriptSettings.includeWordTimestamps = $0 }
+                        )
+                    )
+                    .help("Persist word-level timestamps for future caption workflows")
                     Spacer()
-                    TextField("Search transcript", text: $query)
+                    TextField("Search transcript", text: $store.transcriptSearch)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
                 }
@@ -42,9 +48,9 @@ struct TranscribeView: View {
 
                 if filteredIndices.isEmpty {
                     EmptyStateView(
-                        query.isEmpty ? "No Transcript" : "No Matching Segments",
+                        store.transcriptSearch.isEmpty ? "No Transcript" : "No Matching Segments",
                         systemImage: "captions.bubble",
-                        description: query.isEmpty
+                        description: store.transcriptSearch.isEmpty
                             ? "Choose an on-device engine and transcribe this episode."
                             : "Try another search or clear the search field."
                     )
@@ -53,7 +59,7 @@ struct TranscribeView: View {
                         ForEach(filteredIndices, id: \.self) { index in
                             TranscriptRow(
                                 segment: segmentBinding(index),
-                                showSpeaker: showSpeakers,
+                                showSpeaker: store.transcriptShowsSpeakers,
                                 play: { playSegment(index) }
                             )
                         }
@@ -69,10 +75,10 @@ struct TranscribeView: View {
 
     private var filteredIndices: [Int] {
         guard let segments = store.project?.transcriptSegments else { return [] }
-        guard !query.isEmpty else { return Array(segments.indices) }
+        guard !store.transcriptSearch.isEmpty else { return Array(segments.indices) }
         return segments.indices.filter {
-            segments[$0].text.localizedCaseInsensitiveContains(query)
-                || segments[$0].speaker.localizedCaseInsensitiveContains(query)
+            segments[$0].text.localizedCaseInsensitiveContains(store.transcriptSearch)
+                || segments[$0].speaker.localizedCaseInsensitiveContains(store.transcriptSearch)
         }
     }
 

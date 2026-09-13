@@ -1,13 +1,17 @@
 [package]
-name = "encap-assemble"
+name = "encap-transcript"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+directories.workspace = true
 encap-core = { path = "../encap-core" }
 encap-ffmpeg = { path = "../encap-ffmpeg" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
-tracing.workspace = true
-
+uuid.workspace = true

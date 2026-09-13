@@ -38,7 +38,7 @@ if __package__ in {None, ""}:
         apple_transcription_available,
         transcribe_audio_sources,
     )
-    from encap.transcribe_workspace import TranscribeWorkspace
+    from encap.transcript_workspace import TranscriptWorkspace
     from encap.update_service import (
         PreparedUpdate,
         UpdateRelease,
@@ -80,7 +80,7 @@ else:
         apple_transcription_available,
         transcribe_audio_sources,
     )
-    from .transcribe_workspace import TranscribeWorkspace
+    from .transcript_workspace import TranscriptWorkspace
     from .update_service import (
         PreparedUpdate,
         UpdateRelease,
@@ -700,8 +700,8 @@ if missing_gui_dependency is None:
             self.log_output: QPlainTextEdit
             self.status_bar: QStatusBar
             self.activity_tabs: QTabWidget
-            self.process_audio_page: QWidget
-            self.transcribe_page: TranscribeWorkspace
+            self.audio_page: QWidget
+            self.transcript_page: TranscriptWorkspace
             self.log_dock: QDockWidget
             self.log_action: QAction
             self.toolbar_actions: dict[str, QAction]
@@ -754,7 +754,7 @@ if missing_gui_dependency is None:
                 activity_style = self.activity_tabs.styleSheet()
                 self.activity_tabs.setStyleSheet("")
                 self.activity_tabs.setStyleSheet(activity_style)
-                self.transcribe_page.refresh_appearance()
+                self.transcript_page.refresh_appearance()
             finally:
                 self.setUpdatesEnabled(True)
             self.update()
@@ -763,8 +763,8 @@ if missing_gui_dependency is None:
             if not self._confirm_pending_project_changes("closing EnCap"):
                 event.ignore()
                 return
-            if hasattr(self, "transcribe_page"):
-                self.transcribe_page.stop_playback()
+            if hasattr(self, "transcript_page"):
+                self.transcript_page.stop_playback()
             if self.project is not None:
                 cleanup_loaded_project(self.project)
             super().closeEvent(event)
@@ -824,10 +824,10 @@ if missing_gui_dependency is None:
                 "  background: palette(midlight);"
                 "}"
             )
-            self.process_audio_page = self._build_process_audio_page()
-            self.transcribe_page = self._build_transcribe_page()
-            self.activity_tabs.addTab(self.process_audio_page, "Process Audio")
-            self.activity_tabs.addTab(self.transcribe_page, "Transcribe")
+            self.audio_page = self._build_audio_page()
+            self.transcript_page = self._build_transcript_page()
+            self.activity_tabs.addTab(self.audio_page, "Audio")
+            self.activity_tabs.addTab(self.transcript_page, "Transcript")
             self.activity_tabs.currentChanged.connect(self._update_activity_ui)
             layout.addWidget(self.activity_tabs, stretch=1)
 
@@ -953,22 +953,22 @@ if missing_gui_dependency is None:
             menu_bar.addMenu(self.view_menu)
             self.workspace_action_group = QActionGroup(self)
             self.workspace_action_group.setExclusive(True)
-            self.process_audio_view_action = QAction("Process Audio", self)
-            self.process_audio_view_action.setCheckable(True)
-            self.process_audio_view_action.setShortcut(QKeySequence("Ctrl+1"))
-            self.transcribe_view_action = QAction("Transcribe", self)
-            self.transcribe_view_action.setCheckable(True)
-            self.transcribe_view_action.setShortcut(QKeySequence("Ctrl+2"))
-            self.workspace_action_group.addAction(self.process_audio_view_action)
-            self.workspace_action_group.addAction(self.transcribe_view_action)
-            self.process_audio_view_action.triggered.connect(
-                lambda: self.activity_tabs.setCurrentWidget(self.process_audio_page)
+            self.audio_view_action = QAction("Audio", self)
+            self.audio_view_action.setCheckable(True)
+            self.audio_view_action.setShortcut(QKeySequence("Ctrl+1"))
+            self.transcript_view_action = QAction("Transcript", self)
+            self.transcript_view_action.setCheckable(True)
+            self.transcript_view_action.setShortcut(QKeySequence("Ctrl+2"))
+            self.workspace_action_group.addAction(self.audio_view_action)
+            self.workspace_action_group.addAction(self.transcript_view_action)
+            self.audio_view_action.triggered.connect(
+                lambda: self.activity_tabs.setCurrentWidget(self.audio_page)
             )
-            self.transcribe_view_action.triggered.connect(
-                lambda: self.activity_tabs.setCurrentWidget(self.transcribe_page)
+            self.transcript_view_action.triggered.connect(
+                lambda: self.activity_tabs.setCurrentWidget(self.transcript_page)
             )
-            self.view_menu.addAction(self.process_audio_view_action)
-            self.view_menu.addAction(self.transcribe_view_action)
+            self.view_menu.addAction(self.audio_view_action)
+            self.view_menu.addAction(self.transcript_view_action)
             self.view_menu.addSeparator()
             self.log_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
             self.view_menu.addAction(self.log_action)
@@ -1167,9 +1167,9 @@ if missing_gui_dependency is None:
             self.main_toolbar.setObjectName("mainToolbar")
             self.main_toolbar.setMovable(False)
             self.addToolBar(self.main_toolbar)
-            self._populate_main_toolbar(is_process_audio=True)
+            self._populate_main_toolbar(is_audio=True)
 
-        def _populate_main_toolbar(self, *, is_process_audio: bool) -> None:
+        def _populate_main_toolbar(self, *, is_audio: bool) -> None:
             self.main_toolbar.clear()
             process_only = {"choose_artwork", "export_audio", "ai_summary", "ai_title"}
             for key in [
@@ -1184,7 +1184,7 @@ if missing_gui_dependency is None:
                 "ai_summary",
                 "ai_title",
             ]:
-                if key in process_only and not is_process_audio:
+                if key in process_only and not is_audio:
                     continue
                 self.main_toolbar.addAction(self.toolbar_actions[key])
 
@@ -1204,9 +1204,9 @@ if missing_gui_dependency is None:
             self.log_action.setObjectName("logAction")
             self.log_action.setText("Log")
 
-        def _build_process_audio_page(self) -> QWidget:
+        def _build_audio_page(self) -> QWidget:
             container = QWidget()
-            container.setObjectName("processAudioPage")
+            container.setObjectName("audioPage")
             layout = QVBoxLayout(container)
             layout.setContentsMargins(0, 8, 0, 0)
             layout.setSpacing(10)
@@ -1214,9 +1214,9 @@ if missing_gui_dependency is None:
             layout.addWidget(self._build_chapters_tab(), stretch=1)
             return container
 
-        def _build_transcribe_page(self) -> TranscribeWorkspace:
-            workspace = TranscribeWorkspace()
-            workspace.setObjectName("transcribePage")
+        def _build_transcript_page(self) -> TranscriptWorkspace:
+            workspace = TranscriptWorkspace()
+            workspace.setObjectName("transcriptPage")
             workspace.transcribe_requested.connect(self.transcribe_project)
             workspace.manage_models_requested.connect(self.show_model_manager)
             workspace.export_requested.connect(self.export_transcript)
@@ -1234,11 +1234,11 @@ if missing_gui_dependency is None:
             return workspace
 
         def _update_activity_ui(self, index: int) -> None:
-            is_process_audio = index == 0
-            self._populate_main_toolbar(is_process_audio=is_process_audio)
-            self.chapter_menu.menuAction().setEnabled(is_process_audio)
-            self.process_audio_view_action.setChecked(is_process_audio)
-            self.transcribe_view_action.setChecked(not is_process_audio)
+            is_audio = index == 0
+            self._populate_main_toolbar(is_audio=is_audio)
+            self.chapter_menu.menuAction().setEnabled(is_audio)
+            self.audio_view_action.setChecked(is_audio)
+            self.transcript_view_action.setChecked(not is_audio)
 
         def _build_metadata_group(self) -> QGroupBox:
             group = QGroupBox("Episode")
@@ -1424,8 +1424,8 @@ if missing_gui_dependency is None:
             has_project = self.project is not None and bool(self.project.audio_sources)
             enabled = available and idle and has_project
             self.transcribe_button.setEnabled(enabled)
-            if hasattr(self, "transcribe_page"):
-                self.transcribe_page.set_transcription_enabled(enabled)
+            if hasattr(self, "transcript_page"):
+                self.transcript_page.set_transcription_enabled(enabled)
             if hasattr(self, "transcribe_action"):
                 self.transcribe_action.setEnabled(enabled)
             self._update_export_actions()
@@ -1482,8 +1482,8 @@ if missing_gui_dependency is None:
                 if response == QMessageBox.Yes:
                     self.show_model_manager()
                 return
-            self.transcribe_page.sync_to_project()
-            if self.transcribe_page.has_transcript_content():
+            self.transcript_page.sync_to_project()
+            if self.transcript_page.has_transcript_content():
                 response = QMessageBox.question(
                     self,
                     "Replace existing transcript?",
@@ -1506,7 +1506,7 @@ if missing_gui_dependency is None:
             provider_name = self.transcription_provider_box.currentText()
             self._set_status(f"Starting transcription with {provider_name}…")
             self.append_log(f"Starting local transcription with {provider_name}.")
-            self.activity_tabs.setCurrentWidget(self.transcribe_page)
+            self.activity_tabs.setCurrentWidget(self.transcript_page)
             self._thread_pool.start(worker)
 
         def _handle_transcription_progress(self, current: int, total: int, message: str) -> None:
@@ -1525,12 +1525,12 @@ if missing_gui_dependency is None:
             assert self.project is not None
             self.project.transcript_segments = list(segments)
             self._set_transcript_editor_from_project()
-            self.activity_tabs.setCurrentWidget(self.transcribe_page)
+            self.activity_tabs.setCurrentWidget(self.transcript_page)
             self._set_status(f"Transcription complete: {len(segments)} segment(s).")
             self.append_log(f"Local transcription completed with {len(segments)} segment(s).")
 
         def _set_transcript_editor_from_project(self) -> None:
-            self.transcribe_page.set_project(self.project)
+            self.transcript_page.set_project(self.project)
 
         def _refresh_quality_options(self) -> None:
             self._refresh_encoder_options()
@@ -1629,7 +1629,7 @@ if missing_gui_dependency is None:
                 if insertion is None:
                     cleanup_loaded_project(imported)
                     return
-                self.transcribe_page.stop_playback()
+                self.transcript_page.stop_playback()
                 self._sync_project_from_form()
                 try:
                     self._merge_imported_audio(imported, insertion)
@@ -1647,7 +1647,7 @@ if missing_gui_dependency is None:
                 return
 
             if self.project is not None:
-                self.transcribe_page.stop_playback()
+                self.transcript_page.stop_playback()
                 self._sync_project_from_form()
                 previous_project = self.project
                 inferred_channels = imported.export_settings.channels
@@ -1753,7 +1753,7 @@ if missing_gui_dependency is None:
                 return
 
             if self.project is not None:
-                self.transcribe_page.stop_playback()
+                self.transcript_page.stop_playback()
                 cleanup_loaded_project(self.project)
             self.project = project
             self._saved_project_snapshot = deepcopy(project)
@@ -1859,7 +1859,7 @@ if missing_gui_dependency is None:
             if self.project is not None:
                 return self.project
             self.project = ProjectDocument()
-            self.transcribe_page.set_project(self.project)
+            self.transcript_page.set_project(self.project)
             self._sync_project_from_form()
             self._refresh_chapter_table()
             self._update_transcription_controls()
@@ -2292,7 +2292,7 @@ if missing_gui_dependency is None:
             self.project.export_settings.quality_preset = str(
                 self.quality_box.currentData() or "320k"
             )
-            self.transcribe_page.sync_to_project()
+            self.transcript_page.sync_to_project()
 
         def _schedule_url_validation(self, row: int, chapter_key: str, raw_value: str) -> None:
             self._pending_url_validation = (row, chapter_key, raw_value)

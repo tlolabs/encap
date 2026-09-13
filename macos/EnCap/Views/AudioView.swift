@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ProcessAudioView: View {
+struct AudioView: View {
     @ObservedObject var store: AppStore
 
     var body: some View {
@@ -137,7 +137,10 @@ struct ProcessAudioView: View {
                 Divider()
                 List {
                     ForEach(chapterBindings) { $chapter in
-                        ChapterRow(chapter: $chapter)
+                        ChapterRow(
+                            chapter: $chapter,
+                            chooseArtwork: { store.chooseChapterArtwork(for: chapter.id) }
+                        )
                     }
                     .onDelete(perform: store.removeChapters)
                     .onMove(perform: store.moveChapters)
@@ -177,6 +180,7 @@ struct ProcessAudioView: View {
 
 private struct ChapterRow: View {
     @Binding var chapter: Chapter
+    let chooseArtwork: () -> Void
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 10) {
@@ -191,6 +195,11 @@ private struct ChapterRow: View {
                 TextField("Chapter title", text: $chapter.title)
                 TextField("Link", text: $chapter.linkUrl)
                     .frame(minWidth: 160)
+                Button(action: chooseArtwork) {
+                    Image(systemName: chapter.imagePath == nil ? "photo.badge.plus" : "photo.fill")
+                }
+                .help(chapter.imagePath == nil ? "Add chapter artwork" : "Replace chapter artwork")
+                .accessibilityLabel(chapter.imagePath == nil ? "Add chapter artwork" : "Replace chapter artwork")
             }
         }
         .padding(.vertical, 3)

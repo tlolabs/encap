@@ -13,11 +13,12 @@
 		100000000000000000000005 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Formatters.swift */; };
 		100000000000000000000006 /* ProjectContentType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* ProjectContentType.swift */; };
 		100000000000000000000007 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* ContentView.swift */; };
-		100000000000000000000008 /* ProcessAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* ProcessAudioView.swift */; };
-		100000000000000000000009 /* TranscribeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* TranscribeView.swift */; };
+		100000000000000000000008 /* AudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* AudioView.swift */; };
+		100000000000000000000009 /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* TranscriptView.swift */; };
 		10000000000000000000000A /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* EmptyStateView.swift */; };
 		10000000000000000000000B /* SparkleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SparkleBridge.m */; };
 		10000000000000000000000C /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* AppIcon.icon */; };
+		10000000000000000000000D /* VideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* VideoView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,14 +29,15 @@
 		200000000000000000000005 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/Formatters.swift; sourceTree = "<group>"; };
 		200000000000000000000006 /* ProjectContentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/ProjectContentType.swift; sourceTree = "<group>"; };
 		200000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ContentView.swift; sourceTree = "<group>"; };
-		200000000000000000000008 /* ProcessAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ProcessAudioView.swift; sourceTree = "<group>"; };
-		200000000000000000000009 /* TranscribeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TranscribeView.swift; sourceTree = "<group>"; };
+		200000000000000000000008 /* AudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AudioView.swift; sourceTree = "<group>"; };
+		200000000000000000000009 /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TranscriptView.swift; sourceTree = "<group>"; };
 		20000000000000000000000A /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/EmptyStateView.swift; sourceTree = "<group>"; };
 		20000000000000000000000B /* SparkleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SparkleBridge.m; sourceTree = "<group>"; };
 		20000000000000000000000C /* SparkleBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = include/SparkleBridge.h; sourceTree = "<group>"; };
 		20000000000000000000000D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; name = AppIcon.icon; path = ../assets/icons/liquid-glass/AppIcon.icon; sourceTree = SOURCE_ROOT; };
 		20000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/Info.plist; sourceTree = "<group>"; };
 		20000000000000000000000F /* EnCap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EnCap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000010 /* VideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/VideoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,8 +65,9 @@
 				200000000000000000000005 /* Formatters.swift */,
 				200000000000000000000006 /* ProjectContentType.swift */,
 				200000000000000000000007 /* ContentView.swift */,
-				200000000000000000000008 /* ProcessAudioView.swift */,
-				200000000000000000000009 /* TranscribeView.swift */,
+				200000000000000000000008 /* AudioView.swift */,
+				200000000000000000000009 /* TranscriptView.swift */,
+				200000000000000000000010 /* VideoView.swift */,
 				20000000000000000000000A /* EmptyStateView.swift */,
 				20000000000000000000000E /* Info.plist */,
 			);
@@ -134,8 +137,9 @@
 				100000000000000000000005 /* Formatters.swift in Sources */,
 				100000000000000000000006 /* ProjectContentType.swift in Sources */,
 				100000000000000000000007 /* ContentView.swift in Sources */,
-				100000000000000000000008 /* ProcessAudioView.swift in Sources */,
-				100000000000000000000009 /* TranscribeView.swift in Sources */,
+				100000000000000000000008 /* AudioView.swift in Sources */,
+				100000000000000000000009 /* TranscriptView.swift in Sources */,
+				10000000000000000000000D /* VideoView.swift in Sources */,
 				10000000000000000000000A /* EmptyStateView.swift in Sources */,
 				10000000000000000000000B /* SparkleBridge.m in Sources */,
 			);
@@ -152,12 +156,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.2.1;
+				CURRENT_PROJECT_VERSION = 2.0.0;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnCap/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tlolabs.encap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = SparkleBridge/include/SparkleBridge.h;
@@ -171,12 +175,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 0.2.1;
+				CURRENT_PROJECT_VERSION = 2.0.0;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EnCap/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 2.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tlolabs.encap;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = SparkleBridge/include/SparkleBridge.h;

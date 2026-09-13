@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use encap_core::{
     load_project, replace_staged_file, save_project, EncapError, ProjectDocument, Result,
+    PROJECT_SCHEMA_VERSION,
 };
 use encap_ffmpeg::{CancellationToken, MediaTools};
 use serde::Serialize;
@@ -39,6 +40,12 @@ enum Commands {
         payload: PathBuf,
         output: PathBuf,
     },
+    ExportVideo {
+        payload: PathBuf,
+        output: PathBuf,
+    },
+    VideoPresets,
+    VideoCapabilities,
     ExportTranscript {
         payload: PathBuf,
         output: PathBuf,
@@ -48,6 +55,8 @@ enum Commands {
     Transcribe {
         payload: PathBuf,
         provider: String,
+        #[arg(long)]
+        word_timestamps: bool,
     },
     Providers,
     Models,
@@ -110,7 +119,7 @@ fn main() {
 
 fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
     match cli.command {
-        Commands::Inspect { folder } => json(encap_assemble::inspect(&folder)?),
+        Commands::Inspect { folder } => json(encap_audio::inspect(&folder)?),
         Commands::Open {
             project,
             extraction_parent,
@@ -126,9 +135,16 @@ fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
         }
         Commands::Export { payload, output } => {
             let project = read_payload(&payload)?;
-            let path = encap_assemble::export(&project, &output, cancellation)?;
+            let path = encap_audio::export(&project, &output, cancellation)?;
             json(PathResponse { path })
         }
+        Commands::ExportVideo { payload, output } => {
+            let project = read_payload(&payload)?;
+            let path = encap_video::export(&project, &output, cancellation)?;
+            json(PathResponse { path })
+        }
+        Commands::VideoPresets => json(encap_video::PRESETS),
+        Commands::VideoCapabilities => json(encap_video::capabilities()?),
         Commands::ExportTranscript {
             payload,
             output,
@@ -144,20 +160,26 @@ fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
             atomic_write(&output, content.as_bytes())?;
             json(PathResponse { path: output })
         }
-        Commands::Transcribe { payload, provider } => {
+        Commands::Transcribe {
+            payload,
+            provider,
+            word_timestamps,
+        } => {
             let project = read_payload(&payload)?;
-            json(encap_transcribe::transcribe(
+            let segments = encap_transcript::transcribe(
                 &project.audio_sources,
                 &provider,
+                word_timestamps,
                 cancellation,
-            )?)
+            )?;
+            json(segments)
         }
-        Commands::Providers => json(encap_transcribe::providers()),
-        Commands::Models => json(encap_transcribe::models()),
+        Commands::Providers => json(encap_transcript::providers()),
+        Commands::Models => json(encap_transcript::models()),
         Commands::InstallModel { model } => {
-            json(encap_transcribe::install_model(&model, cancellation)?)
+            json(encap_transcript::install_model(&model, cancellation)?)
         }
-        Commands::RemoveModel { model } => json(encap_transcribe::remove_model(&model)?),
+        Commands::RemoveModel { model } => json(encap_transcript::remove_model(&model)?),
         Commands::SaveRecovery { payload } => {
             let project = read_payload(&payload)?;
             save_recovery_at(&project, &recovery_path()?)?;
@@ -202,7 +224,8 @@ fn load_recovery_at(path: &Path) -> Result<Option<ProjectDocument>> {
             });
         }
     };
-    let project: ProjectDocument = serde_json::from_slice(&bytes)?;
+    let mut project: ProjectDocument = serde_json::from_slice(&bytes)?;
+    migrate_payload(&mut project);
     project.validate()?;
     if project
         .audio_sources
@@ -233,9 +256,24 @@ fn read_payload(path: &Path) -> Result<ProjectDocument> {
         path: path.to_path_buf(),
         source,
     })?;
-    let project: ProjectDocument = serde_json::from_slice(&bytes)?;
+    let mut project: ProjectDocument = serde_json::from_slice(&bytes)?;
+    migrate_payload(&mut project);
     project.validate()?;
     Ok(project)
+}
+
+fn migrate_payload(project: &mut ProjectDocument) {
+    if project.schema_version == 1 {
+        project.schema_version = PROJECT_SCHEMA_VERSION;
+        if !project.video.export_settings.selection_initialized {
+            project.video.export_settings.selected_chapter_ids = project
+                .chapters
+                .iter()
+                .map(|chapter| chapter.id.clone())
+                .collect();
+            project.video.export_settings.selection_initialized = true;
+        }
+    }
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {

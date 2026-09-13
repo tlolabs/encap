@@ -1,6 +1,7 @@
 use crate::{
     replace_staged_file, AudioSource, Chapter, EncapError, EpisodeMetadata, ExportSettings,
-    ProjectDocument, Result, TranscriptSegment,
+    ProjectDocument, Result, TranscriptSegment, TranscriptSettings, VideoProjectState,
+    VideoSettings, WorkspaceMode,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use tempfile::{Builder, NamedTempFile};
 use zip::write::SimpleFileOptions;
 
-pub const PROJECT_SCHEMA_VERSION: u64 = 1;
+pub const PROJECT_SCHEMA_VERSION: u64 = 2;
 const MAX_ENTRIES: usize = 4096;
 const MAX_MANIFEST: u64 = 8 * 1024 * 1024;
 const MAX_MEMBER: u64 = 32 * 1024 * 1024 * 1024;
@@ -33,7 +34,13 @@ struct Manifest {
     #[serde(default)]
     transcript_segments: Vec<TranscriptSegment>,
     #[serde(default)]
+    transcript_settings: TranscriptSettings,
+    #[serde(default)]
     export_settings: ExportSettings,
+    #[serde(default, alias = "workspace")]
+    active_mode: WorkspaceMode,
+    #[serde(default)]
+    video: VideoProjectState,
     #[serde(flatten)]
     extensions: BTreeMap<String, Value>,
 }
@@ -64,6 +71,8 @@ struct ManifestAudio {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ManifestChapter {
+    #[serde(default = "crate::model::new_id")]
+    id: String,
     start_time_seconds: f64,
     duration_seconds: f64,
     chapter_number: u32,
@@ -85,6 +94,9 @@ struct CompatibilityPayload {
     chapters: Vec<BTreeMap<String, Value>>,
     transcript_segments: Vec<BTreeMap<String, Value>>,
     export_settings: BTreeMap<String, Value>,
+    transcript_settings: BTreeMap<String, Value>,
+    video: BTreeMap<String, Value>,
+    video_export_settings: BTreeMap<String, Value>,
 }
 
 fn schema_one() -> u64 {
@@ -153,6 +165,7 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                 None
             };
             chapter_records.push(ManifestChapter {
+                id: chapter.id.clone(),
                 start_time_seconds: chapter.start_time_seconds,
                 duration_seconds: chapter.duration_seconds,
                 chapter_number: chapter.chapter_number,
@@ -191,12 +204,31 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
             audio_sources: audio_records,
             chapters: chapter_records,
             transcript_segments,
+            transcript_settings: TranscriptSettings {
+                extensions: merged_extensions(
+                    Some(&preserved.transcript_settings),
+                    &project.transcript_settings.extensions,
+                ),
+                ..project.transcript_settings.clone()
+            },
             export_settings: ExportSettings {
                 extensions: merged_extensions(
                     Some(&preserved.export_settings),
                     &project.export_settings.extensions,
                 ),
                 ..project.export_settings.clone()
+            },
+            active_mode: project.active_mode,
+            video: VideoProjectState {
+                export_settings: VideoSettings {
+                    extensions: merged_extensions(
+                        Some(&preserved.video_export_settings),
+                        &project.video.export_settings.extensions,
+                    ),
+                    ..project.video.export_settings.clone()
+                },
+                extensions: merged_extensions(Some(&preserved.video), &project.video.extensions),
+                ..project.video.clone()
             },
             extensions: merged_extensions(Some(&preserved.top_level), &project.extensions),
         };
@@ -387,7 +419,7 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
         source,
     })?;
     let manifest: Manifest = serde_json::from_slice(&json)?;
-    if manifest.schema_version != PROJECT_SCHEMA_VERSION {
+    if !matches!(manifest.schema_version, 1 | PROJECT_SCHEMA_VERSION) {
         return Err(EncapError::UnsupportedSchema {
             found: manifest.schema_version,
             supported: PROJECT_SCHEMA_VERSION,
@@ -412,6 +444,9 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
             .map(|item| item.extensions.clone())
             .collect(),
         export_settings: manifest.export_settings.extensions.clone(),
+        transcript_settings: manifest.transcript_settings.extensions.clone(),
+        video: manifest.video.extensions.clone(),
+        video_export_settings: manifest.video.export_settings.extensions.clone(),
     })?;
     let resolve = |stored: &str| -> Result<PathBuf> {
         let path = root.join(safe_stored_path(stored)?);
@@ -448,7 +483,7 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
     for item in manifest.chapters {
         let image_path = item.image_stored_path.as_deref().map(resolve).transpose()?;
         chapters.push(Chapter {
-            id: crate::model::new_id(),
+            id: item.id,
             start_time_seconds: item.start_time_seconds,
             duration_seconds: item.duration_seconds,
             chapter_number: item.chapter_number,
@@ -459,8 +494,22 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
             extensions: item.extensions,
         });
     }
+    let mut video = manifest.video;
+    if video.export_settings.selected_chapter_ids.is_empty()
+        && !video.export_settings.selection_initialized
+    {
+        video.export_settings.selected_chapter_ids =
+            chapters.iter().map(|chapter| chapter.id.clone()).collect();
+        video.export_settings.selection_initialized = true;
+    } else {
+        let known: HashSet<_> = chapters.iter().map(|chapter| chapter.id.as_str()).collect();
+        video
+            .export_settings
+            .selected_chapter_ids
+            .retain(|id| known.contains(id.as_str()));
+    }
     let project = ProjectDocument {
-        schema_version: manifest.schema_version,
+        schema_version: PROJECT_SCHEMA_VERSION,
         project_title: manifest.project_title,
         source_folder: None,
         project_path: Some(project_path.to_path_buf()),
@@ -476,7 +525,10 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
         audio_sources,
         chapters,
         transcript_segments: manifest.transcript_segments,
+        transcript_settings: manifest.transcript_settings,
         export_settings: normalize_export(manifest.export_settings),
+        active_mode: manifest.active_mode,
+        video,
         compatibility_payload: Some(compatibility_payload),
         extensions: manifest.extensions,
     };
@@ -684,6 +736,84 @@ mod tests {
             restored.export_settings.extensions["future_export"],
             serde_json::json!(false)
         );
+    }
+
+    #[test]
+    fn migrates_schema_one_without_losing_embedded_project_data() {
+        let temporary = tempfile::tempdir().unwrap();
+        let legacy = temporary.path().join("legacy.encap");
+        let file = File::create(&legacy).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("audio/001-source.wav", options).unwrap();
+        zip.write_all(b"legacy audio").unwrap();
+        zip.start_file("artwork/cover.png", options).unwrap();
+        zip.write_all(b"legacy artwork").unwrap();
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(
+            br#"{
+              "schema_version": 1,
+              "project_title": "Legacy Project",
+              "metadata": {
+                "podcast_title": "History",
+                "episode_title": "Episode One",
+                "summary": "Preserve me",
+                "artwork_stored_path": "artwork/cover.png"
+              },
+              "audio_sources": [{
+                "display_name": "source.wav",
+                "duration_seconds": 2.5,
+                "stored_path": "audio/001-source.wav"
+              }],
+              "chapters": [{
+                "start_time_seconds": 0,
+                "duration_seconds": 2.5,
+                "chapter_number": 1,
+                "title": "Opening"
+              }],
+              "transcript_segments": [{
+                "id": "segment-1",
+                "start_time_seconds": 0.1,
+                "end_time_seconds": 1.2,
+                "speaker": "Host",
+                "text": "Welcome"
+              }],
+              "export_settings": {
+                "output_format": "aac",
+                "quality_preset": "192k",
+                "encoder": "ffmpeg",
+                "channels": 2
+              },
+              "workspace": "transcribe"
+            }"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
+
+        let migrated = load_project(&legacy, Some(temporary.path())).unwrap();
+        assert_eq!(migrated.schema_version, PROJECT_SCHEMA_VERSION);
+        assert_eq!(migrated.metadata.podcast_title, "History");
+        assert_eq!(migrated.metadata.summary, "Preserve me");
+        assert_eq!(
+            fs::read(&migrated.audio_sources[0].source_path).unwrap(),
+            b"legacy audio"
+        );
+        assert_eq!(
+            fs::read(migrated.metadata.artwork_path.as_ref().unwrap()).unwrap(),
+            b"legacy artwork"
+        );
+        assert_eq!(migrated.transcript_segments[0].text, "Welcome");
+        assert_eq!(migrated.export_settings.quality_preset, "192k");
+        assert_eq!(migrated.active_mode, WorkspaceMode::Transcript);
+        assert_eq!(migrated.video.export_settings.selected_chapter_ids.len(), 1);
+        assert!(migrated.video.export_settings.selection_initialized);
+
+        let upgraded = save_project(&migrated, &temporary.path().join("upgraded.encap")).unwrap();
+        let reopened = load_project(&upgraded, Some(temporary.path())).unwrap();
+        assert_eq!(reopened.schema_version, PROJECT_SCHEMA_VERSION);
+        assert_eq!(reopened.metadata.episode_title, "Episode One");
+        assert_eq!(reopened.transcript_segments[0].speaker, "Host");
+        assert_eq!(reopened.export_settings.output_format, "aac");
     }
 
     #[test]

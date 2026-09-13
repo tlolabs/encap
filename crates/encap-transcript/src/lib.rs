@@ -225,6 +225,7 @@ pub fn providers() -> Vec<Provider> {
 pub fn transcribe(
     sources: &[AudioSource],
     provider: &str,
+    word_timestamps: bool,
     cancellation: &CancellationToken,
 ) -> Result<Vec<TranscriptSegment>> {
     if sources.is_empty() {
@@ -271,6 +272,7 @@ pub fn transcribe(
                     model,
                     &resolved.language_code,
                     offset,
+                    word_timestamps,
                     cancellation,
                 )?,
                 #[cfg(target_os = "macos")]
@@ -287,6 +289,11 @@ pub fn transcribe(
         };
         output.append(&mut segments);
         offset += source.duration_seconds;
+    }
+    if !word_timestamps {
+        for segment in &mut output {
+            segment.words.clear();
+        }
     }
     Ok(output)
 }
@@ -395,6 +402,7 @@ fn transcribe_whisperkit(
                 end_time_seconds: offset + item.end_seconds,
                 speaker: String::new(),
                 text: item.text.trim().to_string(),
+                words: Vec::new(),
                 extensions: BTreeMap::new(),
             })
         })
@@ -434,13 +442,26 @@ fn transcribe_apple(
         .segments
         .into_iter()
         .filter(|word| !word.text.trim().is_empty())
-        .map(|word| TranscriptSegment {
-            id: uuid::Uuid::new_v4().simple().to_string(),
-            start_time_seconds: offset + word.start_seconds,
-            end_time_seconds: offset + word.start_seconds + word.duration_seconds,
-            speaker: String::new(),
-            text: word.text.trim().to_string(),
-            extensions: BTreeMap::new(),
+        .map(|word| {
+            let id = uuid::Uuid::new_v4().simple().to_string();
+            let start_time_seconds = offset + word.start_seconds;
+            let end_time_seconds = start_time_seconds + word.duration_seconds;
+            let text = word.text.trim().to_string();
+            TranscriptSegment {
+                id: id.clone(),
+                start_time_seconds,
+                end_time_seconds,
+                speaker: String::new(),
+                text: text.clone(),
+                words: vec![encap_core::TranscriptWord {
+                    id,
+                    start_time_seconds,
+                    end_time_seconds,
+                    text,
+                    extensions: BTreeMap::new(),
+                }],
+                extensions: BTreeMap::new(),
+            }
         })
         .collect::<Vec<_>>();
     Ok(group_words(words))
@@ -452,6 +473,7 @@ fn transcribe_whisper(
     model: &Path,
     language_code: &str,
     offset: f64,
+    word_timestamps: bool,
     cancellation: &CancellationToken,
 ) -> Result<Vec<TranscriptSegment>> {
     let whisper = locate_optional_tool("whisper-cli", "ENCAP_WHISPER_CLI").ok_or_else(|| {
@@ -483,23 +505,26 @@ fn transcribe_whisper(
         cancellation,
         "Audio preparation",
     )?;
-    encap_ffmpeg::run(
-        &whisper,
-        &[
-            os("--model"),
-            os(model),
-            os("--file"),
-            os(&input),
-            os("--language"),
-            os(language_code),
-            os("--output-json"),
-            os("--output-file"),
-            os(&prefix),
-            os("--no-prints"),
-        ],
-        cancellation,
-        "Whisper transcription",
-    )?;
+    let mut arguments = vec![
+        os("--model"),
+        os(model),
+        os("--file"),
+        os(&input),
+        os("--language"),
+        os(language_code),
+        os(if word_timestamps {
+            "--output-json-full"
+        } else {
+            "--output-json"
+        }),
+        os("--output-file"),
+        os(&prefix),
+        os("--no-prints"),
+    ];
+    if word_timestamps {
+        arguments.push(os("--split-on-word"));
+    }
+    encap_ffmpeg::run(&whisper, &arguments, cancellation, "Whisper transcription")?;
     #[derive(serde::Deserialize)]
     struct Response {
         transcription: Vec<Item>,
@@ -508,11 +533,18 @@ fn transcribe_whisper(
     struct Item {
         offsets: Offsets,
         text: String,
+        #[serde(default)]
+        tokens: Vec<Token>,
     }
     #[derive(serde::Deserialize)]
     struct Offsets {
         from: f64,
         to: f64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Token {
+        text: String,
+        offsets: Option<Offsets>,
     }
     let result_path = prefix.with_extension("json");
     let bytes = fs::read(&result_path).map_err(|source| EncapError::Read {
@@ -525,13 +557,34 @@ fn transcribe_whisper(
         .transcription
         .into_iter()
         .filter(|item| !item.text.trim().is_empty())
-        .map(|item| TranscriptSegment {
-            id: uuid::Uuid::new_v4().simple().to_string(),
-            start_time_seconds: offset + item.offsets.from / 1000.0,
-            end_time_seconds: offset + item.offsets.to / 1000.0,
-            speaker: String::new(),
-            text: item.text.trim().to_string(),
-            extensions: BTreeMap::new(),
+        .map(|item| {
+            let words = item
+                .tokens
+                .into_iter()
+                .filter_map(|token| {
+                    let timing = token.offsets?;
+                    let text = token.text.trim();
+                    if text.is_empty() || text.starts_with("<|") {
+                        return None;
+                    }
+                    Some(encap_core::TranscriptWord {
+                        id: uuid::Uuid::new_v4().simple().to_string(),
+                        start_time_seconds: offset + timing.from / 1000.0,
+                        end_time_seconds: offset + timing.to / 1000.0,
+                        text: text.to_string(),
+                        extensions: BTreeMap::new(),
+                    })
+                })
+                .collect();
+            TranscriptSegment {
+                id: uuid::Uuid::new_v4().simple().to_string(),
+                start_time_seconds: offset + item.offsets.from / 1000.0,
+                end_time_seconds: offset + item.offsets.to / 1000.0,
+                speaker: String::new(),
+                text: item.text.trim().to_string(),
+                words,
+                extensions: BTreeMap::new(),
+            }
         })
         .collect())
 }
@@ -1074,6 +1127,7 @@ fn group_words(words: Vec<TranscriptSegment>) -> Vec<TranscriptSegment> {
                 }
                 current.text.push_str(&word.text);
                 current.end_time_seconds = word.end_time_seconds;
+                current.words.extend(word.words);
                 continue;
             }
         }

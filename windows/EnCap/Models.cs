@@ -5,7 +5,7 @@ namespace EnCap;
 
 public sealed class ProjectDocument
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public string ProjectTitle { get; set; } = "Untitled";
     public string? SourceFolder { get; set; }
     public string? ProjectPath { get; set; }
@@ -14,7 +14,10 @@ public sealed class ProjectDocument
     public List<AudioSource> AudioSources { get; set; } = [];
     public List<Chapter> Chapters { get; set; } = [];
     public List<TranscriptSegment> TranscriptSegments { get; set; } = [];
+    public TranscriptSettings TranscriptSettings { get; set; } = new();
     public ExportSettings ExportSettings { get; set; } = new();
+    public string ActiveMode { get; set; } = "audio";
+    public VideoProjectState Video { get; set; } = new();
     public string? CompatibilityPayload { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
 }
@@ -55,7 +58,58 @@ public sealed class TranscriptSegment
     public double EndTimeSeconds { get; set; }
     public string Speaker { get; set; } = "";
     public string Text { get; set; } = "";
+    public List<TranscriptWord> Words { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class TranscriptWord
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public double StartTimeSeconds { get; set; }
+    public double EndTimeSeconds { get; set; }
+    public string Text { get; set; } = "";
+}
+
+public sealed class TranscriptSettings
+{
+    public bool IncludeWordTimestamps { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class VideoProjectState
+{
+    public int SchemaVersion { get; set; } = 1;
+    public VideoSettings ExportSettings { get; set; } = new();
+    public List<JsonElement> Compositions { get; set; } = [];
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class VideoSettings
+{
+    public string Platform { get; set; } = "Instagram";
+    public string Aspect { get; set; } = "Horizontal video (16:9)";
+    public int Width { get; set; } = 1920;
+    public int Height { get; set; } = 1080;
+    public string Codec { get; set; } = "h264";
+    public string Encoding { get; set; } = "automatic";
+    public string AudioBitrate { get; set; } = "128k";
+    public int Fps { get; set; } = 30;
+    public bool FlipHorizontal { get; set; }
+    public bool FlipVertical { get; set; }
+    public string PreviewQuality { get; set; } = "automatic";
+    public List<string> SelectedChapterIds { get; set; } = [];
+    public bool SelectionInitialized { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extensions { get; set; }
+}
+
+public sealed class VideoPreset
+{
+    public string Platform { get; set; } = "";
+    public string Aspect { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public int Fps { get; set; }
+    public override string ToString() => $"{Platform} — {Aspect} — {Width} × {Height}";
 }
 
 public sealed class ExportSettings

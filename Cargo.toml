@@ -2,14 +2,15 @@
 members = [
     "crates/encap-core",
     "crates/encap-ffmpeg",
-    "crates/encap-assemble",
-    "crates/encap-transcribe",
+    "crates/encap-audio",
+    "crates/encap-transcript",
+    "crates/encap-video",
     "crates/encap-engine",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-only"

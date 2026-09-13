@@ -71,6 +71,21 @@ final class EngineClient: @unchecked Sendable {
         return try decode(PathResponse.self, from: data).url
     }
 
+    func exportVideo(_ project: ProjectDocument, to destination: URL) async throws -> URL {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        let data = try await run(["export-video", payload.path, destination.path])
+        return try decode(PathResponse.self, from: data).url
+    }
+
+    func videoPresets() async throws -> [VideoPreset] {
+        try decode([VideoPreset].self, from: await run(["video-presets"]))
+    }
+
+    func videoCapabilities() async throws -> VideoCapabilities {
+        try decode(VideoCapabilities.self, from: await run(["video-capabilities"]))
+    }
+
     func providers() async throws -> [TranscriptionProvider] {
         try decode([TranscriptionProvider].self, from: await run(["providers"]))
     }
@@ -87,10 +102,16 @@ final class EngineClient: @unchecked Sendable {
         try decode(TranscriptionModelInfo.self, from: await run(["remove-model", id]))
     }
 
-    func transcribe(_ project: ProjectDocument, providerID: String) async throws -> [TranscriptSegment] {
+    func transcribe(
+        _ project: ProjectDocument,
+        providerID: String,
+        wordTimestamps: Bool
+    ) async throws -> [TranscriptSegment] {
         let payload = try temporaryPayload(for: project)
         defer { try? FileManager.default.removeItem(at: payload) }
-        let data = try await run(["transcribe", payload.path, providerID])
+        var arguments = ["transcribe", payload.path, providerID]
+        if wordTimestamps { arguments.append("--word-timestamps") }
+        let data = try await run(arguments)
         return try decode([TranscriptSegment].self, from: data)
     }
 

@@ -241,7 +241,8 @@ static void engine_done(GObject *source, GAsyncResult *result, gpointer user_dat
     } else if (g_str_equal(state->operation, "clear-recovery")) {
       set_status(state, "Project ready.", FALSE);
     } else {
-      set_status(state, g_str_equal(state->operation, "save") ? "Project saved." : "Audio exported.", FALSE);
+      set_status(state, g_str_equal(state->operation, "save") ? "Project saved." :
+        (g_str_equal(state->operation, "export-video") ? "MP4 video exported." : "Audio exported."), FALSE);
     }
     g_object_unref(parser);
   }
@@ -331,7 +332,7 @@ static void chooser_response(GtkNativeDialog *dialog, gint response, gpointer us
 
 static void choose(AppState *state, const gchar *operation) {
   gboolean folder = g_str_equal(operation, "inspect");
-  gboolean output = g_str_equal(operation, "save") || g_str_equal(operation, "export");
+  gboolean output = g_str_equal(operation, "save") || g_str_equal(operation, "export") || g_str_equal(operation, "export-video");
   GtkFileChooserNative *chooser = gtk_file_chooser_native_new(
     output ? "Choose Destination" : "Open", GTK_WINDOW(state->window),
     output ? GTK_FILE_CHOOSER_ACTION_SAVE : (folder ? GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER : GTK_FILE_CHOOSER_ACTION_OPEN),
@@ -391,27 +392,38 @@ static void activate(GApplication *application, gpointer user_data) {
     g_signal_connect(button, "clicked", G_CALLBACK(choose_clicked), state);
     if (i < 2) adw_header_bar_pack_start(ADW_HEADER_BAR(header), button); else adw_header_bar_pack_end(ADW_HEADER_BAR(header), button);
   }
-  GtkWidget *assemble = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_set_margin_start(assemble, 24); gtk_widget_set_margin_end(assemble, 24); gtk_widget_set_margin_top(assemble, 24); gtk_widget_set_margin_bottom(assemble, 24);
-  gtk_box_append(GTK_BOX(assemble), labeled_entry("Podcast title", &state->podcast_title));
-  gtk_box_append(GTK_BOX(assemble), labeled_entry("Episode title", &state->episode_title));
-  state->summary = gtk_text_view_new(); gtk_widget_set_size_request(state->summary, -1, 100); gtk_box_append(GTK_BOX(assemble), state->summary);
-  state->chapters = gtk_text_view_new(); gtk_text_view_set_editable(GTK_TEXT_VIEW(state->chapters), TRUE); gtk_accessible_update_property(GTK_ACCESSIBLE(state->chapters), GTK_ACCESSIBLE_PROPERTY_LABEL, "Editable chapter titles", -1); gtk_widget_set_vexpand(state->chapters, TRUE); gtk_box_append(GTK_BOX(assemble), state->chapters);
+  GtkWidget *audio = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_margin_start(audio, 24); gtk_widget_set_margin_end(audio, 24); gtk_widget_set_margin_top(audio, 24); gtk_widget_set_margin_bottom(audio, 24);
+  gtk_box_append(GTK_BOX(audio), labeled_entry("Podcast title", &state->podcast_title));
+  gtk_box_append(GTK_BOX(audio), labeled_entry("Episode title", &state->episode_title));
+  state->summary = gtk_text_view_new(); gtk_widget_set_size_request(state->summary, -1, 100); gtk_box_append(GTK_BOX(audio), state->summary);
+  state->chapters = gtk_text_view_new(); gtk_text_view_set_editable(GTK_TEXT_VIEW(state->chapters), TRUE); gtk_accessible_update_property(GTK_ACCESSIBLE(state->chapters), GTK_ACCESSIBLE_PROPERTY_LABEL, "Editable chapter titles", -1); gtk_widget_set_vexpand(state->chapters, TRUE); gtk_box_append(GTK_BOX(audio), state->chapters);
   g_signal_connect(state->podcast_title, "changed", G_CALLBACK(edit_changed), state);
   g_signal_connect(state->episode_title, "changed", G_CALLBACK(edit_changed), state);
   g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->summary)), "changed", G_CALLBACK(edit_changed), state);
   g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->chapters)), "changed", G_CALLBACK(edit_changed), state);
-  gtk_stack_add_titled(GTK_STACK(stack), assemble, "assemble", "Assemble & Encode");
-  GtkWidget *transcribe = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_set_margin_start(transcribe, 24); gtk_widget_set_margin_end(transcribe, 24); gtk_widget_set_margin_top(transcribe, 24); gtk_widget_set_margin_bottom(transcribe, 24);
-  state->provider = gtk_drop_down_new(NULL, NULL); gtk_box_append(GTK_BOX(transcribe), state->provider);
+  gtk_stack_add_titled(GTK_STACK(stack), audio, "audio", "Audio");
+  GtkWidget *transcript = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_margin_start(transcript, 24); gtk_widget_set_margin_end(transcript, 24); gtk_widget_set_margin_top(transcript, 24); gtk_widget_set_margin_bottom(transcript, 24);
+  state->provider = gtk_drop_down_new(NULL, NULL); gtk_box_append(GTK_BOX(transcript), state->provider);
   GtkWidget *transcription_actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *transcribe_button = gtk_button_new_with_label("Transcribe locally"); g_signal_connect(transcribe_button, "clicked", G_CALLBACK(transcribe_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), transcribe_button);
   GtkWidget *models_button = gtk_button_new_with_label("Manage Models…"); g_signal_connect(models_button, "clicked", G_CALLBACK(models_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), models_button);
-  gtk_box_append(GTK_BOX(transcribe), transcription_actions);
-  state->transcript = gtk_text_view_new(); gtk_widget_set_vexpand(state->transcript, TRUE); gtk_box_append(GTK_BOX(transcribe), state->transcript);
+  gtk_box_append(GTK_BOX(transcript), transcription_actions);
+  state->transcript = gtk_text_view_new(); gtk_widget_set_vexpand(state->transcript, TRUE); gtk_box_append(GTK_BOX(transcript), state->transcript);
   g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->transcript)), "changed", G_CALLBACK(edit_changed), state);
-  gtk_stack_add_titled(GTK_STACK(stack), transcribe, "transcribe", "Transcribe");
+  gtk_stack_add_titled(GTK_STACK(stack), transcript, "transcript", "Transcript");
+  GtkWidget *video = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_margin_start(video, 24); gtk_widget_set_margin_end(video, 24); gtk_widget_set_margin_top(video, 24); gtk_widget_set_margin_bottom(video, 24);
+  GtkWidget *video_title = gtk_label_new("Create one MP4 from the project's original chapter audio and effective artwork.");
+  gtk_label_set_wrap(GTK_LABEL(video_title), TRUE); gtk_widget_set_halign(video_title, GTK_ALIGN_START); gtk_box_append(GTK_BOX(video), video_title);
+  GtkWidget *video_help = gtk_label_new("All chapters are selected in Audio order by default. Add main artwork in Audio; chapter artwork overrides it.");
+  gtk_label_set_wrap(GTK_LABEL(video_help), TRUE); gtk_widget_set_halign(video_help, GTK_ALIGN_START); gtk_widget_add_css_class(video_help, "dim-label"); gtk_box_append(GTK_BOX(video), video_help);
+  GtkWidget *video_export = gtk_button_new_with_label("Export MP4…");
+  g_object_set_data_full(G_OBJECT(video_export), "operation", g_strdup("export-video"), g_free);
+  g_signal_connect(video_export, "clicked", G_CALLBACK(choose_clicked), state);
+  gtk_widget_set_halign(video_export, GTK_ALIGN_START); gtk_box_append(GTK_BOX(video), video_export);
+  gtk_stack_add_titled(GTK_STACK(stack), video, "video", "Video");
   GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8); gtk_widget_set_margin_start(footer, 12); gtk_widget_set_margin_end(footer, 12); gtk_widget_set_margin_top(footer, 8); gtk_widget_set_margin_bottom(footer, 8);
   state->status = gtk_label_new("Import an audio folder to begin."); gtk_widget_set_hexpand(state->status, TRUE); gtk_widget_set_halign(state->status, GTK_ALIGN_START); gtk_box_append(GTK_BOX(footer), state->status);
   state->cancel = gtk_button_new_with_label("Cancel"); gtk_widget_set_visible(state->cancel, FALSE); g_signal_connect(state->cancel, "clicked", G_CALLBACK(cancel_clicked), state); gtk_box_append(GTK_BOX(footer), state->cancel);

@@ -32,7 +32,14 @@ internal sealed class EngineClient
     public Task<TranscriptionModelInfo> RemoveModelAsync(string id) => RunAsync<TranscriptionModelInfo>("remove-model", id);
     public async Task<string> SaveAsync(ProjectDocument project, string destination) => (await WithPayloadAsync<PathResponse>(project, "save", destination)).Path;
     public async Task<string> ExportAsync(ProjectDocument project, string destination) => (await WithPayloadAsync<PathResponse>(project, "export", destination)).Path;
-    public Task<List<TranscriptSegment>> TranscribeAsync(ProjectDocument project, string provider) => WithPayloadAsync<List<TranscriptSegment>>(project, "transcribe", provider);
+    public async Task<string> ExportVideoAsync(ProjectDocument project, string destination) => (await WithPayloadAsync<PathResponse>(project, "export-video", destination)).Path;
+    public Task<List<VideoPreset>> VideoPresetsAsync() => RunAsync<List<VideoPreset>>("video-presets");
+    public Task<List<TranscriptSegment>> TranscribeAsync(ProjectDocument project, string provider)
+    {
+        var arguments = new List<string> { provider };
+        if (project.TranscriptSettings.IncludeWordTimestamps) arguments.Add("--word-timestamps");
+        return WithPayloadAsync<List<TranscriptSegment>>(project, "transcribe", arguments.ToArray());
+    }
     public async Task<string> ExportTranscriptAsync(ProjectDocument project, string destination, string format) =>
         (await WithPayloadAsync<PathResponse>(project, "export-transcript", destination, format)).Path;
     public Task SaveRecoveryAsync(ProjectDocument project) => WithPayloadAsync<OkResponse>(project, "save-recovery");

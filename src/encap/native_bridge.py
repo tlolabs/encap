@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from encap.export_tools import export_project
 from encap.models import (
@@ -64,20 +65,24 @@ def project_to_payload(project: ProjectDocument) -> dict[str, object]:
         ],
         "transcript_segments": [
             {
-                "id": f"{index}-{segment.start_time_seconds:.6f}",
+                "id": segment.id,
                 "start_time_seconds": segment.start_time_seconds,
                 "end_time_seconds": segment.end_time_seconds,
                 "speaker": segment.speaker,
                 "text": segment.text,
+                "words": segment.words,
             }
-            for index, segment in enumerate(project.transcript_segments)
+            for segment in project.transcript_segments
         ],
+        "transcript_settings": project.transcript_settings,
         "export_settings": {
             "output_format": project.export_settings.output_format,
             "quality_preset": project.export_settings.quality_preset,
             "encoder": project.export_settings.encoder,
             "channels": project.export_settings.channels,
         },
+        "active_mode": project.active_mode,
+        "video": project.video,
     }
 
 
@@ -103,6 +108,7 @@ def project_from_payload(payload: dict[str, object]) -> ProjectDocument:
         assert isinstance(item, dict)
         chapters.append(
             ChapterEntry(
+                id=str(item.get("id") or uuid4().hex),
                 start_time_seconds=float(item.get("start_time_seconds", 0.0)),
                 duration_seconds=float(item.get("duration_seconds", 0.0)),
                 chapter_number=int(item.get("chapter_number", len(chapters) + 1)),
@@ -117,10 +123,12 @@ def project_from_payload(payload: dict[str, object]) -> ProjectDocument:
         assert isinstance(item, dict)
         transcript_segments.append(
             TranscriptSegment(
+                id=str(item.get("id") or uuid4().hex),
                 start_time_seconds=float(item.get("start_time_seconds", 0.0)),
                 end_time_seconds=float(item.get("end_time_seconds", 0.0)),
                 speaker=str(item.get("speaker", "")),
                 text=str(item.get("text", "")),
+                words=list(item.get("words") or []),
             )
         )
 
@@ -138,12 +146,15 @@ def project_from_payload(payload: dict[str, object]) -> ProjectDocument:
         audio_sources=audio_sources,
         chapters=chapters,
         transcript_segments=transcript_segments,
+        transcript_settings=dict(payload.get("transcript_settings") or {"include_word_timestamps": False}),
         export_settings=ExportSettings(
             output_format=str(export_blob.get("output_format", "mp3")),
             quality_preset=str(export_blob.get("quality_preset", "320k")),
             encoder=str(export_blob.get("encoder", "lame")),
             channels=int(export_blob.get("channels", 2)),
         ),
+        active_mode=str(payload.get("active_mode", payload.get("workspace", "audio"))),
+        video=dict(payload.get("video") or ProjectDocument().video),
     )
 
 

@@ -404,8 +404,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
-name = "encap-assemble"
-version = "0.2.1"
+name = "encap-audio"
+version = "2.0.0"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "0.2.1"
+version = "2.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -428,15 +428,16 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "0.2.1"
+version = "2.0.0"
 dependencies = [
  "clap",
  "ctrlc",
  "directories",
- "encap-assemble",
+ "encap-audio",
  "encap-core",
  "encap-ffmpeg",
- "encap-transcribe",
+ "encap-transcript",
+ "encap-video",
  "serde",
  "serde_json",
  "tempfile",
@@ -448,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "0.2.1"
+version = "2.0.0"
 dependencies = [
  "encap-core",
  "tempfile",
@@ -456,8 +457,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "encap-transcribe"
-version = "0.2.1"
+name = "encap-transcript"
+version = "2.0.0"
 dependencies = [
  "directories",
  "encap-core",
@@ -468,6 +469,17 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "encap-video"
+version = "2.0.0"
+dependencies = [
+ "encap-core",
+ "encap-ffmpeg",
+ "serde",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
