@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt_for_conversion=prompt_for_conversion,
             write_report=args.write_report,
         )
-    except EncapError as exc:
+    except (EncapError, OSError, EOFError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

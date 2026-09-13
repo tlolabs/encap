@@ -123,7 +123,9 @@ def apple_aac_encoder_implementation() -> str:
 
 
 def codec_for_format(wav_format: WavFormat) -> str:
-    if wav_format.audio_format not in {1, 65534}:
+    if wav_format.encoding == 3 and wav_format.bits_per_sample in {32, 64}:
+        return f"pcm_f{wav_format.bits_per_sample}le"
+    if wav_format.encoding != 1:
         raise EncapError(
             "Automatic conversion currently supports PCM WAV targets only."
         )

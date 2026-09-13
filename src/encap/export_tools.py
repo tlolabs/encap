@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from .file_tools import atomic_output
 from .ffmpeg_tools import ensure_ffmpeg, ensure_lame
 from .models import ProjectDocument
 from .service import create_stitched_wav_for_paths
@@ -63,6 +65,10 @@ def export_project(
     else:
         output_path = Path(output_path)
         output_dir = output_path.parent
+    media_paths = [entry.source_path for entry in project.audio_sources]
+    media_paths += [path for path in [project.metadata.artwork_path, project.project_path] if path]
+    if any(output_path.resolve() == path.resolve() for path in media_paths):
+        raise EncapError("The export destination must not overwrite project media or the project file.")
     output_dir.mkdir(parents=True, exist_ok=True)
     ffmpeg = ensure_ffmpeg()
 
@@ -89,20 +95,22 @@ def export_project(
         else:
             intermediate_audio = stitched_plan.output_path
 
-        command = build_ffmpeg_export_command(
-            ffmpeg=ffmpeg,
-            project=project,
-            audio_input=intermediate_audio,
-            metadata_input=metadata_path,
-            output_path=output_path,
-        )
-        completed = subprocess.run(command, capture_output=True, text=True)
-        if completed.returncode != 0:
-            raise EncapError(
-                "Final export failed.\n"
-                f"Command: {' '.join(command)}\n"
-                f"stderr:\n{completed.stderr.strip()}"
+        with atomic_output(output_path) as temporary_output:
+            command = build_ffmpeg_export_command(
+                ffmpeg=ffmpeg,
+                project=project,
+                audio_input=intermediate_audio,
+                metadata_input=metadata_path,
+                output_path=temporary_output,
             )
+            completed = subprocess.run(command, capture_output=True, text=True)
+            if completed.returncode != 0:
+                raise EncapError(
+                    "Final export failed.\n"
+                    f"Command: {' '.join(command)}\n"
+                    f"stderr:\n{completed.stderr.strip()}"
+                )
+
     return output_path
 
 
@@ -133,7 +141,17 @@ def validate_project_for_export(project: ProjectDocument) -> None:
         )
     if not project.chapters:
         raise EncapError("At least one chapter is required.")
+    if project.metadata.artwork_path is not None and not project.metadata.artwork_path.is_file():
+        raise EncapError(f"Episode artwork is missing: {project.metadata.artwork_path}")
+    previous_start = -1.0
     for chapter in project.chapters:
+        start = chapter.start_time_seconds
+        duration = chapter.duration_seconds
+        if (not math.isfinite(start) or not math.isfinite(duration)
+                or start < 0 or duration <= 0 or start < previous_start
+                or not math.isfinite((start + duration) * 1000)):
+            raise EncapError("Chapter times must be finite, nonnegative, in order, and have positive durations.")
+        previous_start = start
         if not chapter.title.strip():
             raise EncapError("Every chapter must have a title.")
         if chapter.link_url.strip() and "://" not in chapter.link_url:

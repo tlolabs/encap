@@ -192,6 +192,24 @@ class TranscriptionModelStoreTest(unittest.TestCase):
             self.assertFalse(store.model_path(model).exists())
             self.assertFalse(store.model_path(model).with_suffix(".bin.part").exists())
 
+    def test_download_rejects_oversized_response_and_removes_partial_file(self) -> None:
+        payload = b"oversized"
+        model = replace(
+            WHISPER_MODELS[0],
+            filename="oversized-model.bin",
+            sha256=hashlib.sha256(payload).hexdigest(),
+            max_download_bytes=len(payload) - 1,
+        )
+        with tempfile.TemporaryDirectory() as directory_name:
+            store = TranscriptionModelStore(Path(directory_name))
+            with self.assertRaisesRegex(ModelDownloadError, "larger than the allowed size"):
+                store.download(
+                    model,
+                    opener=lambda *_args, **_kwargs: FakeResponse(payload),
+                )
+            self.assertFalse(store.model_path(model).exists())
+            self.assertFalse(store.model_path(model).with_suffix(".bin.part").exists())
+
     def test_download_replaces_a_corrupt_preexisting_model(self) -> None:
         payload = b"replacement model"
         model = replace(

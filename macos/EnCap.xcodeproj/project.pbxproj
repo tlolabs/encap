@@ -1,0 +1,195 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000001 /* EnCapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* EnCapApp.swift */; };
+		100000000000000000000002 /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* ProjectDocument.swift */; };
+		100000000000000000000003 /* EngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* EngineClient.swift */; };
+		100000000000000000000004 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000004 /* AppStore.swift */; };
+		100000000000000000000005 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Formatters.swift */; };
+		100000000000000000000006 /* ProjectContentType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* ProjectContentType.swift */; };
+		100000000000000000000007 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* ContentView.swift */; };
+		100000000000000000000008 /* ProcessAudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* ProcessAudioView.swift */; };
+		100000000000000000000009 /* TranscribeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* TranscribeView.swift */; };
+		10000000000000000000000A /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* EmptyStateView.swift */; };
+		10000000000000000000000B /* SparkleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SparkleBridge.m */; };
+		10000000000000000000000C /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* AppIcon.icon */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000001 /* EnCapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/EnCapApp.swift; sourceTree = "<group>"; };
+		200000000000000000000002 /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ProjectDocument.swift; sourceTree = "<group>"; };
+		200000000000000000000003 /* EngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/EngineClient.swift; sourceTree = "<group>"; };
+		200000000000000000000004 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stores/AppStore.swift; sourceTree = "<group>"; };
+		200000000000000000000005 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/Formatters.swift; sourceTree = "<group>"; };
+		200000000000000000000006 /* ProjectContentType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support/ProjectContentType.swift; sourceTree = "<group>"; };
+		200000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ContentView.swift; sourceTree = "<group>"; };
+		200000000000000000000008 /* ProcessAudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ProcessAudioView.swift; sourceTree = "<group>"; };
+		200000000000000000000009 /* TranscribeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TranscribeView.swift; sourceTree = "<group>"; };
+		20000000000000000000000A /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/EmptyStateView.swift; sourceTree = "<group>"; };
+		20000000000000000000000B /* SparkleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SparkleBridge.m; sourceTree = "<group>"; };
+		20000000000000000000000C /* SparkleBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = include/SparkleBridge.h; sourceTree = "<group>"; };
+		20000000000000000000000D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; name = AppIcon.icon; path = ../assets/icons/liquid-glass/AppIcon.icon; sourceTree = SOURCE_ROOT; };
+		20000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/Info.plist; sourceTree = "<group>"; };
+		20000000000000000000000F /* EnCap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EnCap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		300000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		400000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000002 /* EnCap */,
+				400000000000000000000003 /* SparkleBridge */,
+				20000000000000000000000D /* AppIcon.icon */,
+				400000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		400000000000000000000002 /* EnCap */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000001 /* EnCapApp.swift */,
+				200000000000000000000002 /* ProjectDocument.swift */,
+				200000000000000000000003 /* EngineClient.swift */,
+				200000000000000000000004 /* AppStore.swift */,
+				200000000000000000000005 /* Formatters.swift */,
+				200000000000000000000006 /* ProjectContentType.swift */,
+				200000000000000000000007 /* ContentView.swift */,
+				200000000000000000000008 /* ProcessAudioView.swift */,
+				200000000000000000000009 /* TranscribeView.swift */,
+				20000000000000000000000A /* EmptyStateView.swift */,
+				20000000000000000000000E /* Info.plist */,
+			);
+			path = EnCap;
+			sourceTree = "<group>";
+		};
+		400000000000000000000003 /* SparkleBridge */ = {
+			isa = PBXGroup;
+			children = (
+				20000000000000000000000B /* SparkleBridge.m */,
+				20000000000000000000000C /* SparkleBridge.h */,
+			);
+			path = SparkleBridge;
+			sourceTree = "<group>";
+		};
+		400000000000000000000004 /* Products */ = {isa = PBXGroup; children = (20000000000000000000000F /* EnCap.app */,); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		500000000000000000000001 /* EnCap */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 900000000000000000000002 /* Build configuration list for PBXNativeTarget "EnCap" */;
+			buildPhases = (
+				700000000000000000000001 /* Sources */,
+				300000000000000000000001 /* Frameworks */,
+				600000000000000000000001 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = EnCap;
+			productName = EnCap;
+			productReference = 20000000000000000000000F /* EnCap.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		800000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 2660; LastUpgradeCheck = 2660; TargetAttributes = {500000000000000000000001 = {CreatedOnToolsVersion = 26.6; };};};
+			buildConfigurationList = 900000000000000000000001 /* Build configuration list for PBXProject "EnCap" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 400000000000000000000001;
+			productRefGroup = 400000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (500000000000000000000001 /* EnCap */,);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		600000000000000000000001 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (10000000000000000000000C /* AppIcon.icon in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		700000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000001 /* EnCapApp.swift in Sources */,
+				100000000000000000000002 /* ProjectDocument.swift in Sources */,
+				100000000000000000000003 /* EngineClient.swift in Sources */,
+				100000000000000000000004 /* AppStore.swift in Sources */,
+				100000000000000000000005 /* Formatters.swift in Sources */,
+				100000000000000000000006 /* ProjectContentType.swift in Sources */,
+				100000000000000000000007 /* ContentView.swift in Sources */,
+				100000000000000000000008 /* ProcessAudioView.swift in Sources */,
+				100000000000000000000009 /* TranscribeView.swift in Sources */,
+				10000000000000000000000A /* EmptyStateView.swift in Sources */,
+				10000000000000000000000B /* SparkleBridge.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_VERSION = 5.0;}; name = Debug; };
+		A00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 5.0;}; name = Release; };
+		A00000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EnCap/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tlolabs.encap;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = SparkleBridge/include/SparkleBridge.h;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A00000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EnCap/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MARKETING_VERSION = 0.1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tlolabs.encap;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = SparkleBridge/include/SparkleBridge.h;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		900000000000000000000001 /* Build configuration list for PBXProject "EnCap" */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000001 /* Debug */, A00000000000000000000002 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		900000000000000000000002 /* Build configuration list for PBXNativeTarget "EnCap" */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000003 /* Debug */, A00000000000000000000004 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 800000000000000000000001 /* Project object */;
+}

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QAction, QColor, QDropEvent, QKeySequence, QPixmap
 from PySide6.QtWidgets import QApplication, QTabWidget
+from PySide6.QtWidgets import QMessageBox
 
 from encap.gui import EncapWindow, _chapter_key
 from encap.models import (
@@ -44,9 +45,76 @@ class GuiWorkspacesTest(unittest.TestCase):
         self.app.processEvents()
 
     def tearDown(self) -> None:
-        self.window.close()
+        with patch(
+            "encap.gui.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Discard,
+        ):
+            self.window.close()
         self.app.processEvents()
         super().tearDown()
+
+    def test_unsaved_project_changes_can_cancel_window_close(self) -> None:
+        class CloseEvent:
+            ignored = False
+
+            def ignore(self) -> None:
+                self.ignored = True
+
+        self.window.project = ProjectDocument(project_title="Unsaved")
+        self.window._populate_form_from_project()
+        self.window.episode_edit.setText("Edited title")
+        event = CloseEvent()
+
+        with patch(
+            "encap.gui.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Cancel,
+        ):
+            self.window.closeEvent(event)
+
+        self.assertTrue(event.ignored)
+        self.assertEqual(self.window.project.metadata.episode_title, "Edited title")
+
+    def test_metadata_entered_before_import_is_treated_as_unsaved(self) -> None:
+        self.assertIsNone(self.window.project)
+        self.window.episode_edit.setText("Draft before audio import")
+
+        self.assertTrue(self.window._has_unsaved_project_changes())
+
+    def test_unsaved_project_changes_can_cancel_open(self) -> None:
+        self.window.project = ProjectDocument(project_title="Current")
+        self.window._populate_form_from_project()
+        self.window.episode_edit.setText("Edited current project")
+
+        with (
+            patch(
+                "encap.gui.QFileDialog.getOpenFileName",
+                return_value=("replacement.encap", "EnCap Project (*.encap)"),
+            ),
+            patch(
+                "encap.gui.QMessageBox.question",
+                return_value=QMessageBox.StandardButton.Cancel,
+            ),
+            patch("encap.gui.load_project") as load,
+        ):
+            self.window.open_project()
+
+        load.assert_not_called()
+        self.assertEqual(self.window.project.project_title, "Edited current project")
+
+    def test_successful_save_marks_project_clean_until_next_edit(self) -> None:
+        self.window.project = ProjectDocument(project_title="Save state")
+        self.window._populate_form_from_project()
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            project_path = Path(temp_dir_name) / "saved.encap"
+            with patch(
+                "encap.gui.QFileDialog.getSaveFileName",
+                return_value=(str(project_path), "EnCap Project (*.encap)"),
+            ):
+                self.assertTrue(self.window.save_project_file())
+
+            self.assertFalse(self.window._has_unsaved_project_changes())
+            self.window.episode_edit.setText("Edited after save")
+            self.assertTrue(self.window._has_unsaved_project_changes())
 
     def test_chapter_keys_use_stable_runtime_ids(self) -> None:
         first = ChapterEntry(0.0, 1.0, 1, "Chapter 1")

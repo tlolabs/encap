@@ -263,6 +263,8 @@ def download_update(
                 chunk = response.read(DOWNLOAD_CHUNK_SIZE)
                 if not chunk:
                     break
+                if downloaded + len(chunk) > release.asset.size:
+                    raise OSError("The update exceeds its signed download size.")
                 output.write(chunk)
                 digest.update(chunk)
                 downloaded += len(chunk)

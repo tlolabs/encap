@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -93,6 +94,8 @@ def parse_whisper_result(payload: bytes, *, time_offset: float = 0.0) -> list[Tr
     except (ValueError, TypeError, KeyError) as exc:
         raise EncapError("whisper.cpp returned an invalid transcription result.") from exc
 
+    if not isinstance(transcription, list):
+        raise EncapError("whisper.cpp returned an invalid transcription result.")
     segments: list[TranscriptSegment] = []
     for item in transcription:
         try:
@@ -102,6 +105,8 @@ def parse_whisper_result(payload: bytes, *, time_offset: float = 0.0) -> list[Tr
             end = time_offset + float(offsets["to"]) / 1000.0
         except (TypeError, KeyError, ValueError) as exc:
             raise EncapError("whisper.cpp returned an invalid transcript segment.") from exc
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0:
+            raise EncapError("The transcription engine returned an invalid segment time.")
         if text:
             segments.append(
                 TranscriptSegment(
@@ -120,6 +125,8 @@ def parse_apple_result(payload: bytes, *, time_offset: float = 0.0) -> list[Tran
     except (ValueError, TypeError, KeyError) as exc:
         raise EncapError("Apple Speech returned an invalid transcription result.") from exc
 
+    if not isinstance(raw_segments, list):
+        raise EncapError("Apple Speech returned an invalid transcription result.")
     words: list[TranscriptSegment] = []
     for item in raw_segments:
         try:
@@ -128,6 +135,8 @@ def parse_apple_result(payload: bytes, *, time_offset: float = 0.0) -> list[Tran
             end = start + float(item["duration_seconds"])
         except (TypeError, KeyError, ValueError) as exc:
             raise EncapError("Apple Speech returned an invalid transcript segment.") from exc
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0:
+            raise EncapError("The transcription engine returned an invalid segment time.")
         if text:
             words.append(
                 TranscriptSegment(
@@ -150,6 +159,8 @@ def parse_whisperkit_result(
     except (ValueError, TypeError, KeyError) as exc:
         raise EncapError("WhisperKit returned an invalid transcription result.") from exc
 
+    if not isinstance(raw_segments, list):
+        raise EncapError("WhisperKit returned an invalid transcription result.")
     segments: list[TranscriptSegment] = []
     for item in raw_segments:
         try:
@@ -158,6 +169,8 @@ def parse_whisperkit_result(
             end = time_offset + float(item["end_seconds"])
         except (TypeError, KeyError, ValueError) as exc:
             raise EncapError("WhisperKit returned an invalid transcript segment.") from exc
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0:
+            raise EncapError("The transcription engine returned an invalid segment time.")
         if text:
             segments.append(
                 TranscriptSegment(

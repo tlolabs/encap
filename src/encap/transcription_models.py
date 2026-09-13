@@ -32,6 +32,7 @@ class TranscriptionModel:
     languages: str
     description: str
     language_code: str
+    max_download_bytes: int
     license_name: str = "MIT"
     license_url: str = "https://github.com/openai/whisper/blob/main/LICENSE"
 
@@ -102,6 +103,7 @@ WHISPER_MODELS: tuple[TranscriptionModel, ...] = (
         languages="English",
         description="Fast, compact, and the recommended starting point for English recordings.",
         language_code="en",
+        max_download_bytes=200 * 1024 * 1024,
     ),
     TranscriptionModel(
         model_id="whisper-small",
@@ -116,6 +118,7 @@ WHISPER_MODELS: tuple[TranscriptionModel, ...] = (
         languages="Multilingual",
         description="A balanced multilingual model with better accuracy than Base.",
         language_code="auto",
+        max_download_bytes=600 * 1024 * 1024,
     ),
     TranscriptionModel(
         model_id="whisper-large-v3-turbo",
@@ -130,6 +133,7 @@ WHISPER_MODELS: tuple[TranscriptionModel, ...] = (
         languages="Multilingual",
         description="Highest-quality option in EnCap's initial catalog; requires substantially more memory.",
         language_code="auto",
+        max_download_bytes=2 * 1024 * 1024 * 1024,
     ),
 )
 
@@ -738,10 +742,18 @@ class TranscriptionModelStore:
             with opener(request, timeout=60) as response, partial_path.open("wb") as output:
                 header_value = response.headers.get("Content-Length")
                 total = int(header_value) if header_value and header_value.isdigit() else None
+                if total is not None and total > model.max_download_bytes:
+                    raise ModelDownloadError(
+                        f"The {model.name} download is larger than the allowed size."
+                    )
                 while True:
                     chunk = response.read(1024 * 1024)
                     if not chunk:
                         break
+                    if downloaded + len(chunk) > model.max_download_bytes:
+                        raise ModelDownloadError(
+                            f"The {model.name} download exceeded the allowed size."
+                        )
                     output.write(chunk)
                     digest.update(chunk)
                     downloaded += len(chunk)
