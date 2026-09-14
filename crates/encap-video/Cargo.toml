@@ -6,8 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+avid-core.workspace = true
 encap-core = { path = "../encap-core" }
 encap-ffmpeg = { path = "../encap-ffmpeg" }
-serde.workspace = true
-tempfile.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

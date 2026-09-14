@@ -8,36 +8,7 @@ fn default_schema() -> u64 {
     2
 }
 
-fn default_video_schema() -> u64 {
-    1
-}
-fn default_video_platform() -> String {
-    "Instagram".into()
-}
-fn default_video_aspect() -> String {
-    "Horizontal video (16:9)".into()
-}
-fn default_video_width() -> u32 {
-    1920
-}
-fn default_video_height() -> u32 {
-    1080
-}
-fn default_video_codec() -> String {
-    "h264".into()
-}
-fn default_video_encoding() -> String {
-    "automatic".into()
-}
-fn default_video_bitrate() -> String {
-    "128k".into()
-}
-fn default_video_fps() -> u32 {
-    30
-}
-fn default_preview_quality() -> String {
-    "automatic".into()
-}
+pub use avid_core::{VideoProjectState, VideoSettings};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,84 +41,6 @@ pub struct TranscriptSettings {
     pub extensions: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct VideoSettings {
-    #[serde(default = "default_video_platform")]
-    pub platform: String,
-    #[serde(default = "default_video_aspect")]
-    pub aspect: String,
-    #[serde(default = "default_video_width")]
-    pub width: u32,
-    #[serde(default = "default_video_height")]
-    pub height: u32,
-    #[serde(default = "default_video_codec")]
-    pub codec: String,
-    #[serde(default = "default_video_encoding")]
-    pub encoding: String,
-    #[serde(default = "default_video_bitrate")]
-    pub audio_bitrate: String,
-    #[serde(default = "default_video_fps")]
-    pub fps: u32,
-    #[serde(default)]
-    pub flip_horizontal: bool,
-    #[serde(default)]
-    pub flip_vertical: bool,
-    #[serde(default = "default_preview_quality")]
-    pub preview_quality: String,
-    #[serde(default)]
-    pub selected_chapter_ids: Vec<String>,
-    #[serde(default)]
-    pub selection_initialized: bool,
-    #[serde(flatten)]
-    pub extensions: BTreeMap<String, Value>,
-}
-
-impl Default for VideoSettings {
-    fn default() -> Self {
-        Self {
-            platform: default_video_platform(),
-            aspect: default_video_aspect(),
-            width: default_video_width(),
-            height: default_video_height(),
-            codec: default_video_codec(),
-            encoding: default_video_encoding(),
-            audio_bitrate: default_video_bitrate(),
-            fps: default_video_fps(),
-            flip_horizontal: false,
-            flip_vertical: false,
-            preview_quality: default_preview_quality(),
-            selected_chapter_ids: Vec::new(),
-            selection_initialized: false,
-            extensions: BTreeMap::new(),
-        }
-    }
-}
-
-/// Versioned home for Video 2 export state. The additive extension maps and
-/// reserved composition collection let 3.x add layers/keyframes/variants
-/// without changing the authoritative audio or transcript models.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct VideoProjectState {
-    #[serde(default = "default_video_schema")]
-    pub schema_version: u64,
-    #[serde(default)]
-    pub export_settings: VideoSettings,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub compositions: Vec<Value>,
-    #[serde(flatten)]
-    pub extensions: BTreeMap<String, Value>,
-}
-
-impl Default for VideoProjectState {
-    fn default() -> Self {
-        Self {
-            schema_version: default_video_schema(),
-            export_settings: VideoSettings::default(),
-            compositions: Vec::new(),
-            extensions: BTreeMap::new(),
-        }
-    }
-}
 fn default_project_title() -> String {
     "Untitled".into()
 }
@@ -422,11 +315,9 @@ impl ProjectDocument {
                 }
             }
         }
-        if self.video.schema_version != 1 {
-            return Err(crate::EncapError::Message(
-                "This project's Video workspace is newer than this version of EnCap.".into(),
-            ));
-        }
+        self.video
+            .validate_schema()
+            .map_err(crate::EncapError::from)?;
         Ok(())
     }
 }
