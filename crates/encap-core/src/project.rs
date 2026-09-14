@@ -93,6 +93,8 @@ struct CompatibilityPayload {
     audio_sources: Vec<BTreeMap<String, Value>>,
     chapters: Vec<BTreeMap<String, Value>>,
     transcript_segments: Vec<BTreeMap<String, Value>>,
+    #[serde(default)]
+    transcript_words: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
     export_settings: BTreeMap<String, Value>,
     transcript_settings: BTreeMap<String, Value>,
     video: BTreeMap<String, Value>,
@@ -185,6 +187,15 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                     preserved.transcript_segments.get(index),
                     &segment.extensions,
                 );
+                for word in &mut segment.words {
+                    word.extensions = merged_extensions(
+                        preserved
+                            .transcript_words
+                            .get(&segment.id)
+                            .and_then(|words| words.get(&word.id)),
+                        &word.extensions,
+                    );
+                }
                 segment
             })
             .collect();
@@ -442,6 +453,20 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
             .transcript_segments
             .iter()
             .map(|item| item.extensions.clone())
+            .collect(),
+        transcript_words: manifest
+            .transcript_segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.id.clone(),
+                    segment
+                        .words
+                        .iter()
+                        .map(|word| (word.id.clone(), word.extensions.clone()))
+                        .collect(),
+                )
+            })
             .collect(),
         export_settings: manifest.export_settings.extensions.clone(),
         transcript_settings: manifest.transcript_settings.extensions.clone(),
