@@ -94,10 +94,15 @@ fn main() {
     let _log_guard = init_logging();
     let cancellation = CancellationToken::default();
     let signal_cancellation = cancellation.clone();
-    if let Err(error) = ctrlc::set_handler(move || signal_cancellation.cancel()) {
+    let video_cancellation = avid_core::CancellationToken::default();
+    let signal_video_cancellation = video_cancellation.clone();
+    if let Err(error) = ctrlc::set_handler(move || {
+        signal_cancellation.cancel();
+        signal_video_cancellation.cancel();
+    }) {
         tracing::warn!(%error, "could not install the cancellation signal handler");
     }
-    match run(Cli::parse(), &cancellation) {
+    match run(Cli::parse(), &cancellation, &video_cancellation) {
         Ok(value) => match serde_json::to_writer(std::io::stdout(), &value) {
             Ok(()) => println!(),
             Err(error) => {
@@ -117,7 +122,11 @@ fn main() {
     }
 }
 
-fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
+fn run(
+    cli: Cli,
+    cancellation: &CancellationToken,
+    video_cancellation: &avid_core::CancellationToken,
+) -> Result<Value> {
     match cli.command {
         Commands::Inspect { folder } => json(encap_audio::inspect(&folder)?),
         Commands::Open {
@@ -140,11 +149,11 @@ fn run(cli: Cli, cancellation: &CancellationToken) -> Result<Value> {
         }
         Commands::ExportVideo { payload, output } => {
             let project = read_payload(&payload)?;
-            let path = encap_video::export(&project, &output, cancellation)?;
+            let path = encap_video::export(&project, &output, video_cancellation)?;
             json(PathResponse { path })
         }
         Commands::VideoPresets => json(encap_video::PRESETS),
-        Commands::VideoCapabilities => json(encap_video::capabilities()?),
+        Commands::VideoCapabilities => json(encap_video::capabilities(video_cancellation)?),
         Commands::ExportTranscript {
             payload,
             output,

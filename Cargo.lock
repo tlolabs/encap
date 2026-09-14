@@ -77,6 +77,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "avid-core"
+version = "0.1.0"
+dependencies = [
+ "same-file",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "aws-lc-rs"
 version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -417,6 +427,7 @@ dependencies = [
 name = "encap-core"
 version = "2.0.0"
 dependencies = [
+ "avid-core",
  "serde",
  "serde_json",
  "tempfile",
@@ -430,6 +441,7 @@ dependencies = [
 name = "encap-engine"
 version = "2.0.0"
 dependencies = [
+ "avid-core",
  "clap",
  "ctrlc",
  "directories",
@@ -489,9 +501,10 @@ dependencies = [
 name = "encap-video"
 version = "2.0.0"
 dependencies = [
+ "avid-core",
  "encap-core",
  "encap-ffmpeg",
- "serde",
+ "serde_json",
  "tempfile",
  "tracing",
 ]

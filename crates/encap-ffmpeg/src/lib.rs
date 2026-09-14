@@ -36,12 +36,20 @@ pub struct MediaTools {
 
 impl MediaTools {
     pub fn discover() -> Result<Self> {
+        Self::discover_with_validator(|tools| {
+            tools.validate()?;
+            Ok(tools.clone())
+        })
+    }
+
+    /// The same host resolution policy with caller-owned validation. Video uses
+    /// the shared cancellable validator; unrelated modes retain `discover()`.
+    pub fn discover_with_validator<T>(validate: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
         let tools = Self {
             ffmpeg: locate_tool("ffmpeg", "ENCAP_FFMPEG")?,
             ffprobe: locate_tool("ffprobe", "ENCAP_FFPROBE")?,
         };
-        tools.validate()?;
-        Ok(tools)
+        validate(&tools)
     }
 
     pub fn ffmpeg(&self) -> &Path {

@@ -18,6 +18,7 @@ license = "GPL-3.0-only"
 repository = "https://github.com/tlolabs/encap"
 
 [workspace.dependencies]
+avid-core = { path = "../AVID Core" }
 anyhow = "1.0.99"
 base64 = "0.22.1"
 clap = { version = "4.5.47", features = ["derive"] }

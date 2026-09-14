@@ -10,6 +10,7 @@ name = "encap-engine"
 path = "src/main.rs"
 
 [dependencies]
+avid-core.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 directories.workspace = true
