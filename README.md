@@ -27,7 +27,8 @@ EnCap has three peer application modes over one shared project format:
 
 The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
-and persistence and `encap-ffmpeg` for controlled subprocess execution. A small
+and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
+Video delegates media work to the canonical sibling `avid-core` crate. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
 GTK 4/libadwaita applications thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
@@ -95,7 +96,8 @@ disabled.
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
+Check out `tlolabs/avid-core` beside EnCAP as `AVID Core` at revision
+`0cce6ba838827d0bed540efc98731e74a1014456`. Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.

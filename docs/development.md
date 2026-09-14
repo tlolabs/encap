@@ -12,13 +12,17 @@ The Rust workspace is intentionally layered:
   and MP3/AAC export.
 - `encap-transcript`: local provider discovery, model lifecycle, Apple Speech,
   and whisper.cpp execution.
-- `encap-video`: social presets, chapter timeline construction, artwork composition,
-  encoder capability selection, and atomic MP4 publication.
+- `encap-video`: project preflight, selected chapter/source mapping, and host diagnostics
+  over `avid-core`, which owns Video presets, settings, graphs, processes, and publication.
 - `encap-engine`: a small JSON command boundary consumed by native apps.
 
-The three mode crates are siblings. Do not add dependencies between them. Shared
-media-process behavior belongs in `encap-ffmpeg`; shared
-application data belongs in `encap-core`.
+The three mode crates are siblings. Do not add dependencies between them. Video
+media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavior
+remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
+
+Check out `tlolabs/avid-core` beside EnCAP as `AVID Core`. The workspace path dependency
+and CI use shared revision `0cce6ba838827d0bed540efc98731e74a1014456`. Update it only
+after rerunning shared tests and EnCAP compatibility tests; never copy media implementation.
 
 ## Engine protocol
 
@@ -51,7 +55,7 @@ record for manual recovery, and never overwrites a known-good project file.
 
 This is the canonical build-and-launch path used by the Codex Run action. It
 builds the Xcode SwiftUI target for the host architecture, the release Rust
-engine, FFmpeg 9.0.1 and libmp3lame 4.0 from pinned sources, whisper.cpp, Apple
+engine, the approved common FFmpeg/ffprobe 9.0.1 artifact, whisper.cpp, Apple
 helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 
@@ -73,8 +77,8 @@ workload.
 ## Linux
 
 The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
-CI builds the Rust engine, compiles FFmpeg and libmp3lame from the same pinned
-sources used on macOS, builds whisper.cpp, stages the application layout, runs
+CI builds the Rust engine, fetches the pinned common Linux FFmpeg artifact,
+builds whisper.cpp, stages the application layout, runs
 tool validation, and creates an x64 tarball. A development host needs Meson,
 Ninja, GTK 4, libadwaita 1, and json-glib headers.
 
@@ -108,3 +112,29 @@ with the update private key from repository secrets and emits hashes plus signed
 metadata. macOS notarization and
 Developer ID signing require external credentials and are intentionally outside
 an uncredentialed local build.
+
+## Common media distribution gate
+
+`script/fetch_ffmpeg.sh` records the same immutable upstream platform artifacts as ATIV.
+The existing `build_ffmpeg.sh` and `build_ffmpeg_linux.sh` entrypoints now prepare that
+one pair in the existing install directory, replacing the previous recipe. The shared
+crate bundles nothing. No Video-specific binary directory or runtime fallback exists.
+Cache reuse checks both the recipe hash and executable hashes.
+
+Before launch/package, macOS runs the three `encap-engine` media contract tests and
+three shared real-media tests against the staged pair. Windows x64 and Linux CI use
+the same gates; Windows ARM64 still needs native execution. The tests cover codec/filter
+requirements plus MP3/AAC/AudioToolbox, Transcript PCM conversion, and Video rendering.
+Platform capability advertisement alone is not approval for a release artifact.
+
+Run the explicit tests with the actual distribution paths:
+
+```sh
+ENCAP_FFMPEG="$PWD/dist/EnCap.app/Contents/MacOS/ffmpeg" \
+ENCAP_FFPROBE="$PWD/dist/EnCap.app/Contents/MacOS/ffprobe" \
+ENCAP_TEST_ENGINE="$PWD/dist/EnCap.app/Contents/MacOS/encap-engine" \
+cargo test --locked -p encap-engine --test media_contract -- --ignored
+```
+
+`ENCAP_TEST_ENGINE` and optional `ENCAP_REFERENCE_ENGINE` are test-harness inputs only.
+See [migration evidence and remaining gates](migration-avid-core.md).
