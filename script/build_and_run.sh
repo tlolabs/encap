@@ -163,6 +163,8 @@ if [[ ! -s "$APP_RESOURCES/AppIcon.icns" ]]; then
 fi
 cp "$RUST_ENGINE" "$ENGINE_BINARY"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
+cp "$ROOT_DIR/../AVID Core/LICENSE" "$APP_RESOURCES/AVID_CORE_LICENSE.txt"
+"$FFMPEG_INSTALL_DIR/bin/ffmpeg" -buildconf > "$APP_RESOURCES/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
 ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
 chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/tlolabs/encap/releases/latest/download/appcast-$ENCAP_PLATFORM_NAME.xml" "$INFO_PLIST"
@@ -200,6 +202,12 @@ if [[ -s "$APP_RESOURCES/Assets.car" ]]; then
   grep '"AssetType" : "IconImageStack"' "$ICON_REPORT" >/dev/null
 fi
 file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
+
+# Exercise the actual bundled pair through all modes before launch or packaging.
+ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_FFMPEG="$APP_MACOS/ffmpeg" ENCAP_FFPROBE="$APP_MACOS/ffprobe" \
+  "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test media_contract -- --ignored
+PATH="$APP_MACOS:$PATH" "$CARGO" test --manifest-path "$ROOT_DIR/../AVID Core/Cargo.toml" --locked --test ffmpeg -- --ignored
+! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
 
 open_app() {
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

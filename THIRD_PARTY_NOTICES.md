@@ -6,27 +6,29 @@ downloaded only at the user's request.
 
 ## FFmpeg and FFprobe
 
-EnCap distributions include FFmpeg and FFprobe 9.0.1 command-line executables
-built from the checksum-pinned upstream source release. The bundled executables
-are separate programs invoked by EnCap for media conversion, encoding,
-metadata, and validation.
+EnCap distributes one checksum-pinned FFmpeg/ffprobe 9.0.1 pair for all modes.
+The platform/architecture artifacts match ATIV's approved input catalog in
+`script/fetch_ffmpeg.sh`: Martin Riedl macOS distributions and BtbN GPL builds
+for Windows/Linux. EnCap no longer builds a separate audio-only FFmpeg recipe.
+The exact upstream artifact URLs and archive hashes are in that script;
+`FFMPEG_BUILD_CONFIGURATION.txt` records the packaged build configuration.
 
-The distributed builds enable GPL and version-3 components. FFmpeg licensing,
-corresponding source, and build information are available from
-https://ffmpeg.org/legal.html and https://ffmpeg.org/download.html. The exact
-configuration used by EnCap is recorded in the platform build scripts.
+FFmpeg source, licensing and corresponding build information:
+https://ffmpeg.org/legal.html
+https://ffmpeg.martin-riedl.de/
+https://github.com/BtbN/FFmpeg-Builds
 
-## LAME
+The GPL builds include libx264 and libx265 (GPL) and libmp3lame (LGPL).
+EnCap invokes these executables as separate processes. Corresponding codec
+source and license information is available at https://www.videolan.org/developers/x264.html,
+https://www.videolan.org/developers/x265.html and https://lame.sourceforge.io/.
+The former EnCap-specific LAME 4.0 build description does not describe these artifacts.
 
-EnCap's bundled FFmpeg is linked with an encoder-only static build of LAME 4.0
-to provide the `libmp3lame` codec. EnCap does not ship LAME's command-line
-frontend or decoder.
+## AVID Core
 
-LAME is distributed under the GNU Lesser General Public License, version 2 or
-later.
-Source and license information are available from
-https://lame.sourceforge.io/ and
-https://sourceforge.net/projects/lame/files/lame/4.0/.
+EnCap Video uses `avid-core` under GPL-3.0-only. Its license is distributed as
+`AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
+Tested revision: 0cce6ba838827d0bed540efc98731e74a1014456.
 
 ## whisper.cpp
 

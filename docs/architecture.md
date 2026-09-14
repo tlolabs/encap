@@ -1,28 +1,24 @@
 # Native application architecture
 
 ```text
-                         EnCap project model
-                                  |
-                            encap-core crate
-                     (formats, persistence, models)
-              /                 |                 \
-      encap-audio         encap-transcript       encap-video
-  (ingest + audio export) (local inference)   (preview + MP4)
-              \                 |                 /
-                           encap-ffmpeg crate
-                    (tool discovery and processes)
-                                  |
-                         encap-engine protocol
-                       /          |           \
-                 SwiftUI       WinUI 3     GTK 4/libadwaita
-                  macOS         Windows         Linux
+SwiftUI / WinUI / GTK -> encap-engine (one JSON response)
+                        |-- encap-core: project model and ZIP persistence
+                        |-- encap-audio / encap-transcript -> encap-ffmpeg
+                        `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
+
+All modes resolve the same host-owned FFmpeg/ffprobe pair.
 ```
 
 `encap-core` contains platform-neutral data and long-term file compatibility.
 The three user modes are separate crates and do not depend on one another.
 `encap-ffmpeg` is deliberately narrow: it locates and validates bundled tools,
 passes arguments without a shell, drains output without pipe deadlocks, records
-diagnostics, and terminates child processes on cancellation.
+diagnostics, and terminates child processes on cancellation for Audio/Transcript.
+Video uses its resolution policy through `discover_with_validator`, then passes both
+resolved getters as explicit shared overrides. This avoids uncancellable duplicate
+validation. Invalid environment files still fall back before overrides are set.
+AVID Core owns Video tool validation, probing, capabilities, rendering, and staging.
+One signal handler cancels the retained Audio/Transcript token and a shared Video token.
 
 All three native applications use the `encap-engine` JSON process boundary.
 JSON keys use

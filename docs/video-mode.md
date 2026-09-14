@@ -29,6 +29,18 @@ Video does not require a transcript and does not render captions in 2.0. The
 project schema separately persists optional word timings so a later composition
 engine can build transcript-driven graphics without changing Audio or Video 2.0.
 
-The implementation adapts the user-facing presets and artwork treatment from
-the former AVID application into `encap-video`; AVID is neither a submodule nor
-a build/runtime dependency.
+`encap-video` is a small host adapter over `avid-core` in the sibling AVID Core
+repository. The canonical crate owns presets, persisted Video types, validation,
+selection, encoder choice, composition, media execution, and atomic publication.
+The adapter retains whole-project checks, the required main-artwork inspection,
+checked chapter-number mapping, all protected project/media paths, and safe messages.
+No native client source changed in this migration.
+
+The shared settings adapter explicitly selects `Composition::SquarePadded` (sigma20).
+Preview playback remains native and its blur/scale treatment is approximate, not
+pixel-identical to export. Pause/seek/next/previous and preview_quality remain host
+state; export pause/resume is not provided. No new UI selection or graph code is added.
+Probes default to 30 seconds, preview to 120 seconds, and export has no default timeout.
+Shared events go only to local tracing; stdout remains one JSON value.
+
+See [migration verification](migration-avid-core.md) for actual tests and platform gaps.
