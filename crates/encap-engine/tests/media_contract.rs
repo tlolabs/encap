@@ -168,7 +168,7 @@ fn whole_engine_media_persistence_recovery_and_reference_contract() {
     let h = Harness::new();
     let audio = h.root.path().join("audio ü");
     fs::create_dir(&audio).unwrap();
-    for (name, freq) in [("source 1.wav", "440"), ("source 2.wav", "880")] {
+    for (name, freq) in [("source 1.wav", "440"), ("source 2.aiff", "880")] {
         h.ff(&[
             s("-v"),
             s("error"),
@@ -179,7 +179,11 @@ fn whole_engine_media_persistence_recovery_and_reference_contract() {
                 "sine=frequency={freq}:duration=1:sample_rate=44100"
             )),
             s("-c:a"),
-            s("pcm_s16le"),
+            s(if name.ends_with("aiff") {
+                "pcm_s24be"
+            } else {
+                "pcm_s16le"
+            }),
             audio.join(name).as_os_str(),
         ]);
     }
