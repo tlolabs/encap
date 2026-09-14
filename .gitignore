@@ -1,25 +1,12 @@
-__pycache__/
 .build/
-*.py[cod]
-*.egg-info/
-.venv/
-.venv-packaging/
-# Native main policy: Python lives only on archive/python-legacy.
-*.py
-*.pyi
-*.pyw
-*.pyx
-*.spec
-pyproject.toml
-Pipfile
-requirements*.txt
+# Keep unexpected Python source and environments visible to git status.
 .codex/
 node_modules/
 .sparkle/
 .whisper-cpp/
 .build-tools/
 .encap-update-private-key
-src/encap/update_public_key.txt
+.encap-update-public-key
 build/
 dist/
 target/

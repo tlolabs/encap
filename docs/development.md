@@ -59,6 +59,10 @@ engine, the approved common FFmpeg/ffprobe 9.0.1 artifact, whisper.cpp, Apple
 helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 
+The local Sparkle verification key belongs in `.encap-update-public-key` at the
+repository root (ignored by Git). CI writes the same file from
+`ENCAP_UPDATE_PUBLIC_KEY`. The old `src/encap` Python package path is no longer used.
+
 The deployment target is macOS 13. The CI matrix builds both Intel and Apple
 silicon artifacts. Packaging uses `--package` to create an architecture-labeled
 DMG.
