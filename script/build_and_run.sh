@@ -20,6 +20,7 @@ case "$NATIVE_ARCH" in
 esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$ROOT_DIR/script/check_no_python.sh"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -37,7 +38,7 @@ SPARKLE_DIR="$ROOT_DIR/.sparkle"
 SPARKLE_VERSION_DIR="$SPARKLE_DIR/$SPARKLE_VERSION"
 SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle-$SPARKLE_VERSION.tar.xz"
 SPARKLE_FRAMEWORK="$SPARKLE_VERSION_DIR/Sparkle.framework"
-PUBLIC_KEY_FILE="$ROOT_DIR/src/encap/update_public_key.txt"
+PUBLIC_KEY_FILE="$ROOT_DIR/.encap-update-public-key"
 WHISPER_CPP_DIR="$ROOT_DIR/.whisper-cpp"
 APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/apple-transcriber"
 APPLE_AAC_INFO="$ROOT_DIR/.build-tools/apple-aac-info"

@@ -136,8 +136,10 @@ macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release
 steps and are never stored in the repository.
 
-The native-only policy check rejects Python source and packaging files from the
-current branch. Historical Python work remains available from the archive branch.
+The native-only policy check rejects tracked and local Python source, packaging
+files, and environments, including ignored leftovers. The macOS build runs it
+before building. Third-party dependency caches are excluded from the local scan.
+Historical Python work remains available from the archive branch.
 
 ## About and license
 

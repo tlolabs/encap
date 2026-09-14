@@ -87,11 +87,10 @@ jobs:
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
         run: |
-          mkdir -p src/encap
           if [[ -n "$UPDATE_PUBLIC_KEY" ]]; then
-            printf '%s\n' "$UPDATE_PUBLIC_KEY" > src/encap/update_public_key.txt
+            printf '%s\n' "$UPDATE_PUBLIC_KEY" > .encap-update-public-key
           else
-            printf '%s\n' 'development-build-no-update-key' > src/encap/update_public_key.txt
+            printf '%s\n' 'development-build-no-update-key' > .encap-update-public-key
           fi
       - name: Install pinned Rust toolchain
         run: rustup show
