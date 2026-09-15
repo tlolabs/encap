@@ -27,6 +27,18 @@ enum Commands {
     Inspect {
         folder: PathBuf,
     },
+    /// Approximate first-channel waveform using bounded sample reads.
+    Waveform {
+        file: PathBuf,
+    },
+    InspectFiles {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    EditAudio {
+        payload: PathBuf,
+        edits: PathBuf,
+    },
     Open {
         project: PathBuf,
         #[arg(long)]
@@ -129,6 +141,17 @@ fn run(
 ) -> Result<Value> {
     match cli.command {
         Commands::Inspect { folder } => json(encap_audio::inspect(&folder)?),
+        Commands::Waveform { file } => json(encap_core::waveform_preview(&file)?),
+        Commands::InspectFiles { files } => json(encap_core::inspect_files(&files)?),
+        Commands::EditAudio { payload, edits } => {
+            let project = read_payload(&payload)?;
+            let bytes = fs::read(&edits).map_err(|source| EncapError::Read {
+                path: edits,
+                source,
+            })?;
+            let edits = serde_json::from_slice::<encap_core::AudioEdits>(&bytes)?;
+            json(encap_core::edit_audio(&project, edits)?)
+        }
         Commands::Open {
             project,
             extraction_parent,

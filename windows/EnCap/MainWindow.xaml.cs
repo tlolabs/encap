@@ -26,11 +26,31 @@ public sealed partial class MainWindow : Window
     private double pendingVideoPreviewSeconds;
     private bool resumeVideoPreview;
     private bool updatingVideoPreviewSeek;
+    private ChapterNamingStyle chapterNamingStyle = ChapterNaming.LoadPreference();
+    private bool namingReady;
 
     public MainWindow()
     {
         InitializeComponent();
         Title = "EnCap";
+        ChapterNames.SelectedIndex = (int)chapterNamingStyle;
+        namingReady = true;
+        UpdateChapterNamingHelp();
+        EpisodeArtworkPreview.ImageFailed += (_, _) => {
+            EpisodeArtworkPreview.Source = null;
+            EpisodeArtworkPlaceholder.Text = "Preview unavailable";
+            EpisodeArtworkPlaceholder.Visibility = Visibility.Visible;
+        };
+        SourceRecordings.AddRequested += AddSourceFiles;
+        SourceRecordings.DeleteRequested += DeleteSourceFiles;
+        SourceRecordings.PlaybackFailed += ShowError;
+        SourceRecordings.PreviewStarting += () => {
+            resumeVideoPreview = false;
+            VideoPreviewPlayer.MediaPlayer.Pause();
+            SetVideoPlaybackButton(false);
+        };
+        Activated += (_, args) => { if (args.WindowActivationState == WindowActivationState.Deactivated) SourceRecordings.ReleaseShuttleChord(); };
+        Closed += (_, _) => { SourceRecordings.StopPlayback(); videoPreviewTimer.Stop(); VideoPreviewPlayer.MediaPlayer.Dispose(); };
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 820));
         VideoPreviewPlayer.SetMediaPlayer(new MediaPlayer());
         VideoPreviewPlayer.MediaPlayer.MediaOpened += VideoPreviewMedia_Opened;
@@ -68,6 +88,46 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
+    private void SourceDivider_DragDelta(object sender, DragDeltaEventArgs args) =>
+        SourceColumn.Width = new GridLength(Math.Clamp(SourceColumn.ActualWidth + args.HorizontalChange, 140, Math.Max(140, AudioPanel.ActualWidth - 400)));
+
+    private async void AddSourceFiles()
+    {
+        if (project is null || !Navigation.IsEnabled) return;
+        var picker = new FileOpenPicker();
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        foreach (var extension in new[] { ".wav", ".wave", ".aif", ".aiff", ".aifc" }) picker.FileTypeFilter.Add(extension);
+        var files = await picker.PickMultipleFilesAsync();
+        if (files.Count == 0) return;
+        ReadProjectEdits();
+        await WorkAsync("Adding audio files…", async () => {
+            var previousIds = project.Chapters.Select(chapter => chapter.Id).ToHashSet();
+            project = await engine.EditAudioAsync(project, files.Select(file => file.Path).ToArray(), []);
+            ChapterNaming.Apply(project, chapterNamingStyle, project.Chapters.Where(chapter => !previousIds.Contains(chapter.Id)).Select(chapter => chapter.Id).ToHashSet());
+            PresentProject();
+            MarkDirty();
+        });
+    }
+
+    private async void DeleteSourceFiles(IReadOnlyList<AudioSource> sources)
+    {
+        if (project is null || sources.Count == 0 || !Navigation.IsEnabled) return;
+        var dialog = new ContentDialog {
+            Title = sources.Count == 1 ? "Delete imported track?" : $"Delete {sources.Count} imported tracks?",
+            Content = "The selected audio and its chapters will be removed from this project. Original files stay on disk.",
+            PrimaryButtonText = sources.Count == 1 ? "Delete Track" : "Delete Tracks",
+            CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close, XamlRoot = Content.XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        ReadProjectEdits();
+        SourceRecordings.StopPlayback();
+        await WorkAsync("Removing tracks…", async () => {
+            project = await engine.EditAudioAsync(project, [], sources.Select(source => source.SourcePath).ToArray());
+            PresentProject();
+            MarkDirty();
+        });
+    }
+
     private async void Import_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FolderPicker();
@@ -75,7 +135,7 @@ public sealed partial class MainWindow : Window
         picker.FileTypeFilter.Add("*");
         var folder = await picker.PickSingleFolderAsync();
         if (folder is null) return;
-        await WorkAsync("Reading audio…", async () => { project = await engine.InspectAsync(folder.Path); PresentProject(); MarkDirty(); });
+        await WorkAsync("Reading audio…", async () => { project = await engine.InspectAsync(folder.Path); ChapterNaming.Apply(project, chapterNamingStyle); PresentProject(); MarkDirty(); });
     }
 
     private async void Open_Click(object sender, RoutedEventArgs e)
@@ -102,8 +162,9 @@ public sealed partial class MainWindow : Window
         ReadProjectEdits();
         await WorkAsync("Saving project…", async () =>
         {
-            Status.Message = $"Saved {Path.GetFileName(await engine.SaveAsync(project, path))}.";
-            project.ProjectPath = path;
+            var savedPath = await engine.SaveAsync(project, path);
+            Status.Message = $"Saved {Path.GetFileName(savedPath)}.";
+            project.ProjectPath = savedPath;
             isDirty = false;
             await engine.ClearRecoveryAsync();
         });
@@ -176,18 +237,26 @@ public sealed partial class MainWindow : Window
         if (index >= 0) LoadVideoPreview(index, 0, false);
     }
 
+    private void SetVideoPlaybackButton(bool playing)
+    {
+        VideoPreviewPlay.Content = playing ? "Pause" : "Play";
+        ToolTipService.SetToolTip(VideoPreviewPlay, playing ? "Pause video preview" : "Play video preview");
+    }
+
     private void VideoPreviewPlay_Click(object sender, RoutedEventArgs e)
     {
+        SourceRecordings.StopPlayback();
         if (VideoPreviewPlayer.MediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
         {
+            resumeVideoPreview = false;
             VideoPreviewPlayer.MediaPlayer.Pause();
-            VideoPreviewPlay.Content = "Play";
+            SetVideoPlaybackButton(false);
             return;
         }
         if (SelectedVideoChapters().Count == 0) return;
         if (VideoPreviewPlayer.MediaPlayer.Source is null) LoadVideoPreview(videoPreviewIndex, 0, true);
-        else VideoPreviewPlayer.MediaPlayer.Play();
-        VideoPreviewPlay.Content = "Pause";
+        else { resumeVideoPreview = true; VideoPreviewPlayer.MediaPlayer.Play(); }
+        SetVideoPlaybackButton(true);
     }
 
     private void VideoPreviewPrevious_Click(object sender, RoutedEventArgs e) =>
@@ -211,19 +280,20 @@ public sealed partial class MainWindow : Window
     private void VideoPreviewMedia_Opened(MediaPlayer sender, object args)
     {
         sender.PlaybackSession.Position = TimeSpan.FromSeconds(pendingVideoPreviewSeconds);
-        if (resumeVideoPreview) sender.Play();
-        DispatcherQueue.TryEnqueue(() => VideoPreviewPlay.Content = resumeVideoPreview ? "Pause" : "Play");
+        if (resumeVideoPreview && currentMode == "video") sender.Play();
+        DispatcherQueue.TryEnqueue(() => SetVideoPlaybackButton(resumeVideoPreview));
     }
 
     private void VideoPreviewMedia_Ended(MediaPlayer sender, object args)
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (currentMode != "video" || !resumeVideoPreview) return;
             if (videoPreviewIndex + 1 < SelectedVideoChapters().Count)
                 LoadVideoPreview(videoPreviewIndex + 1, 0, true);
             else
             {
-                VideoPreviewPlay.Content = "Play";
+                SetVideoPlaybackButton(false);
                 UpdateVideoPreviewPosition();
             }
         });
@@ -235,6 +305,7 @@ public sealed partial class MainWindow : Window
 
     private void LoadVideoPreview(int index, double withinChapter, bool play)
     {
+        if (play) SourceRecordings.StopPlayback();
         if (project is null) return;
         var chapters = SelectedVideoChapters();
         if (chapters.Count == 0)
@@ -242,7 +313,7 @@ public sealed partial class MainWindow : Window
             VideoPreviewPlayer.MediaPlayer.Source = null;
             VideoPreviewBackground.Source = null;
             VideoPreviewForeground.Source = null;
-            VideoPreviewPlay.Content = "Play";
+            SetVideoPlaybackButton(false);
             return;
         }
         videoPreviewIndex = Math.Clamp(index, 0, chapters.Count - 1);
@@ -348,6 +419,7 @@ public sealed partial class MainWindow : Window
         if (file is null) return;
         project.Metadata.ArtworkPath = file.Path;
         ArtworkName.Text = file.Name;
+        UpdateEpisodeArtwork();
         foreach (var item in videoChapters.Where(item => item.Chapter.ImagePath is null)) item.ArtworkPath = file.Path;
         RefreshVideoChapters();
         MarkDirty();
@@ -374,7 +446,7 @@ public sealed partial class MainWindow : Window
         var number = project.Chapters.Count + 1;
         project.Chapters.Add(new Chapter
         {
-            ChapterNumber = number,
+            ChapterNumber = SourceNumberAt(project.Chapters.Sum(chapter => chapter.DurationSeconds)),
             StartTimeSeconds = project.Chapters.Sum(chapter => chapter.DurationSeconds),
             DurationSeconds = 5,
             Title = $"Chapter {number}"
@@ -425,6 +497,7 @@ public sealed partial class MainWindow : Window
                 description.Children.Add(new TextBlock { Text = model.Description, TextWrapping = TextWrapping.Wrap, Opacity = 0.75 });
                 var action = new Button { Content = model.Installed ? "Remove" : "Download", VerticalAlignment = VerticalAlignment.Center };
                 action.IsEnabled = model.Installed || model.DownloadAllowed;
+                ToolTipService.SetToolTip(action, model.Installed ? "Remove this locally downloaded transcription model" : "Download this model for offline transcription");
                 if (!model.Installed && !model.DownloadAllowed)
                     ToolTipService.SetToolTip(action, "EnCap is reusing a compatible model already installed by another app.");
                 action.Click += async (_, _) =>
@@ -435,6 +508,7 @@ public sealed partial class MainWindow : Window
                         if (model.Installed) await engine.RemoveModelAsync(model.Id);
                         else await engine.InstallModelAsync(model.Id);
                         action.Content = model.Installed ? "Download" : "Installed";
+                        ToolTipService.SetToolTip(action, model.Installed ? "Model removed; reopen the manager to download it again" : "Model installed and available for offline transcription");
                         await LoadProvidersAsync();
                     }
                     catch (Exception error) { ShowError(error); action.IsEnabled = true; }
@@ -468,10 +542,15 @@ public sealed partial class MainWindow : Window
     {
         if (project is null) return;
         isPresentingProject = true;
+        SourceRecordings.SetSources(project.AudioSources);
+        SourceColumn.Width = new GridLength(SourceRecordings.DefaultColumnWidth);
         PodcastTitle.Text = project.Metadata.PodcastTitle;
         EpisodeTitle.Text = project.Metadata.EpisodeTitle;
         Summary.Text = project.Metadata.Summary;
         ArtworkName.Text = project.Metadata.ArtworkPath is null ? "No artwork selected" : Path.GetFileName(project.Metadata.ArtworkPath);
+        UpdateEpisodeArtwork();
+        UpdateChapterNamingHelp();
+        for (var index = 0; index < project.Chapters.Count; index++) project.Chapters[index].DisplayNumber = index + 1;
         ChapterList.ItemsSource = project.Chapters;
         TranscriptList.ItemsSource = project.TranscriptSegments;
         var video = project.Video.ExportSettings;
@@ -505,6 +584,58 @@ public sealed partial class MainWindow : Window
         Status.Message = $"Loaded {project.AudioSources.Count} audio files.";
     }
 
+    private void UpdateEpisodeArtwork()
+    {
+        EpisodeArtworkPreview.Source = null;
+        EpisodeArtworkPlaceholder.Text = "Album artwork";
+        EpisodeArtworkPlaceholder.Visibility = Visibility.Visible;
+        var path = project?.Metadata.ArtworkPath;
+        if (string.IsNullOrEmpty(path)) return;
+        try {
+            if (!File.Exists(path)) { EpisodeArtworkPlaceholder.Text = "Preview unavailable"; return; }
+            EpisodeArtworkPreview.Source = new BitmapImage(new Uri(path));
+            EpisodeArtworkPlaceholder.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception) { EpisodeArtworkPlaceholder.Text = "Preview unavailable"; }
+    }
+
+    private void ChapterNames_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!namingReady || ChapterNames.SelectedIndex < 0) return;
+        chapterNamingStyle = (ChapterNamingStyle)ChapterNames.SelectedIndex;
+        UpdateChapterNamingHelp();
+        try { ChapterNaming.SavePreference(chapterNamingStyle); }
+        catch (Exception error) { ShowError(error); }
+    }
+
+    private void UpdateChapterNamingHelp()
+    {
+        ApplyChapterNames.IsEnabled = project?.Chapters.Count > 0 && chapterNamingStyle != ChapterNamingStyle.Custom;
+        ToolTipService.SetToolTip(ApplyChapterNames, chapterNamingStyle == ChapterNamingStyle.Custom
+            ? "Custom names are edited directly in the chapter title fields below"
+            : "Replace all chapter titles with the selected naming style. Time rounds filename timestamps to the nearest minute; other filenames keep their original names.");
+    }
+
+    private void ApplyChapterNames_Click(object sender, RoutedEventArgs e)
+    {
+        if (project is null || chapterNamingStyle == ChapterNamingStyle.Custom) return;
+        ReadProjectEdits();
+        ChapterNaming.Apply(project, chapterNamingStyle);
+        isPresentingProject = true;
+        ChapterList.ItemsSource = null;
+        ChapterList.ItemsSource = project.Chapters;
+        RefreshVideoChapters();
+        isPresentingProject = false;
+        MarkDirty();
+    }
+
+    private void ChapterTitle_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (isPresentingProject || sender is not TextBox box || box.FocusState == FocusState.Unfocused) return;
+        ChapterNames.SelectedIndex = (int)ChapterNamingStyle.Custom;
+        MarkDirty();
+    }
+
     private void TextEdit_Changed(object sender, TextChangedEventArgs e) => MarkDirty();
     private void SelectionEdit_Changed(object sender, SelectionChangedEventArgs e) => MarkDirty();
     private void NumberEdit_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e) => MarkDirty();
@@ -533,18 +664,32 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
+    private int SourceNumberAt(double timestamp)
+    {
+        if (project is null) return 1;
+        var end = 0.0;
+        for (var index = 0; index < project.AudioSources.Count; index++)
+        {
+            end += project.AudioSources[index].DurationSeconds;
+            if (timestamp < end) return index + 1;
+        }
+        return Math.Max(1, project.AudioSources.Count);
+    }
+
     private void RefreshChapters()
     {
         if (project is null) return;
         var start = 0.0;
         for (var index = 0; index < project.Chapters.Count; index++)
         {
-            project.Chapters[index].ChapterNumber = index + 1;
+            // Row numbering must not replace the source reference used for playback.
+            project.Chapters[index].DisplayNumber = index + 1;
             project.Chapters[index].StartTimeSeconds = start;
             start += project.Chapters[index].DurationSeconds;
         }
         ChapterList.ItemsSource = null;
         ChapterList.ItemsSource = project.Chapters;
+        UpdateChapterNamingHelp();
     }
 
     private void ReadProjectEdits()
@@ -628,7 +773,7 @@ public sealed partial class MainWindow : Window
             try
             {
                 Navigation.IsEnabled = false;
-                await engine.SaveAsync(project, project.ProjectPath);
+                project.ProjectPath = await engine.SaveAsync(project, project.ProjectPath);
                 isDirty = false;
                 await engine.ClearRecoveryAsync();
             }
@@ -678,8 +823,7 @@ public sealed partial class MainWindow : Window
         try
         {
             Navigation.IsEnabled = false;
-            await engine.SaveAsync(project, path);
-            project.ProjectPath = path;
+            project.ProjectPath = await engine.SaveAsync(project, path);
             isDirty = false;
             await engine.ClearRecoveryAsync();
             return true;
@@ -696,9 +840,16 @@ public sealed partial class MainWindow : Window
 
     private void ShowMode(string mode)
     {
+        if (mode != "audio") SourceRecordings?.StopPlayback();
+        if (mode != "video" && VideoPreviewPlayer?.MediaPlayer is not null)
+        {
+            resumeVideoPreview = false;
+            VideoPreviewPlayer.MediaPlayer.Pause();
+            SetVideoPlaybackButton(false);
+        }
         AudioPanel.Visibility = mode == "audio" ? Visibility.Visible : Visibility.Collapsed;
-        TranscriptPanel.Visibility = mode == "transcript" ? Visibility.Visible : Visibility.Collapsed;
-        VideoPanel.Visibility = mode == "video" ? Visibility.Visible : Visibility.Collapsed;
+        TranscriptScroll.Visibility = mode == "transcript" ? Visibility.Visible : Visibility.Collapsed;
+        VideoScroll.Visibility = mode == "video" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SelectNavigationMode(string mode)

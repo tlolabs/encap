@@ -15,22 +15,33 @@ struct EnCapApp: App {
             CommandGroup(after: .newItem) {
                 Button("Import Audio Folder…") { store.presentFileImporter(.audioFolder) }
                     .keyboardShortcut("i", modifiers: .command)
+                    .help("Import a folder of WAV or AIFF recordings")
                 Button("Open Project…") { store.presentFileImporter(.project) }
                     .keyboardShortcut("o", modifiers: .command)
-                Button("Save Project…") { store.presentSavePanel() }
+                    .help("Open a saved EnCap project")
+                Button("Save Project") { store.saveProject() }
                     .keyboardShortcut("s", modifiers: .command)
+                    .help("Save this episode, its media, and editing settings")
+                    .disabled(!store.isProjectLoaded || store.isWorking)
+                Button("Save Project As…") { store.presentSavePanel() }
+                    .keyboardShortcut("S", modifiers: [.command, .shift])
+                    .help("Save a copy of this project to a new location")
                     .disabled(!store.isProjectLoaded || store.isWorking)
             }
             CommandMenu("Mode") {
                 Button("Audio") { store.switchWorkspace(to: .audio) }
                     .keyboardShortcut("1", modifiers: .command)
+                    .help("Assemble recordings, edit chapters, and configure audio export")
                 Button("Transcript") { store.switchWorkspace(to: .transcript) }
                     .keyboardShortcut("2", modifiers: .command)
+                    .help("Generate and edit the episode transcript")
                 Button("Video") { store.switchWorkspace(to: .video) }
                     .keyboardShortcut("3", modifiers: .command)
+                    .help("Arrange chapters and artwork for video export")
             }
             CommandGroup(replacing: .help) {
                 Button("Check for Updates…") { store.checkForUpdates() }
+                    .help("Check for a newer version of EnCap")
             }
         }
     }

@@ -84,7 +84,127 @@ The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
 CI builds the Rust engine, fetches the pinned common Linux FFmpeg artifact,
 builds whisper.cpp, stages the application layout, runs
 tool validation, and creates an x64 tarball. A development host needs Meson,
-Ninja, GTK 4, libadwaita 1, and json-glib headers.
+Ninja, GTK 4, libadwaita 1, json-glib, and GStreamer 1.20+ headers. Recording
+previews use GStreamer playbin directly for forward/reverse playback rates.
+Install its playback and WAV/AIFF plugins (on Ubuntu,
+`libgstreamer1.0-dev`, `gstreamer1.0-plugins-base`, and `gstreamer1.0-plugins-good`). If the backend or decoder is unavailable, the
+recording button explains the playback error; project editing remains available.
+
+## Recording list behavior
+
+The native clients provide selectable recording rows with a compact play/pause
+button next to the filename, dimmed until the row is hovered or selected. Arrow-key\nselection highlights the play/pause button just like pointer hover. Each client owns
+one recording player and stops it before starting a different recording. The
+source column initially fits the shortest filename plus control/inset space,
+and its divider remains adjustable.
+
+The metadata line places a 12-point, one-sided waveform between the file type
+and duration. It always uses channel 1, including mono, stereo, and multichannel
+recordings. Selected thumbnails inherit the row's text color at full contrast;
+unselected ones use reduced opacity, with no animation or shape change.
+
+`encap-engine waveform -- <path>` returns `{ "channel": 1, "peaks": [...] }`
+with 64 normalized amplitude values. The sampler reads short windows spread
+across the file: at most 256 frames and 32 KiB per bin (2 MiB total sample I/O),
+plus bounded chunk headers. It supports integer/float WAV and uncompressed
+AIFF/AIFC variants. It skips metadata by seeking, validates chunk boundaries,
+and neither decodes the full track nor downmixes channels. This is an approximate
+silhouette for triage, not an editing waveform or a loudness comparison.
+
+Native clients defer work by 150 ms, favor visible rows, and run one background
+job at a time. Results are cached in memory; the nominal cache cap is 512 entries
+(macOS retains visible entries). Leaving the view cancels or skips pending work.
+Resizing and selection redraw the cached values without rereading audio. Missing,
+unsupported, or still-loading previews leave the reserved space blank; actual
+silence produces a thin baseline. Waveforms never enter the saved project.
+The core tests cover first-channel isolation, sample encodings, AIFF offsets,
+truncation, and a 2 GB sparse-file I/O budget. A local warm-filesystem check of
+17 imported recordings took 98 ms total (4 ms median) including CLI startup;
+network/removable storage can take longer, so generation stays asynchronous.
+
+Double-click a recording or choose **Play** from its context menu to play at 1×.
+With the recording list focused, **Space** toggles the selected recording and
+**K** pauses without losing the playhead. **L/J** play forward/backward at 1×;
+repeated presses in the same direction double the speed up to 32×. The opposite
+key starts at 1× in that direction. Hold **K** and **J/L** for ½× playback, releasing
+the chord to pause. Key auto-repeat does not accelerate the shuttle. These are
+the [Final Cut Pro playback conventions](https://support.apple.com/guide/final-cut-pro/play-media-ver90ba4ef0/mac)
+for continuous audio; frame stepping is not exposed in the audio list.
+Multiple selection plays the first selected recording in list order. Keyboard
+shortcuts stay in the source list so metadata text entry retains normal typing.
+
+macOS publishes a MediaPlayer Now Playing session; Windows publishes System Media
+Transport Controls; Linux publishes an MPRIS session on the desktop session bus.
+After starting a preview, hardware/system Play, Pause, Stop, Previous, Next, and
+position controls operate on that recording session. System volume keys retain
+their usual OS behavior. A system Stop resets the position; K and Pause retain it.
+Playback-rate support depends on the native decoder. A rejected rate pauses the
+preview and reports the limitation in the status/error or recording tooltip.
+Media session routing depends on the desktop and which application it selects
+as the current media player. Linux MPRIS works without X11 key grabs on Wayland.
+
+`SourcePlaybackTests` verifies actual macOS WAV pause/resume and reverse playback.
+The Windows portable checks and Linux native playback test consume the same
+`tests/fixtures/source-shuttle.tsv` cases. The Linux test also verifies real
+GStreamer WAV forward-rate seeks, reverse-rate acceptance/refusal, and the MPRIS
+interface, with a silent sink and no display. GStreamer's WAV demuxer on the tested
+host rejects negative rates; the Linux UI reports this decoder limitation.
+
+Right-click a row or the empty list area to add WAV/AIFF files. Delete/Backspace
+or the context menu offers removal of the selected imports and their chapters.
+Original files stay on disk. Remaining source references, numbered chapter
+names, timeline positions, transcript timestamps, and video selections adjust.
+Windows and Linux submit `edit-audio <project-payload> <edits-json>` to the
+shared engine; the edits document contains `add_files` and/or `remove_files`
+arrays. Adding duplicates is a no-op, and an invalid addition rejects the batch.
+
+Native UI release checks on each platform should cover: multi-selection,
+right-click on selected/unselected rows and empty space, cancelling and confirming
+removal, adding several files after deleting all tracks, resizing narrow/wide,
+hover and keyboard focus, switching playback rapidly, pause/resume, end of file,
+unavailable decoders, and save/reopen with the original source files intact.
+
+## Episode editor parity
+
+macOS, Windows, and Linux expose Original, Chapter #, Time, and Custom naming
+beside the chapter editor. Selecting a style saves a local preference for new
+imports; Apply replaces current titles explicitly. Typing in a chapter title
+selects Custom. Adding recordings applies the preference only to new chapters,
+so earlier edits remain intact. Opening or recovering a project preserves its
+saved titles.
+
+Time reads `MMddyyyyHHmmss` from the original filename, uses the recorder's wall
+clock without time-zone conversion, and rounds seconds to the nearest minute
+(30 seconds rounds up). It formats names such as `6:18 AM`, including noon and
+midnight rollover. Unrecognized or invalid timestamps retain the original name.
+Archived media uses the preserved display name because internal archive paths
+may have numeric prefixes. Chapter # follows displayed order; it never changes
+the source references used for playback and export.
+
+All three episode editors reserve an artwork preview to the right of the fields
+and let the chapter area use the remaining window height. Linux uses individual
+chapter title entries in a scrolling list. Recording previews retain pause/resume
+behavior, with state-dependent tooltip text. Application actions and relevant
+settings expose native tooltips; system-managed dialogs keep native behavior.
+
+Shared timestamp cases live in `tests/fixtures/chapter-times.tsv`. Swift tests,
+the portable C test, and the Windows .NET naming test consume the same cases.
+Run the platform checks with:
+
+```sh
+clang -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src \
+  linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c \
+  -o /tmp/encap-chapter-names-test
+/tmp/encap-chapter-names-test tests/fixtures/chapter-times.tsv
+dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+meson test -C build/linux-native --print-errorlogs
+```
+
+CI runs these checks alongside each native build. Windows WinUI compilation and
+GTK UI validation still require their platform toolchains. Before release,
+verify long chapter lists at multiple window sizes, artwork selection/reopen and
+missing images, tooltips on enabled/disabled actions, all four naming styles,
+manual titles containing punctuation, and playback pause/resume/end-of-file.
 
 ## Verification
 
@@ -103,6 +223,39 @@ Cross-platform compilation and package validation run in
 `.github/workflows/build-platforms.yml`. Native tests retain schema-1 compatibility
 coverage. Tests must not require network access; model downloads are validated
 through local streams and catalog metadata tests.
+
+To compare full-media compression with first, incremental, and reopened-project
+saves using a temporary 256 MiB fixture:
+
+```bash
+cargo test --release -p encap-core benchmark_large_project_saves -- --ignored --nocapture
+```
+
+The exploratory benchmark reports timings. A separate, non-ignored regression
+test runs on all supported platforms:
+
+```bash
+cargo test -p encap-engine --test save_protocol -- --nocapture
+```
+
+`mode_switch_save_latency_does_not_scale_with_existing_media` measures the complete
+JSON-payload/save-process round trip through Audio, Transcript, and Video. It
+probes the actual temporary project volume using the engine's staging helper.
+When cloning is supported, it requires every measured save to finish within
+250 ms and limits the median increase from 1 MiB to 257 MiB of existing media
+to 75 ms. It covers metadata edits,
+audio reordering, the switches following a new-media save, and the first switches
+after reopening. Only the initial saves incorporating new media are outside the
+timing budget. On filesystems without cloning, the same test reports timings and
+verifies the saved data, without imposing an impossible size-independent limit.
+
+macOS, Windows x64, and Linux package gates run the tests against their bundled
+engines. macOS and a dedicated Linux Btrfs CI run set `ENCAP_REQUIRE_CLONING=1`,
+which fails the test if it cannot exercise cloning. Linux also runs on the default
+runner filesystem to cover fallback behavior. Windows ARM64 persistence tests are
+compile-checked; execution of that package still requires a native ARM64 host.
+Windows automatically enforces timing on clone-capable ReFS volumes and exercises
+fallback saves on NTFS. These tests measure persistence work, not GUI rendering.
 
 ## Dependency and release policy
 

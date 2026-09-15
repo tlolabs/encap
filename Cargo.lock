@@ -415,7 +415,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "encap-audio"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -425,21 +425,25 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "avid-core",
+ "directories",
+ "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
  "zip",
 ]
 
 [[package]]
 name = "encap-engine"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "avid-core",
  "clap",
@@ -461,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "encap-core",
  "tempfile",
@@ -470,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "encap-release"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -484,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "directories",
  "encap-core",
@@ -499,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "encap-video"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "avid-core",
  "encap-core",

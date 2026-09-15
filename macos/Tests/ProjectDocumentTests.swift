@@ -71,6 +71,43 @@ final class ProjectDocumentTests: XCTestCase {
         let compositions = try XCTUnwrap(video["compositions"] as? [[String: Any]])
         XCTAssertEqual(compositions.first?["kind"] as? String, "future")
     }
+
+    @MainActor
+    func testAddingAndRenumberingChaptersClampsChapterNumberToAudioSources() {
+        let store = AppStore()
+        var project = ProjectDocument()
+        project.audioSources = [
+            AudioSource(sourcePath: "/audio/track1.wav", displayName: "Track 1", durationSeconds: 60),
+            AudioSource(sourcePath: "/audio/track2.wav", displayName: "Track 2", durationSeconds: 60)
+        ]
+        store.project = project
+
+        // Adding chapter 1 at 0s
+        store.addChapter()
+        // Adding chapter 2 at 5s (still track 1)
+        store.addChapter()
+        // Adding chapter 3 at 10s (still track 1)
+        store.addChapter()
+
+        let chapters = store.project?.chapters ?? []
+        XCTAssertEqual(chapters.count, 3)
+        XCTAssertEqual(chapters[0].title, "Chapter 1")
+        XCTAssertEqual(chapters[1].title, "Chapter 2")
+        XCTAssertEqual(chapters[2].title, "Chapter 3")
+
+        for chapter in chapters {
+            XCTAssertLessThanOrEqual(chapter.chapterNumber, 2)
+            XCTAssertGreaterThanOrEqual(chapter.chapterNumber, 1)
+        }
+
+        store.removeChapters(at: IndexSet(integer: 0))
+        let remaining = store.project?.chapters ?? []
+        XCTAssertEqual(remaining.count, 2)
+        for chapter in remaining {
+            XCTAssertLessThanOrEqual(chapter.chapterNumber, 2)
+            XCTAssertGreaterThanOrEqual(chapter.chapterNumber, 1)
+        }
+    }
 }
 
 final class ReviewRegressionTests: XCTestCase {

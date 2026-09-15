@@ -11,3 +11,7 @@ build/
 dist/
 target/
 .DS_Store
+
+# Native .NET build outputs.
+windows/**/bin/
+windows/**/obj/

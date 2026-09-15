@@ -19,17 +19,24 @@ struct TranscriptView: View {
                         }
                     }
                     .frame(maxWidth: 300)
+                    .help("Choose the on-device engine used to transcribe this episode")
 
                     Button("Transcribe", action: store.transcribe)
                         .buttonStyle(.borderedProminent)
                         .disabled(store.providers.isEmpty || store.isWorking)
+                        .help("Create or replace the transcript using the selected on-device engine")
                     Button("Manage Models…", action: store.presentModelManager)
+                        .help("Download or remove local transcription models")
                     Menu("Export") {
                         Button("Plain Text…") { store.presentTranscriptSavePanel(format: "txt") }
+                            .help("Save the transcript as a plain text file")
                         Button("SRT Captions…") { store.presentTranscriptSavePanel(format: "srt") }
+                            .help("Save timed captions as an SRT subtitle file")
                     }
                     .disabled(store.project?.transcriptSegments.isEmpty != false)
+                    .help("Export the transcript as plain text or timed SRT captions")
                     Toggle("Show Speakers", isOn: $store.transcriptShowsSpeakers)
+                        .help("Show or hide editable speaker names beside transcript segments")
                     Toggle(
                         "Word timing",
                         isOn: Binding(
@@ -37,7 +44,7 @@ struct TranscriptView: View {
                             set: { store.project?.transcriptSettings.includeWordTimestamps = $0 }
                         )
                     )
-                    .help("Persist word-level timestamps for future caption workflows")
+                    .help("Include individual word timestamps when generating the transcript")
                     Spacer()
                     TextField("Search transcript", text: $store.transcriptSearch)
                         .textFieldStyle(.roundedBorder)
@@ -83,13 +90,26 @@ struct TranscriptView: View {
     }
 
     private func segmentBinding(_ index: Int) -> Binding<TranscriptSegment> {
-        let original = store.project!.transcriptSegments[index]
+        let fallback = TranscriptSegment(
+            id: UUID().uuidString,
+            startTimeSeconds: 0,
+            endTimeSeconds: 0,
+            speaker: "",
+            text: ""
+        )
+        guard let segments = store.project?.transcriptSegments,
+              segments.indices.contains(index) else {
+            return .constant(fallback)
+        }
+        let targetID = segments[index].id
         return Binding(
             get: {
-                store.project?.transcriptSegments.first(where: { $0.id == original.id }) ?? original
+                store.project?.transcriptSegments.first(where: { $0.id == targetID })
+                    ?? segments.first(where: { $0.id == targetID })
+                    ?? fallback
             },
             set: { updated in
-                guard let current = store.project?.transcriptSegments.firstIndex(where: { $0.id == original.id }) else { return }
+                guard let current = store.project?.transcriptSegments.firstIndex(where: { $0.id == targetID }) else { return }
                 store.project?.transcriptSegments[current] = updated
             }
         )
@@ -124,6 +144,7 @@ private struct ModelManagerView: View {
                 Spacer()
                 Button("Done") { store.isModelManagerPresented = false }
                     .keyboardShortcut(.defaultAction)
+                    .help("Close the transcription model manager")
             }
             List(store.transcriptionModels) { model in
                 HStack(alignment: .top, spacing: 12) {
@@ -141,6 +162,7 @@ private struct ModelManagerView: View {
                     Spacer()
                     if model.installed {
                         Button("Remove", role: .destructive) { store.removeModel(model) }
+                            .help("Remove the local download of \(model.name)")
                     } else {
                         Button("Download") { store.installModel(model) }
                             .buttonStyle(.borderedProminent)
@@ -178,6 +200,7 @@ private struct TranscriptRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .frame(width: 84, alignment: .leading)
+            .help("Play audio starting at \(EnCapFormatters.timestamp(segment.startTimeSeconds))")
 
             if showSpeaker {
                 TextField("Speaker", text: $segment.speaker)

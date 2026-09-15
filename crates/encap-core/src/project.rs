@@ -9,8 +9,11 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use tempfile::{Builder, NamedTempFile};
+use tempfile::Builder;
 use zip::write::SimpleFileOptions;
+
+#[path = "project_save.rs"]
+mod incremental;
 
 pub const PROJECT_SCHEMA_VERSION: u64 = 2;
 const MAX_ENTRIES: usize = 4096;
@@ -90,8 +93,17 @@ struct ManifestChapter {
 struct CompatibilityPayload {
     top_level: BTreeMap<String, Value>,
     metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    audio_sources_by_name: BTreeMap<String, BTreeMap<String, Value>>,
+    #[serde(default)]
     audio_sources: Vec<BTreeMap<String, Value>>,
+    #[serde(default)]
+    chapters_by_id: BTreeMap<String, BTreeMap<String, Value>>,
+    #[serde(default)]
     chapters: Vec<BTreeMap<String, Value>>,
+    #[serde(default)]
+    transcript_segments_by_id: BTreeMap<String, BTreeMap<String, Value>>,
+    #[serde(default)]
     transcript_segments: Vec<BTreeMap<String, Value>>,
     #[serde(default)]
     transcript_words: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
@@ -125,33 +137,44 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
         path: parent.to_path_buf(),
         source,
     })?;
-    let mut temporary = NamedTempFile::new_in(parent).map_err(|source| EncapError::Write {
-        path: target.clone(),
-        source,
-    })?;
+    let previous = incremental::SaveCache::read(&target).or_else(|| {
+        project
+            .project_path
+            .as_deref()
+            .and_then(incremental::SaveCache::read)
+    });
+    let mut media = incremental::MediaPlan::new(previous.as_ref());
+    let temporary = Builder::new()
+        .prefix(".encap-save-")
+        .tempdir_in(parent)
+        .map_err(|source| EncapError::Write {
+            path: target.clone(),
+            source,
+        })?;
+    let staged = temporary.path().join("project.encap");
     {
-        let mut archive = zip::ZipWriter::new(temporary.as_file_mut());
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut audio_records = Vec::with_capacity(project.audio_sources.len());
         for (index, source) in project.audio_sources.iter().enumerate() {
             ensure_regular_file(&source.source_path, "Audio source")?;
-            let stored = format!("audio/{:03}-{}", index + 1, safe_name(&source.source_path));
-            add_file(&mut archive, &source.source_path, &stored, options)?;
+            let stored = media.add(
+                &source.source_path,
+                format!("audio/{:03}-{}", index + 1, safe_name(&source.source_path)),
+            )?;
+            let preserved_audio = if preserved.audio_sources_by_name.is_empty() {
+                preserved.audio_sources.get(index)
+            } else {
+                preserved.audio_sources_by_name.get(&source.display_name)
+            };
             audio_records.push(ManifestAudio {
                 display_name: source.display_name.clone(),
                 duration_seconds: source.duration_seconds,
                 stored_path: stored,
-                extensions: merged_extensions(
-                    preserved.audio_sources.get(index),
-                    &source.extensions,
-                ),
+                extensions: merged_extensions(preserved_audio, &source.extensions),
             });
         }
         let artwork_stored_path = if let Some(path) = &project.metadata.artwork_path {
             ensure_regular_file(path, "Artwork")?;
-            let stored = format!("artwork/{}", safe_name(path));
-            add_file(&mut archive, path, &stored, options)?;
+            let stored = media.add(path, format!("artwork/{}", safe_name(path)))?;
             Some(stored)
         } else {
             None
@@ -160,11 +183,18 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
         for (index, chapter) in project.chapters.iter().enumerate() {
             let image_stored_path = if let Some(path) = &chapter.image_path {
                 ensure_regular_file(path, "Chapter image")?;
-                let stored = format!("chapters/{:03}-{}", index + 1, safe_name(path));
-                add_file(&mut archive, path, &stored, options)?;
+                let stored = media.add(
+                    path,
+                    format!("chapters/{:03}-{}", index + 1, safe_name(path)),
+                )?;
                 Some(stored)
             } else {
                 None
+            };
+            let preserved_chapter = if preserved.chapters_by_id.is_empty() {
+                preserved.chapters.get(index)
+            } else {
+                preserved.chapters_by_id.get(&chapter.id)
             };
             chapter_records.push(ManifestChapter {
                 id: chapter.id.clone(),
@@ -174,7 +204,7 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
                 title: chapter.title.clone(),
                 link_url: chapter.link_url.clone(),
                 image_stored_path,
-                extensions: merged_extensions(preserved.chapters.get(index), &chapter.extensions),
+                extensions: merged_extensions(preserved_chapter, &chapter.extensions),
             });
         }
         let transcript_segments = project
@@ -183,10 +213,12 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
             .enumerate()
             .map(|(index, segment)| {
                 let mut segment = segment.clone();
-                segment.extensions = merged_extensions(
-                    preserved.transcript_segments.get(index),
-                    &segment.extensions,
-                );
+                let preserved_segment = if preserved.transcript_segments_by_id.is_empty() {
+                    preserved.transcript_segments.get(index)
+                } else {
+                    preserved.transcript_segments_by_id.get(&segment.id)
+                };
+                segment.extensions = merged_extensions(preserved_segment, &segment.extensions);
                 for word in &mut segment.words {
                     word.extensions = merged_extensions(
                         preserved
@@ -244,30 +276,10 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
             extensions: merged_extensions(Some(&preserved.top_level), &project.extensions),
         };
         let json = serde_json::to_vec_pretty(&manifest)?;
-        archive.start_file("manifest.json", options)?;
-        archive
-            .write_all(&json)
-            .map_err(|source| EncapError::Write {
-                path: target.clone(),
-                source,
-            })?;
-        archive.finish()?;
+        incremental::write_archive(&staged, &json, &media, previous.as_ref())?;
     }
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|source| EncapError::Write {
-            path: target.clone(),
-            source,
-        })?;
-    let staged = temporary
-        .into_temp_path()
-        .keep()
-        .map_err(|error| EncapError::Write {
-            path: target.clone(),
-            source: error.error,
-        })?;
     replace_staged_file(&staged, &target)?;
+    incremental::SaveCache::record(&target, media.files);
     Ok(target)
 }
 
@@ -275,6 +287,7 @@ pub fn load_project(
     project_path: &Path,
     extraction_parent: Option<&Path>,
 ) -> Result<ProjectDocument> {
+    let original_stamp = incremental::FileStamp::read(project_path).ok();
     let file = File::open(project_path).map_err(|source| EncapError::Read {
         path: project_path.to_path_buf(),
         source,
@@ -300,6 +313,9 @@ pub fn load_project(
     extract(&mut archive, temporary.path())?;
     let root = temporary.keep();
     let result = load_manifest(&root, project_path);
+    if let Ok(project) = &result {
+        incremental::SaveCache::record_loaded(project, original_stamp);
+    }
     if result.is_err() {
         let _ = fs::remove_dir_all(&root);
     }
@@ -439,15 +455,31 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
     let compatibility_payload = serde_json::to_string(&CompatibilityPayload {
         top_level: manifest.extensions.clone(),
         metadata: manifest.metadata.extensions.clone(),
+        audio_sources_by_name: manifest
+            .audio_sources
+            .iter()
+            .filter(|item| !item.display_name.is_empty())
+            .map(|item| (item.display_name.clone(), item.extensions.clone()))
+            .collect(),
         audio_sources: manifest
             .audio_sources
             .iter()
             .map(|item| item.extensions.clone())
             .collect(),
+        chapters_by_id: manifest
+            .chapters
+            .iter()
+            .map(|item| (item.id.clone(), item.extensions.clone()))
+            .collect(),
         chapters: manifest
             .chapters
             .iter()
             .map(|item| item.extensions.clone())
+            .collect(),
+        transcript_segments_by_id: manifest
+            .transcript_segments
+            .iter()
+            .map(|item| (item.id.clone(), item.extensions.clone()))
             .collect(),
         transcript_segments: manifest
             .transcript_segments
@@ -760,6 +792,178 @@ mod tests {
         assert_eq!(
             restored.export_settings.extensions["future_export"],
             serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn native_client_round_trip_preserves_extensions_when_reordered_or_inserted() {
+        let temporary = tempfile::tempdir().unwrap();
+        let media1 = temporary.path().join("part1.wav");
+        let media2 = temporary.path().join("part2.wav");
+        fs::write(&media1, b"audio 1").unwrap();
+        fs::write(&media2, b"audio 2").unwrap();
+
+        let chapter1_id = crate::model::new_id();
+        let chapter2_id = crate::model::new_id();
+
+        let mut project = ProjectDocument {
+            project_title: "Reorder Test".into(),
+            ..ProjectDocument::default()
+        };
+        project.audio_sources.push(AudioSource {
+            source_path: media1,
+            display_name: "Part 1".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::from([("audio_ext_1".into(), serde_json::json!("source1"))]),
+        });
+        project.audio_sources.push(AudioSource {
+            source_path: media2,
+            display_name: "Part 2".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::from([("audio_ext_2".into(), serde_json::json!("source2"))]),
+        });
+
+        project.chapters.push(Chapter {
+            id: chapter1_id.clone(),
+            start_time_seconds: 0.0,
+            duration_seconds: 1.0,
+            chapter_number: 1,
+            title: "Chapter 1".into(),
+            link_url: String::new(),
+            image_path: None,
+            image_stored_path: None,
+            extensions: BTreeMap::from([("chap_ext".into(), serde_json::json!("ch1_data"))]),
+        });
+        project.chapters.push(Chapter {
+            id: chapter2_id.clone(),
+            start_time_seconds: 1.0,
+            duration_seconds: 1.0,
+            chapter_number: 2,
+            title: "Chapter 2".into(),
+            link_url: String::new(),
+            image_path: None,
+            image_stored_path: None,
+            extensions: BTreeMap::from([("chap_ext".into(), serde_json::json!("ch2_data"))]),
+        });
+
+        let seg1_id = "seg-1".to_string();
+        let seg2_id = "seg-2".to_string();
+        project
+            .transcript_segments
+            .push(crate::model::TranscriptSegment {
+                id: seg1_id.clone(),
+                start_time_seconds: 0.0,
+                end_time_seconds: 1.0,
+                speaker: "Host".into(),
+                text: "First segment".into(),
+                words: Vec::new(),
+                extensions: BTreeMap::from([("seg_ext".into(), serde_json::json!("seg1_data"))]),
+            });
+        project
+            .transcript_segments
+            .push(crate::model::TranscriptSegment {
+                id: seg2_id.clone(),
+                start_time_seconds: 1.0,
+                end_time_seconds: 2.0,
+                speaker: "Host".into(),
+                text: "Second segment".into(),
+                words: Vec::new(),
+                extensions: BTreeMap::from([("seg_ext".into(), serde_json::json!("seg2_data"))]),
+            });
+
+        let first = save_project(&project, &temporary.path().join("first.encap")).unwrap();
+        let mut loaded = load_project(&first, Some(temporary.path())).unwrap();
+
+        // Native client strips extensions because it only knows schema fields
+        for src in &mut loaded.audio_sources {
+            src.extensions.clear();
+        }
+        for ch in &mut loaded.chapters {
+            ch.extensions.clear();
+        }
+        for seg in &mut loaded.transcript_segments {
+            seg.extensions.clear();
+        }
+
+        // Reverse chapters and insert a brand new chapter in between
+        let new_chapter_id = crate::model::new_id();
+        let new_chapter = Chapter {
+            id: new_chapter_id.clone(),
+            start_time_seconds: 1.0,
+            duration_seconds: 1.0,
+            chapter_number: 2,
+            title: "Inserted Chapter".into(),
+            link_url: String::new(),
+            image_path: None,
+            image_stored_path: None,
+            extensions: BTreeMap::new(),
+        };
+        let mut ch1 = loaded.chapters[0].clone();
+        ch1.start_time_seconds = 2.0;
+        ch1.chapter_number = 3;
+        let mut ch2 = loaded.chapters[1].clone();
+        ch2.start_time_seconds = 0.0;
+        ch2.chapter_number = 1;
+        loaded.chapters = vec![ch2, new_chapter, ch1];
+
+        // Also reverse transcript segments (adjusting start/end times to remain ordered)
+        let mut seg1 = loaded.transcript_segments[0].clone();
+        seg1.start_time_seconds = 1.0;
+        seg1.end_time_seconds = 2.0;
+        let mut seg2 = loaded.transcript_segments[1].clone();
+        seg2.start_time_seconds = 0.0;
+        seg2.end_time_seconds = 1.0;
+        loaded.transcript_segments = vec![seg2, seg1];
+
+        // Also reverse audio sources
+        let src1 = loaded.audio_sources[0].clone();
+        let src2 = loaded.audio_sources[1].clone();
+        loaded.audio_sources = vec![src2, src1];
+
+        let second = save_project(&loaded, &temporary.path().join("second.encap")).unwrap();
+        let restored = load_project(&second, Some(temporary.path())).unwrap();
+
+        // Check chapters: chapter 2 is first, then new chapter, then chapter 1
+        assert_eq!(restored.chapters.len(), 3);
+        assert_eq!(restored.chapters[0].id, chapter2_id);
+        assert_eq!(
+            restored.chapters[0].extensions["chap_ext"],
+            serde_json::json!("ch2_data")
+        );
+        assert_eq!(restored.chapters[1].id, new_chapter_id);
+        assert!(restored.chapters[1].extensions.is_empty());
+        assert_eq!(restored.chapters[2].id, chapter1_id);
+        assert_eq!(
+            restored.chapters[2].extensions["chap_ext"],
+            serde_json::json!("ch1_data")
+        );
+
+        // Check transcript segments: seg 2 is first, then seg 1
+        assert_eq!(restored.transcript_segments.len(), 2);
+        assert_eq!(restored.transcript_segments[0].id, seg2_id);
+        assert_eq!(
+            restored.transcript_segments[0].extensions["seg_ext"],
+            serde_json::json!("seg2_data")
+        );
+        assert_eq!(restored.transcript_segments[1].id, seg1_id);
+        assert_eq!(
+            restored.transcript_segments[1].extensions["seg_ext"],
+            serde_json::json!("seg1_data")
+        );
+
+        // Check audio sources: source 2 is first, then source 1
+        assert_eq!(restored.audio_sources.len(), 2);
+        assert_eq!(restored.audio_sources[0].display_name, "Part 2");
+        assert_eq!(
+            restored.audio_sources[0].extensions["audio_ext_2"],
+            serde_json::json!("source2")
+        );
+        assert_eq!(restored.audio_sources[1].display_name, "Part 1");
+        assert_eq!(
+            restored.audio_sources[1].extensions["audio_ext_1"],
+            serde_json::json!("source1")
         );
     }
 

@@ -207,6 +207,9 @@ file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 # Exercise the actual bundled pair through all modes before launch or packaging.
 ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_FFMPEG="$APP_MACOS/ffmpeg" ENCAP_FFPROBE="$APP_MACOS/ffprobe" \
   "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test media_contract -- --ignored
+ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_REQUIRE_CLONING=1 \
+  "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift"
 PATH="$APP_MACOS:$PATH" "$CARGO" test --manifest-path "$ROOT_DIR/../AVID Core/Cargo.toml" --locked --test ffmpeg -- --ignored
 ! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
 

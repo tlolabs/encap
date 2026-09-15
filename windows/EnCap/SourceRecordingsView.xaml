@@ -1,0 +1,37 @@
+<UserControl x:Class="EnCap.SourceRecordingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:EnCap">
+  <Grid RowSpacing="8">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <TextBlock Text="Source Recordings" Margin="8,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    <ListView x:Name="SourceList" Grid.Row="1" SelectionMode="Extended"
+              AutomationProperties.Name="Source recordings" RightTapped="List_RightTapped" PreviewKeyDown="List_KeyDown" PreviewKeyUp="List_KeyUp" DoubleTapped="List_DoubleTapped" LostFocus="List_LostFocus" GotFocus="List_GotFocus" SelectionChanged="List_SelectionChanged">
+      <ListView.ItemContainerStyle>
+        <Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8,2"/></Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+        <DataTemplate>
+          <Grid Background="Transparent" ColumnSpacing="4"
+                PointerEntered="Row_PointerEntered" PointerExited="Row_PointerExited"
+                GotFocus="Row_GotFocus" LostFocus="Row_LostFocus" Loaded="Row_Loaded" DataContextChanged="Row_DataContextChanged">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
+            <StackPanel x:Name="SourceDetail" Spacing="2">
+              <TextBlock Text="{Binding DisplayName}" FontSize="14" TextTrimming="CharacterEllipsis"/>
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding FileTypeLabel}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <local:SourceWaveform Grid.Column="1" x:Name="Waveform" Peaks="{Binding WaveformPeaks}" Opacity="0.45"/>
+                <TextBlock Grid.Column="2" Text="{Binding DurationLabel}" FontSize="12" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+              </Grid>
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="PlaybackButton" Click="Playback_Click" Opacity="0.4"
+                    MinWidth="24" Width="24" Height="28" Padding="0" BorderThickness="0" Background="Transparent"
+                    ToolTipService.ToolTip="{Binding PlaybackLabel}" AutomationProperties.Name="{Binding PlaybackLabel}">
+              <FontIcon Glyph="{Binding PlaybackGlyph}" FontSize="14"/>
+            </Button>
+          </Grid>
+        </DataTemplate>
+      </ListView.ItemTemplate>
+    </ListView>
+  </Grid>
+</UserControl>

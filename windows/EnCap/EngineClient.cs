@@ -24,6 +24,10 @@ internal sealed class EngineClient
         }
     }
 
+    public async Task<double[]> WaveformAsync(string path, CancellationToken cancellationToken) =>
+        (await RunAsync<WaveformResponse>(cancellationToken, "waveform", "--", path)).Peaks;
+    private sealed class WaveformResponse { public double[] Peaks { get; set; } = []; }
+
     public Task<ProjectDocument> InspectAsync(string folder) => RunAsync<ProjectDocument>("inspect", folder);
     public Task<ProjectDocument> OpenAsync(string path) => RunAsync<ProjectDocument>("open", path);
     public Task<List<TranscriptionProvider>> ProvidersAsync() => RunAsync<List<TranscriptionProvider>>("providers");
@@ -46,6 +50,17 @@ internal sealed class EngineClient
     public async Task<ProjectDocument?> LoadRecoveryAsync() => (await RunAsync<RecoveryResponse>("load-recovery")).Project;
     public Task ClearRecoveryAsync() => RunAsync<OkResponse>("clear-recovery");
 
+    public async Task<ProjectDocument> EditAudioAsync(ProjectDocument project, IReadOnlyList<string> addFiles, IReadOnlyList<string> removeFiles)
+    {
+        var edits = Path.Combine(Path.GetTempPath(), $"encap-audio-edits-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(edits, JsonSerializer.Serialize(new { AddFiles = addFiles, RemoveFiles = removeFiles }, JsonOptions));
+            return await WithPayloadAsync<ProjectDocument>(project, "edit-audio", edits);
+        }
+        finally { try { File.Delete(edits); } catch { } }
+    }
+
     private async Task<T> WithPayloadAsync<T>(ProjectDocument project, string command, params string[] arguments)
     {
         var payload = Path.Combine(Path.GetTempPath(), $"encap-{Guid.NewGuid():N}.json");
@@ -57,19 +72,29 @@ internal sealed class EngineClient
         finally { try { File.Delete(payload); } catch { } }
     }
 
-    private async Task<T> RunAsync<T>(params string[] arguments)
+    private Task<T> RunAsync<T>(params string[] arguments) => RunAsync<T>(CancellationToken.None, arguments);
+
+    private async Task<T> RunAsync<T>(CancellationToken cancellationToken, params string[] arguments)
     {
         if (!File.Exists(EnginePath)) throw new InvalidOperationException("The EnCap engine is missing. Reinstall EnCap.");
         var start = new ProcessStartInfo(EnginePath) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         using var process = new Process { StartInfo = start };
+        cancellationToken.ThrowIfCancellationRequested();
         process.Start();
+        if (arguments.FirstOrDefault() == "waveform") { try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { } }
         lock (processGate) currentProcesses.Add(process);
         try
         {
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
+            try { await process.WaitForExitAsync(cancellationToken); }
+            catch (OperationCanceledException) {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+                await Task.WhenAll(outputTask, errorTask);
+                throw;
+            }
             var output = await outputTask;
             var diagnostics = await errorTask;
             if (process.ExitCode != 0)

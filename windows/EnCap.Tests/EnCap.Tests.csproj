@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../EnCap/SourceShuttle.cs" Link="SourceShuttle.cs" />
+    <Compile Include="../EnCap/Models.cs" Link="Models.cs" />
+    <Compile Include="../EnCap/ChapterNaming.cs" Link="ChapterNaming.cs" />
+  </ItemGroup>
+</Project>

@@ -53,6 +53,10 @@ jobs:
           cargo clippy --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets -- -D warnings
       - name: Test Rust workspace
         run: cargo test --workspace --locked
+      - name: Check portable chapter timestamp rules
+        run: |
+          cc -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c -o /tmp/encap-chapter-names-test
+          /tmp/encap-chapter-names-test tests/fixtures/chapter-times.tsv
       - name: Build native engine
         run: cargo build --package encap-engine --locked
 
@@ -178,6 +182,12 @@ jobs:
       - name: Build shared Rust engine
         shell: pwsh
         run: cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+      - name: Check portable persistence tests for target architecture
+        shell: pwsh
+        run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
+      - name: Test Windows chapter naming
+        shell: pwsh
+        run: dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
       - name: Publish native WinUI 3 app
         shell: pwsh
         run: dotnet publish windows/EnCap/EnCap.csproj -c Release -r '${{ matrix.runtime }}' --self-contained true -p:Platform='${{ matrix.platform }}' -o dist/staging/EnCap
@@ -216,6 +226,10 @@ jobs:
             $env:PATH = "$stage;" + $env:PATH
             cargo test --locked -p encap-engine --test media_contract -- --ignored
             if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged media tests failed' }
+            cargo test --locked -p encap-core
+            if ($LASTEXITCODE -ne 0) { throw 'EnCAP persistence tests failed' }
+            cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+            if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged save tests failed' }
             cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
             if ($LASTEXITCODE -ne 0) { throw 'Shared packaged media tests failed' }
             & "$stage/encap-engine.exe" validate-tools
@@ -253,7 +267,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes autoconf automake build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libtool meson nasm ninja-build xz-utils zlib1g-dev
+          sudo apt-get install --yes autoconf automake btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libtool meson nasm ninja-build xz-utils zlib1g-dev
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Build shared engine and bundled media tools
@@ -271,6 +285,7 @@ jobs:
           prefix="$PWD/dist/staging/EnCap"
           meson setup build/linux-native linux/EnCap --prefix="$prefix"
           meson compile -C build/linux-native
+          meson test -C build/linux-native --print-errorlogs
           meson install -C build/linux-native
           ffmpeg_prefix="$(./script/build_ffmpeg_linux.sh | tail -n 1)"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
@@ -281,12 +296,25 @@ jobs:
           cp '../AVID Core/LICENSE' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
           ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" ENCAP_FFMPEG="$prefix/bin/ffmpeg" ENCAP_FFPROBE="$prefix/bin/ffprobe" cargo test --locked -p encap-engine --test media_contract -- --ignored
+          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
           PATH="$prefix/bin:$PATH" cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           tar -C dist/staging -czf "dist/release/EnCap-$version-linux-x64.tar.gz" EnCap
+      - name: Verify Linux cloning and mode-switch latency on Btrfs
+        run: |
+          image="$RUNNER_TEMP/encap-save-test.btrfs"
+          mount_dir="$RUNNER_TEMP/encap-save-volume"
+          truncate -s 3G "$image"
+          mkfs.btrfs -f "$image"
+          mkdir -p "$mount_dir"
+          sudo mount -o loop "$image" "$mount_dir"
+          trap 'sudo umount "$mount_dir"' EXIT
+          sudo chown "$(id -u):$(id -g)" "$mount_dir"
+          TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/dist/staging/EnCap/bin/encap-engine" \
+            cargo test --locked -p encap-engine --test save_protocol -- --nocapture
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

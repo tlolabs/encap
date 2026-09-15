@@ -45,6 +45,7 @@ public sealed class Chapter
     public double StartTimeSeconds { get; set; }
     public double DurationSeconds { get; set; }
     public int ChapterNumber { get; set; }
+    [JsonIgnore] public int DisplayNumber { get; set; }
     public string Title { get; set; } = "";
     public string LinkUrl { get; set; } = "";
     public string? ImagePath { get; set; }
