@@ -49,6 +49,43 @@ settings levels are merged back during save rather than silently discarded.
   recovery backup and restores the known-good original if the final rename
   fails.
 
+## Incremental saves
+
+Opened media stays extracted throughout the session. Saves keep the same portable
+ZIP/schema-2 format, with `manifest.json` last. An optional machine-local index in
+the application cache records archive and media file identities, sizes, and
+timestamps. Absolute source paths are confined to that disposable index; they
+are not added to the project archive. Opening a project rebuilds the index for
+its newly extracted media, including archives created by older versions.
+
+When media is unchanged, saving copies the existing archive to a private staging
+directory beside the destination and replaces only its manifest and ZIP directory.
+The shared engine explicitly requests filesystem cloning: `fclonefileat` on macOS,
+`FICLONE` on Linux, and block cloning on Windows. APFS, Linux reflink-capable
+volumes such as Btrfs/XFS, and supported ReFS volumes can avoid copying all media
+bytes. Windows clones complete, cluster-aligned ranges in chunks and copies only
+the final partial cluster. See Microsoft's [block cloning requirements](https://learn.microsoft.com/en-us/windows/win32/fileio/block-cloning).
+An unsupported or failed clone discards the partial staging file and falls back
+to an ordinary copy. This keeps NTFS, ext4, removable, and network volumes working,
+but their save time can still scale with archive size. Neither path recompresses
+unchanged media or writes through a hard link to the original file. The staged
+tail is truncated before replacement so repeated saves cannot accumulate old manifests.
+
+If media is added, removed, or changed, the engine builds a fresh staged archive,
+copies unchanged ZIP members without decompressing them, and writes changed media
+using ZIP's Stored method. First saves also store media without deflate; WAV/PCM
+projects can consequently be larger than in earlier versions. The small manifest
+remains compressed. Missing, stale, or unreadable cache data safely falls back to
+a full save. Source changes detected during saving abort before publication.
+Every successful save remains a complete, flushed `.encap` document; transferring
+the document does not require the index or the extracted working directory.
+
+All three native clients save named projects through this shared path when
+switching modes and retain the canonical path returned by the engine. Linux
+also restores the saved mode on open, keeps unnamed mode changes in recovery
+storage, and rolls back the mode selection on save failure without clearing
+the previous recovery record.
+
 ## Archive safety limits
 
 The loader rejects absolute paths, parent traversal, platform path prefixes,

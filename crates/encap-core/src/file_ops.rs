@@ -1,5 +1,7 @@
 use crate::{EncapError, Result};
-use std::fs::{self, File};
+use std::fs;
+#[cfg(unix)]
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -49,14 +51,31 @@ fn recovery_path(destination: &Path) -> PathBuf {
     destination.with_file_name(format!(".{name}.recovery-{}", Uuid::new_v4().simple()))
 }
 
-fn sync_parent(parent: &Path) -> Result<()> {
+fn sync_parent(_parent: &Path) -> Result<()> {
     #[cfg(unix)]
-    File::open(parent)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| EncapError::Write {
-            path: parent.to_path_buf(),
-            source,
-        })?;
+    {
+        let parent = _parent;
+        match File::open(parent).and_then(|file| file.sync_all()) {
+            Ok(()) => {}
+            Err(source) => {
+                let is_tolerated_kind = matches!(
+                    source.kind(),
+                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+                );
+                let is_tolerated_raw = match source.raw_os_error() {
+                    // 1: EPERM, 13: EACCES, 22: EINVAL, 30: EROFS, 45: ENOTSUP (macOS/BSD), 95: ENOTSUP (Linux)
+                    Some(code) => matches!(code, 1 | 13 | 22 | 30 | 45 | 95),
+                    None => false,
+                };
+                if !is_tolerated_kind && !is_tolerated_raw {
+                    return Err(EncapError::Write {
+                        path: parent.to_path_buf(),
+                        source,
+                    });
+                }
+            }
+        }
+    }
     Ok(())
 }
 

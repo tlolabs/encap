@@ -12,6 +12,7 @@ struct VideoView: View {
                 description: "Import audio in Audio mode before creating a video."
             ) {
                 Button("Open Audio Mode") { store.switchWorkspace(to: .audio) }
+                    .help("Open Audio mode to import recordings and prepare an episode")
             }
         } else if store.project?.metadata.artworkPath == nil {
             EmptyStateView(
@@ -20,6 +21,7 @@ struct VideoView: View {
                 description: "Add main artwork in Audio mode. Chapter artwork will override it when available."
             ) {
                 Button("Add Artwork in Audio") { store.switchWorkspace(to: .audio) }
+                    .help("Open Audio mode to choose the episode’s main artwork")
                     .buttonStyle(.borderedProminent)
             }
         } else {
@@ -45,6 +47,7 @@ struct VideoView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(store.selectedVideoChapters.isEmpty || store.isWorking)
+                .help("Export the selected chapters, artwork, and audio as an MP4 video")
             }
             .padding(18)
         }
@@ -57,7 +60,9 @@ struct VideoView: View {
                     Text("Chapters").font(.headline)
                     Spacer()
                     Button("Select All") { store.selectAllVideoChapters(true) }
+                        .help("Include every chapter in the video")
                     Button("Select None") { store.selectAllVideoChapters(false) }
+                        .help("Clear the video’s chapter selection")
                 }
                 ForEach(store.project?.chapters ?? []) { chapter in
                     HStack(spacing: 10) {
@@ -75,6 +80,7 @@ struct VideoView: View {
                             }
                         }
                         .toggleStyle(.checkbox)
+                        .help("Include or exclude this chapter from the video")
                     }
                 }
                 Divider()
@@ -106,12 +112,12 @@ struct VideoView: View {
                                 Image(systemName: "arrow.up")
                             }
                             .disabled(index == 0)
-                            .help("Move chapter up")
+                            .help("Move this chapter earlier in the video")
                             Button { store.moveVideoChapter(id: chapter.id, direction: 1) } label: {
                                 Image(systemName: "arrow.down")
                             }
                             .disabled(index == store.selectedVideoChapters.count - 1)
-                            .help("Move chapter down")
+                            .help("Move this chapter later in the video")
                             }
                             .padding(.vertical, 3)
                             .contentShape(Rectangle())
@@ -136,18 +142,21 @@ struct VideoView: View {
                     Picker("Outlet", selection: videoBinding(\.platform)) {
                         ForEach(platforms, id: \.self) { Text($0).tag($0) }
                     }.labelsHidden()
+                    .help("Choose an outlet to see its video presets")
                 }
                 GridRow {
                     Text("Aspect").foregroundStyle(.secondary)
                     Picker("Aspect ratio", selection: videoBinding(\.aspect)) {
                         ForEach(aspects, id: \.self) { Text($0).tag($0) }
                     }.labelsHidden()
+                    .help("Choose the video’s aspect ratio")
                 }
                 GridRow {
                     Text("Preset").foregroundStyle(.secondary)
                     Picker("Resolution preset", selection: presetBinding) {
                         ForEach(resolutions) { Text($0.resolution).tag(Optional($0)) }
                     }.labelsHidden()
+                    .help("Apply a preset video resolution and frame rate")
                 }
                 GridRow {
                     Text("Custom size").foregroundStyle(.secondary)
@@ -163,6 +172,7 @@ struct VideoView: View {
                         Text("H.264").tag("h264")
                         Text("HEVC / H.265").tag("hevc")
                     }.labelsHidden()
+                    .help("Choose the compression format for the exported video")
                 }
                 GridRow {
                     Text("Encoding").foregroundStyle(.secondary)
@@ -171,6 +181,7 @@ struct VideoView: View {
                         Text("Hardware").tag("hardware")
                         Text("Software").tag("software")
                     }.labelsHidden()
+                    .help("Choose automatic, hardware, or software video encoding")
                 }
                 GridRow {
                     Text("Frame rate").foregroundStyle(.secondary)
@@ -182,6 +193,7 @@ struct VideoView: View {
                     Picker("Audio bitrate", selection: videoBinding(\.audioBitrate)) {
                         ForEach(["64k", "96k", "128k", "160k", "192k", "256k", "320k"], id: \.self) { Text($0).tag($0) }
                     }.labelsHidden()
+                    .help("Choose the audio bitrate for the exported video")
                 }
             }
             .padding(8)
@@ -193,7 +205,9 @@ struct VideoView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 18) {
                     Toggle("Flip horizontally", isOn: videoBinding(\.flipHorizontal))
+                        .help("Mirror the artwork from left to right")
                     Toggle("Flip vertically", isOn: videoBinding(\.flipVertical))
+                        .help("Flip the artwork upside down")
                 }
                 Picker("Preview quality", selection: videoBinding(\.previewQuality)) {
                     Text("Automatic").tag("automatic")
@@ -201,6 +215,7 @@ struct VideoView: View {
                     Text("Medium").tag("medium")
                     Text("High").tag("high")
                 }
+                .help("Choose the project’s preview quality setting")
             }
             .padding(8)
         }
@@ -252,6 +267,7 @@ struct VideoView: View {
                 }
             )
             .disabled(store.selectedVideoChapters.isEmpty)
+            .help("Scrub through the selected chapters to preview a different time")
             HStack {
                 Text(EnCapFormatters.timestamp(store.videoCurrentTime)).monospacedDigit()
                 Spacer()
@@ -262,7 +278,7 @@ struct VideoView: View {
                         .frame(width: 24)
                 }
                 .keyboardShortcut(.space, modifiers: [])
-                .help(store.isVideoPlaying ? "Pause preview" : "Play preview")
+                .help(store.isVideoPlaying ? "Pause video preview (Space)" : "Play video preview (Space)")
                 Button(action: store.nextVideoChapter) { Image(systemName: "forward.end.fill") }
                     .help("Next selected chapter")
                 Spacer()

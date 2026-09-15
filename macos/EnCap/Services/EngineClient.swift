@@ -43,8 +43,16 @@ final class EngineClient: @unchecked Sendable {
         for process in processes where process.isRunning { process.terminate() }
     }
 
+    func waveform(path: String) async throws -> WaveformResponse {
+        try decode(WaveformResponse.self, from: await run(["waveform", "--", path], priority: .utility))
+    }
+
     func inspect(folder: URL) async throws -> ProjectDocument {
         try decode(ProjectDocument.self, from: await run(["inspect", folder.path]))
+    }
+
+    func inspect(files: [URL]) async throws -> ProjectDocument {
+        try decode(ProjectDocument.self, from: await run(["inspect-files", "--"] + files.map(\.path)))
     }
 
     func open(project: URL) async throws -> ProjectDocument {
@@ -168,12 +176,13 @@ final class EngineClient: @unchecked Sendable {
         }
     }
 
-    private func run(_ arguments: [String]) async throws -> Data {
+    private func run(_ arguments: [String], priority: TaskPriority = .userInitiated) async throws -> Data {
         let invocation = try invocation(arguments: arguments)
         return try await Self.runProcess(
             executable: invocation.executable,
             arguments: invocation.arguments,
             environment: invocation.environment,
+            priority: priority,
             processChanged: { [weak self] process, started in
                 self?.updateCurrentProcess(process, started: started)
             }
@@ -196,9 +205,10 @@ final class EngineClient: @unchecked Sendable {
         executable: URL,
         arguments: [String],
         environment: [String: String],
+        priority: TaskPriority = .userInitiated,
         processChanged: (@Sendable (Process, Bool) -> Void)? = nil
     ) async throws -> Data {
-        try await Task.detached(priority: .userInitiated) {
+        try await Task.detached(priority: priority) {
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()

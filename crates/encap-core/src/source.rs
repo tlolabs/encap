@@ -100,18 +100,31 @@ pub fn inspect_source(path: &Path) -> Result<f64> {
 
 pub fn inspect_folder(folder: &Path) -> Result<ProjectDocument> {
     let paths = discover_audio_files(folder)?;
+    let mut project = inspect_files(&paths)?;
+    project.project_title = folder
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+    project.source_folder = Some(folder.to_path_buf());
+    project.metadata.episode_title = project.project_title.clone();
+    Ok(project)
+}
+
+/// Inspect only the selected files, retaining their supplied order.
+pub fn inspect_files(paths: &[PathBuf]) -> Result<ProjectDocument> {
     let mut sources = Vec::with_capacity(paths.len());
     let mut chapters = Vec::with_capacity(paths.len());
     let mut position = 0.0;
-    for (index, path) in paths.into_iter().enumerate() {
-        let duration = inspect_source(&path)?;
+    for (index, path) in paths.iter().enumerate() {
+        let duration = inspect_source(path)?;
         let name = path
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("Audio")
             .to_string();
         sources.push(AudioSource {
-            source_path: path,
+            source_path: path.clone(),
             display_name: name.clone(),
             duration_seconds: duration,
             stored_path: None,
@@ -130,20 +143,11 @@ pub fn inspect_folder(folder: &Path) -> Result<ProjectDocument> {
         });
         position += duration;
     }
-    let project_title = folder
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("Untitled")
-        .to_string();
-    let mut project = ProjectDocument {
-        project_title: project_title.clone(),
-        source_folder: Some(folder.to_path_buf()),
+    Ok(ProjectDocument {
         audio_sources: sources,
         chapters,
         ..ProjectDocument::default()
-    };
-    project.metadata.episode_title = project.project_title.clone();
-    Ok(project)
+    })
 }
 
 fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
@@ -357,10 +361,12 @@ fn natural_cmp(left: &str, right: &str) -> Ordering {
             (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
                 let an: String = std::iter::from_fn(|| a.next_if(|c| c.is_ascii_digit())).collect();
                 let bn: String = std::iter::from_fn(|| b.next_if(|c| c.is_ascii_digit())).collect();
-                match an
-                    .trim_start_matches('0')
+                let atrim = an.trim_start_matches('0');
+                let btrim = bn.trim_start_matches('0');
+                match atrim
                     .len()
-                    .cmp(&bn.trim_start_matches('0').len())
+                    .cmp(&btrim.len())
+                    .then_with(|| atrim.cmp(btrim))
                     .then_with(|| an.cmp(&bn))
                 {
                     Ordering::Equal => {}
@@ -381,11 +387,59 @@ fn natural_cmp(left: &str, right: &str) -> Ordering {
 
 #[cfg(test)]
 mod tests {
-    use super::natural_cmp;
+    use super::{inspect_files, natural_cmp};
+
+    #[test]
+    fn selected_files_preserve_order_and_ignore_unselected_invalid_audio() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first.wav");
+        let second = temp.path().join("second.wav");
+        let invalid = temp.path().join("invalid.wav");
+        let mut wave = Vec::new();
+        wave.extend_from_slice(b"RIFF");
+        wave.extend_from_slice(&38_u32.to_le_bytes());
+        wave.extend_from_slice(b"WAVEfmt ");
+        wave.extend_from_slice(&16_u32.to_le_bytes());
+        wave.extend_from_slice(&1_u16.to_le_bytes());
+        wave.extend_from_slice(&1_u16.to_le_bytes());
+        wave.extend_from_slice(&1_u32.to_le_bytes());
+        wave.extend_from_slice(&2_u32.to_le_bytes());
+        wave.extend_from_slice(&2_u16.to_le_bytes());
+        wave.extend_from_slice(&16_u16.to_le_bytes());
+        wave.extend_from_slice(b"data");
+        wave.extend_from_slice(&2_u32.to_le_bytes());
+        wave.extend_from_slice(&0_i16.to_le_bytes());
+        std::fs::write(&first, &wave).unwrap();
+        std::fs::write(&second, &wave).unwrap();
+        std::fs::write(&invalid, b"invalid").unwrap();
+        let project = inspect_files(&[second.clone(), first.clone()]).unwrap();
+        assert_eq!(project.audio_sources.len(), 2);
+        assert_eq!(project.audio_sources[0].source_path, second);
+        assert_eq!(project.chapters[0].title, "second");
+        assert_eq!(project.chapters[1].start_time_seconds, 1.0);
+        assert_eq!(project.chapters[1].chapter_number, 2);
+        assert!(inspect_files(&[first, invalid]).is_err());
+    }
+
     #[test]
     fn natural_sort_orders_recording_numbers() {
-        let mut names = vec!["part10.wav", "part2.wav", "part1.wav"];
+        let mut names = vec![
+            "part10.wav",
+            "part2.wav",
+            "part03.wav",
+            "part002.wav",
+            "part1.wav",
+        ];
         names.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(names, ["part1.wav", "part2.wav", "part10.wav"]);
+        assert_eq!(
+            names,
+            [
+                "part1.wav",
+                "part002.wav",
+                "part2.wav",
+                "part03.wav",
+                "part10.wav"
+            ]
+        );
     }
 }

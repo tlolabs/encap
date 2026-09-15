@@ -1,5 +1,8 @@
 #include <adwaita.h>
+#include "source_list.h"
+#include "chapter_editor.h"
 #include <json-glib/json-glib.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <glib/gstdio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -11,6 +14,15 @@ typedef struct {
   GtkWidget *episode_title;
   GtkWidget *summary;
   GtkWidget *chapters;
+  GtkWidget *artwork;
+  GtkWidget *artwork_placeholder;
+  GtkWidget *artwork_name;
+  GtkWidget *artwork_button;
+  GtkWidget *source_list;
+  GtkWidget *audio_split;
+  GtkWidget *workspace_stack;
+  gchar *mode_before_save;
+  gchar *audio_edits_path;
   GtkWidget *transcript;
   GtkWidget *provider;
   GtkWidget *status;
@@ -29,6 +41,17 @@ static void run_engine(AppState *state, const gchar *operation, const gchar *arg
 static gboolean write_payload(AppState *state);
 static void schedule_recovery(AppState *state);
 
+static void finish_mode_switch(AppState *state, gboolean success) {
+  if (!state->mode_before_save) return;
+  if (!success && state->project) {
+    state->presenting_project = TRUE;
+    json_object_set_string_member(json_node_get_object(state->project), "active_mode", state->mode_before_save);
+    gtk_stack_set_visible_child_name(GTK_STACK(state->workspace_stack), state->mode_before_save);
+    state->presenting_project = FALSE;
+  }
+  g_clear_pointer(&state->mode_before_save, g_free);
+}
+
 static gchar *engine_path(void) {
   gchar *binary = g_file_read_link("/proc/self/exe", NULL);
   if (!binary) return g_strdup("encap-engine");
@@ -45,24 +68,45 @@ static void set_status(AppState *state, const gchar *message, gboolean error) {
   gtk_widget_add_css_class(state->status, error ? "error" : "dim-label");
 }
 
-static void present_project(AppState *state) {
+static void update_artwork(AppState *state) {
+  JsonObject *metadata = json_object_get_object_member(json_node_get_object(state->project), "metadata");
+  const gchar *path = json_object_get_string_member_with_default(metadata, "artwork_path", NULL);
+  gtk_picture_set_paintable(GTK_PICTURE(state->artwork), NULL);
+  gtk_label_set_text(GTK_LABEL(state->artwork_placeholder), path ? "Preview unavailable" : "Album artwork");
+  gtk_widget_set_visible(state->artwork_placeholder, TRUE);
+  gchar *name = path ? g_path_get_basename(path) : g_strdup("No artwork selected");
+  gtk_label_set_text(GTK_LABEL(state->artwork_name), name); g_free(name);
+  gtk_widget_set_tooltip_text(state->artwork_name, path);
+  if (!path) return;
+  GError *error = NULL;
+  GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file_at_scale(path, 144, 144, TRUE, &error);
+  if (pixbuf) {
+    GdkTexture *texture = gdk_texture_new_for_pixbuf(pixbuf);
+    gtk_picture_set_paintable(GTK_PICTURE(state->artwork), GDK_PAINTABLE(texture));
+    gtk_widget_set_visible(state->artwork_placeholder, FALSE);
+    g_object_unref(texture); g_object_unref(pixbuf);
+  }
+  g_clear_error(&error);
+}
+
+static void chapters_changed(gpointer user_data) { schedule_recovery(user_data); }
+
+static void present_project(AppState *state, gboolean apply_names, gboolean only_new) {
   state->presenting_project = TRUE;
   JsonObject *root = json_node_get_object(state->project);
+  gint source_width = encap_source_list_set_sources(state->source_list, json_object_get_array_member(root, "audio_sources"));
+  gtk_paned_set_position(GTK_PANED(state->audio_split), source_width);
   JsonObject *metadata = json_object_get_object_member(root, "metadata");
   gtk_editable_set_text(GTK_EDITABLE(state->podcast_title), json_object_get_string_member_with_default(metadata, "podcast_title", ""));
   gtk_editable_set_text(GTK_EDITABLE(state->episode_title), json_object_get_string_member_with_default(metadata, "episode_title", ""));
   GtkTextBuffer *summary = gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->summary));
   gtk_text_buffer_set_text(summary, json_object_get_string_member_with_default(metadata, "summary", ""), -1);
 
-  GtkTextBuffer *chapters = gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->chapters));
-  GString *lines = g_string_new(NULL);
-  JsonArray *array = json_object_get_array_member(root, "chapters");
-  for (guint i = 0; array && i < json_array_get_length(array); i++) {
-    JsonObject *chapter = json_array_get_object_element(array, i);
-    g_string_append_printf(lines, "%u. %s\n", i + 1, json_object_get_string_member_with_default(chapter, "title", "Untitled"));
-  }
-  gtk_text_buffer_set_text(chapters, lines->str, -1);
-  g_string_free(lines, TRUE);
+  update_artwork(state);
+  encap_chapter_editor_set_project(state->chapters, root, apply_names, only_new);
+  const gchar *mode = json_object_get_string_member_with_default(root, "active_mode", "audio");
+  if (gtk_stack_get_child_by_name(GTK_STACK(state->workspace_stack), mode))
+    gtk_stack_set_visible_child_name(GTK_STACK(state->workspace_stack), mode);
   state->presenting_project = FALSE;
   set_status(state, "Project loaded.", FALSE);
 }
@@ -122,6 +166,7 @@ static void present_models(AppState *state, JsonArray *models) {
     gtk_box_append(GTK_BOX(detail), name); gtk_box_append(GTK_BOX(detail), subtitle);
     GtkWidget *action = gtk_button_new_with_label(installed ? "Remove" : "Download");
     gtk_widget_set_sensitive(action, installed || download_allowed);
+    gtk_widget_set_tooltip_text(action, installed ? "Remove this locally downloaded transcription model" : "Download this model for offline transcription");
     if (!installed && !download_allowed)
       gtk_widget_set_tooltip_text(action, "EnCap is reusing a compatible model already installed by another app.");
     g_object_set_data_full(G_OBJECT(action), "operation", g_strdup(installed ? "remove-model" : "install-model"), g_free);
@@ -146,16 +191,6 @@ static gchar *buffer_text(GtkWidget *view) {
 }
 
 static void sync_text_edits(AppState *state, JsonObject *root) {
-  JsonArray *chapters = json_object_get_array_member(root, "chapters");
-  gchar *chapter_text = buffer_text(state->chapters);
-  gchar **chapter_lines = g_strsplit(chapter_text, "\n", -1);
-  for (guint i = 0; chapters && i < json_array_get_length(chapters) && chapter_lines[i]; i++) {
-    gchar *title = g_strstr_len(chapter_lines[i], -1, ". ");
-    json_object_set_string_member(json_array_get_object_element(chapters, i), "title", title ? title + 2 : chapter_lines[i]);
-  }
-  g_strfreev(chapter_lines);
-  g_free(chapter_text);
-
   JsonArray *segments = json_object_get_array_member(root, "transcript_segments");
   gchar *transcript_text = buffer_text(state->transcript);
   gchar **paragraphs = g_strsplit(transcript_text, "\n\n", -1);
@@ -196,19 +231,22 @@ static void engine_done(GObject *source, GAsyncResult *result, gpointer user_dat
   } else {
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, stdout_text, -1, &error)) {
+      success = FALSE;
       set_status(state, "The EnCap engine returned an invalid response.", TRUE);
-    } else if (g_str_equal(state->operation, "inspect") || g_str_equal(state->operation, "open")) {
+    } else if (g_str_equal(state->operation, "inspect") || g_str_equal(state->operation, "open") || g_str_equal(state->operation, "edit-audio")) {
       if (state->project) json_node_unref(state->project);
       state->project = json_node_copy(json_parser_get_root(parser));
-      present_project(state);
-      if (g_str_equal(state->operation, "inspect")) schedule_recovery(state);
+      present_project(state, !g_str_equal(state->operation, "open"), g_str_equal(state->operation, "edit-audio"));
+      present_transcript(state, json_object_get_member(json_node_get_object(state->project), "transcript_segments"));
+      if (!g_str_equal(state->operation, "open")) schedule_recovery(state);
     } else if (g_str_equal(state->operation, "load-recovery")) {
       JsonObject *response = json_node_get_object(json_parser_get_root(parser));
       JsonNode *recovered = json_object_get_member(response, "project");
       if (recovered && !JSON_NODE_HOLDS_NULL(recovered)) {
         if (state->project) json_node_unref(state->project);
         state->project = json_node_copy(recovered);
-        present_project(state);
+        present_project(state, FALSE, FALSE);
+        present_transcript(state, json_object_get_member(json_node_get_object(state->project), "transcript_segments"));
         set_status(state, "Recovered unsaved work from the previous session.", FALSE);
       }
     } else if (g_str_equal(state->operation, "providers")) {
@@ -236,6 +274,16 @@ static void engine_done(GObject *source, GAsyncResult *result, gpointer user_dat
       present_transcript(state, json_parser_get_root(parser));
       set_status(state, "Transcription complete.", FALSE);
       schedule_recovery(state);
+    } else if (g_str_equal(state->operation, "save")) {
+      JsonObject *response = json_node_get_object(json_parser_get_root(parser));
+      const gchar *path = json_object_get_string_member_with_default(response, "path", NULL);
+      if (path && state->project) {
+        json_object_set_string_member(json_node_get_object(state->project), "project_path", path);
+        set_status(state, "Project saved.", FALSE);
+      } else {
+        success = FALSE;
+        set_status(state, "The engine did not return the saved project path.", TRUE);
+      }
     } else if (g_str_equal(state->operation, "save-recovery")) {
       set_status(state, "Unsaved changes protected for crash recovery.", FALSE);
     } else if (g_str_equal(state->operation, "clear-recovery")) {
@@ -246,9 +294,18 @@ static void engine_done(GObject *source, GAsyncResult *result, gpointer user_dat
     }
     g_object_unref(parser);
   }
+  gboolean mode_failed = !success && state->mode_before_save != NULL;
+  finish_mode_switch(state, success);
+  if (!success) clear_recovery = FALSE;
   if (error) g_error_free(error);
   g_free(stdout_text); g_free(stderr_text);
   g_clear_object(&state->process);
+  if (mode_failed) schedule_recovery(state);
+  gtk_widget_set_sensitive(state->workspace_stack, TRUE);
+  gtk_widget_set_sensitive(state->source_list, state->project != NULL);
+  gtk_widget_set_sensitive(state->chapters, state->project != NULL);
+  gtk_widget_set_sensitive(state->artwork_button, state->project != NULL);
+  if (state->audio_edits_path) { g_unlink(state->audio_edits_path); g_clear_pointer(&state->audio_edits_path, g_free); }
   gtk_widget_set_visible(state->cancel, FALSE);
   if (state->payload_path) { g_unlink(state->payload_path); g_clear_pointer(&state->payload_path, g_free); }
   if (state->pending_open) {
@@ -267,6 +324,10 @@ static void run_engine(AppState *state, const gchar *operation, const gchar *arg
   state->process = g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE, &error);
   g_free(engine);
   if (!state->process) { set_status(state, error->message, TRUE); g_error_free(error); return; }
+  gtk_widget_set_sensitive(state->workspace_stack, FALSE);
+  gtk_widget_set_sensitive(state->source_list, FALSE);
+  gtk_widget_set_sensitive(state->chapters, FALSE);
+  gtk_widget_set_sensitive(state->artwork_button, FALSE);
   g_free(state->operation); state->operation = g_strdup(operation);
   gtk_widget_set_visible(state->cancel, TRUE);
   set_status(state, "Working…", FALSE);
@@ -317,13 +378,63 @@ static void edit_changed(GtkWidget *widget, gpointer user_data) {
   schedule_recovery(user_data);
 }
 
+static void edit_audio_files(AppState *state, GPtrArray *paths, gboolean remove) {
+  if (state->process || !paths->len || !write_payload(state)) return;
+  JsonObject *edits = json_object_new();
+  JsonArray *files = json_array_new();
+  for (guint i = 0; i < paths->len; i++) json_array_add_string_element(files, g_ptr_array_index(paths, i));
+  json_object_set_array_member(edits, remove ? "remove_files" : "add_files", files);
+  JsonNode *node = json_node_new(JSON_NODE_OBJECT); json_node_take_object(node, edits);
+  GError *error = NULL;
+  gint fd = g_file_open_tmp("encap-audio-edits-XXXXXX.json", &state->audio_edits_path, &error);
+  if (fd >= 0) {
+    close(fd);
+    JsonGenerator *generator = json_generator_new(); json_generator_set_root(generator, node);
+    if (json_generator_to_file(generator, state->audio_edits_path, &error)) {
+      encap_source_list_stop(state->source_list);
+      run_engine(state, "edit-audio", state->payload_path, state->audio_edits_path);
+    }
+    g_object_unref(generator);
+  }
+  if (error) { set_status(state, error->message, TRUE); g_error_free(error); }
+  if (!state->process) {
+    if (state->payload_path) { g_unlink(state->payload_path); g_clear_pointer(&state->payload_path, g_free); }
+    if (state->audio_edits_path) { g_unlink(state->audio_edits_path); g_clear_pointer(&state->audio_edits_path, g_free); }
+  }
+  json_node_unref(node);
+}
+
+static void remove_audio_files(GPtrArray *paths, gpointer user_data) { edit_audio_files(user_data, paths, TRUE); }
+
 static void chooser_response(GtkNativeDialog *dialog, gint response, gpointer user_data) {
+
   AppState *state = user_data;
   if (response == GTK_RESPONSE_ACCEPT) {
+    const gchar *action = g_object_get_data(G_OBJECT(dialog), "operation");
+    if (g_str_equal(action, "add-audio")) {
+      GListModel *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(dialog));
+      GPtrArray *paths = g_ptr_array_new_with_free_func(g_free);
+      for (guint i = 0; i < g_list_model_get_n_items(files); i++) {
+        GFile *file = g_list_model_get_item(files, i);
+        gchar *path = g_file_get_path(file);
+        if (path) g_ptr_array_add(paths, path);
+        g_object_unref(file);
+      }
+      edit_audio_files(state, paths, FALSE);
+      g_ptr_array_unref(paths); g_object_unref(files); g_object_unref(dialog);
+      return;
+    }
     GFile *file = gtk_file_chooser_get_file(GTK_FILE_CHOOSER(dialog));
     gchar *path = g_file_get_path(file);
     const gchar *operation = g_object_get_data(G_OBJECT(dialog), "operation");
-    if (g_str_equal(operation, "inspect") || g_str_equal(operation, "open")) run_engine(state, operation, path, NULL);
+    if (g_str_equal(operation, "artwork")) {
+      if (state->project && path && !state->process) {
+        JsonObject *metadata = json_object_get_object_member(json_node_get_object(state->project), "metadata");
+        json_object_set_string_member(metadata, "artwork_path", path);
+        update_artwork(state);
+        schedule_recovery(state);
+      }
+    } else if (g_str_equal(operation, "inspect") || g_str_equal(operation, "open")) run_engine(state, operation, path, NULL);
     else if (write_payload(state)) run_engine(state, operation, state->payload_path, path);
     g_free(path); g_object_unref(file);
   }
@@ -331,18 +442,75 @@ static void chooser_response(GtkNativeDialog *dialog, gint response, gpointer us
 }
 
 static void choose(AppState *state, const gchar *operation) {
+  if (state->process) return;
+  if (g_str_equal(operation, "artwork") && !state->project) return;
   gboolean folder = g_str_equal(operation, "inspect");
   gboolean output = g_str_equal(operation, "save") || g_str_equal(operation, "export") || g_str_equal(operation, "export-video");
   GtkFileChooserNative *chooser = gtk_file_chooser_native_new(
     output ? "Choose Destination" : "Open", GTK_WINDOW(state->window),
     output ? GTK_FILE_CHOOSER_ACTION_SAVE : (folder ? GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER : GTK_FILE_CHOOSER_ACTION_OPEN),
     output ? "Save" : "Open", "Cancel");
+  if (g_str_equal(operation, "add-audio")) {
+    gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(chooser), TRUE);
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "WAV and AIFF audio");
+    const gchar *extensions[] = {"wav", "wave", "aif", "aiff", "aifc"};
+    for (guint i = 0; i < G_N_ELEMENTS(extensions); i++) gtk_file_filter_add_suffix(filter, extensions[i]);
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(chooser), filter);
+    g_object_unref(filter);
+  }
+  if (g_str_equal(operation, "artwork")) {
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Album artwork images");
+    gtk_file_filter_add_pixbuf_formats(filter);
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(chooser), filter);
+    g_object_unref(filter);
+  }
   g_object_set_data_full(G_OBJECT(chooser), "operation", g_strdup(operation), g_free);
   g_signal_connect(chooser, "response", G_CALLBACK(chooser_response), state);
   gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
 }
 
+static void add_audio_files(gpointer user_data) {
+  AppState *state = user_data;
+  if (!state->process && state->project) choose(state, "add-audio");
+}
+
+static void audio_mode_changed(GObject *stack, GParamSpec *property, gpointer user_data) {
+  (void)property;
+  AppState *state = user_data;
+  const gchar *mode = gtk_stack_get_visible_child_name(GTK_STACK(stack));
+  if (g_strcmp0(mode, "audio") != 0)
+    encap_source_list_stop(state->source_list);
+  if (state->presenting_project || !state->project || !mode) return;
+  JsonObject *root = json_node_get_object(state->project);
+  const gchar *previous = json_object_get_string_member_with_default(root, "active_mode", "audio");
+  if (g_strcmp0(previous, mode) == 0) return;
+  if (state->process) {
+    state->presenting_project = TRUE;
+    gtk_stack_set_visible_child_name(GTK_STACK(stack), previous);
+    state->presenting_project = FALSE;
+    return;
+  }
+  state->mode_before_save = g_strdup(previous);
+  json_object_set_string_member(root, "active_mode", mode);
+  if (state->recovery_source) {
+    g_source_remove(state->recovery_source);
+    state->recovery_source = 0;
+  }
+  if (write_payload(state)) {
+    const gchar *path = json_object_get_string_member_with_default(root, "project_path", NULL);
+    run_engine(state, path && *path ? "save" : "save-recovery", state->payload_path, path && *path ? path : NULL);
+  }
+  if (!state->process) {
+    finish_mode_switch(state, FALSE);
+    if (state->payload_path) { g_unlink(state->payload_path); g_clear_pointer(&state->payload_path, g_free); }
+    schedule_recovery(state);
+  }
+}
+
 static void choose_clicked(GtkButton *button, gpointer user_data) {
+
   AppState *state = user_data;
   choose(state, g_object_get_data(G_OBJECT(button), "operation"));
 }
@@ -382,33 +550,86 @@ static void activate(GApplication *application, gpointer user_data) {
   GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *header = adw_header_bar_new();
   GtkWidget *stack = gtk_stack_new();
-  GtkWidget *switcher = adw_view_switcher_new();
-  adw_view_switcher_set_stack(ADW_VIEW_SWITCHER(switcher), GTK_STACK(stack));
+  state->workspace_stack = stack;
+  GtkWidget *switcher = gtk_stack_switcher_new();
+  gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(stack));
+  gtk_widget_set_tooltip_text(switcher, "Switch between Audio, Transcript, and Video");
   adw_header_bar_set_title_widget(ADW_HEADER_BAR(header), switcher);
   const gchar *buttons[][2] = {{"Import", "inspect"}, {"Open", "open"}, {"Save", "save"}, {"Export", "export"}};
+  const gchar *button_help[] = {"Import a folder of WAV or AIFF recordings", "Open a saved EnCap project", "Save this episode, its media, and editing settings", "Export the assembled episode as an audio file"};
   for (guint i = 0; i < 4; i++) {
     GtkWidget *button = gtk_button_new_with_label(buttons[i][0]);
+    gtk_widget_set_tooltip_text(button, button_help[i]);
     g_object_set_data_full(G_OBJECT(button), "operation", g_strdup(buttons[i][1]), g_free);
     g_signal_connect(button, "clicked", G_CALLBACK(choose_clicked), state);
     if (i < 2) adw_header_bar_pack_start(ADW_HEADER_BAR(header), button); else adw_header_bar_pack_end(ADW_HEADER_BAR(header), button);
   }
   GtkWidget *audio = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_set_margin_start(audio, 24); gtk_widget_set_margin_end(audio, 24); gtk_widget_set_margin_top(audio, 24); gtk_widget_set_margin_bottom(audio, 24);
-  gtk_box_append(GTK_BOX(audio), labeled_entry("Podcast title", &state->podcast_title));
-  gtk_box_append(GTK_BOX(audio), labeled_entry("Episode title", &state->episode_title));
-  state->summary = gtk_text_view_new(); gtk_widget_set_size_request(state->summary, -1, 100); gtk_box_append(GTK_BOX(audio), state->summary);
-  state->chapters = gtk_text_view_new(); gtk_text_view_set_editable(GTK_TEXT_VIEW(state->chapters), TRUE); gtk_accessible_update_property(GTK_ACCESSIBLE(state->chapters), GTK_ACCESSIBLE_PROPERTY_LABEL, "Editable chapter titles", -1); gtk_widget_set_vexpand(state->chapters, TRUE); gtk_box_append(GTK_BOX(audio), state->chapters);
+  gtk_widget_set_margin_start(audio, 20); gtk_widget_set_margin_end(audio, 20);
+  gtk_widget_set_margin_top(audio, 16); gtk_widget_set_margin_bottom(audio, 8);
+  GtkWidget *episode = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+  GtkWidget *metadata = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_set_hexpand(metadata, TRUE);
+  gtk_box_append(GTK_BOX(metadata), labeled_entry("Podcast title", &state->podcast_title));
+  gtk_box_append(GTK_BOX(metadata), labeled_entry("Episode title", &state->episode_title));
+  GtkWidget *summary_label = gtk_label_new("Summary"); gtk_widget_set_halign(summary_label, GTK_ALIGN_START);
+  gtk_box_append(GTK_BOX(metadata), summary_label);
+  state->summary = gtk_text_view_new();
+  gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(state->summary), GTK_WRAP_WORD_CHAR);
+  gtk_accessible_update_property(GTK_ACCESSIBLE(state->summary), GTK_ACCESSIBLE_PROPERTY_LABEL, "Episode summary", -1);
+  GtkWidget *summary_scroll = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(summary_scroll), 90);
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(summary_scroll), 90);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(summary_scroll), state->summary);
+  gtk_box_append(GTK_BOX(metadata), summary_scroll);
+  GtkWidget *artwork_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  state->artwork_button = gtk_button_new_with_label("Choose artwork…");
+  gtk_widget_set_tooltip_text(state->artwork_button, "Choose or replace the episode's album artwork");
+  gtk_widget_set_sensitive(state->artwork_button, FALSE);
+  g_object_set_data(G_OBJECT(state->artwork_button), "operation", "artwork");
+  g_signal_connect(state->artwork_button, "clicked", G_CALLBACK(choose_clicked), state);
+  state->artwork_name = gtk_label_new("No artwork selected");
+  gtk_label_set_ellipsize(GTK_LABEL(state->artwork_name), PANGO_ELLIPSIZE_MIDDLE);
+  gtk_label_set_max_width_chars(GTK_LABEL(state->artwork_name), 24);
+  gtk_widget_add_css_class(state->artwork_name, "dim-label");
+  gtk_box_append(GTK_BOX(artwork_row), state->artwork_button); gtk_box_append(GTK_BOX(artwork_row), state->artwork_name);
+  gtk_box_append(GTK_BOX(metadata), artwork_row);
+  GtkWidget *artwork_frame = gtk_frame_new(NULL); gtk_widget_set_valign(artwork_frame, GTK_ALIGN_START);
+  gtk_widget_set_size_request(artwork_frame, 152, 152);
+  GtkWidget *artwork_overlay = gtk_overlay_new();
+  state->artwork = gtk_picture_new(); gtk_picture_set_can_shrink(GTK_PICTURE(state->artwork), TRUE);
+  gtk_picture_set_content_fit(GTK_PICTURE(state->artwork), GTK_CONTENT_FIT_CONTAIN);
+  gtk_accessible_update_property(GTK_ACCESSIBLE(state->artwork), GTK_ACCESSIBLE_PROPERTY_LABEL, "Episode album artwork preview", -1);
+  state->artwork_placeholder = gtk_label_new("Album artwork");
+  gtk_widget_add_css_class(state->artwork_placeholder, "dim-label");
+  gtk_overlay_set_child(GTK_OVERLAY(artwork_overlay), state->artwork);
+  gtk_overlay_add_overlay(GTK_OVERLAY(artwork_overlay), state->artwork_placeholder);
+  gtk_frame_set_child(GTK_FRAME(artwork_frame), artwork_overlay);
+  gtk_box_append(GTK_BOX(episode), metadata); gtk_box_append(GTK_BOX(episode), artwork_frame);
+  gtk_box_append(GTK_BOX(audio), episode);
+  state->chapters = encap_chapter_editor_new(chapters_changed, state);
+  gtk_widget_set_sensitive(state->chapters, FALSE);
+  gtk_box_append(GTK_BOX(audio), state->chapters);
   g_signal_connect(state->podcast_title, "changed", G_CALLBACK(edit_changed), state);
   g_signal_connect(state->episode_title, "changed", G_CALLBACK(edit_changed), state);
   g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->summary)), "changed", G_CALLBACK(edit_changed), state);
-  g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->chapters)), "changed", G_CALLBACK(edit_changed), state);
-  gtk_stack_add_titled(GTK_STACK(stack), audio, "audio", "Audio");
+  state->source_list = encap_source_list_new(add_audio_files, remove_audio_files, state);
+  gtk_widget_set_sensitive(state->source_list, FALSE);
+  gtk_widget_set_margin_start(state->source_list, 12); gtk_widget_set_margin_top(state->source_list, 24);
+  state->audio_split = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_paned_set_start_child(GTK_PANED(state->audio_split), state->source_list);
+  gtk_paned_set_end_child(GTK_PANED(state->audio_split), audio);
+  gtk_paned_set_resize_start_child(GTK_PANED(state->audio_split), FALSE);
+  gtk_paned_set_shrink_start_child(GTK_PANED(state->audio_split), TRUE);
+  gtk_paned_set_position(GTK_PANED(state->audio_split), 220);
+  gtk_stack_add_titled(GTK_STACK(stack), state->audio_split, "audio", "Audio");
+  g_signal_connect(stack, "notify::visible-child-name", G_CALLBACK(audio_mode_changed), state);
   GtkWidget *transcript = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
   gtk_widget_set_margin_start(transcript, 24); gtk_widget_set_margin_end(transcript, 24); gtk_widget_set_margin_top(transcript, 24); gtk_widget_set_margin_bottom(transcript, 24);
-  state->provider = gtk_drop_down_new(NULL, NULL); gtk_box_append(GTK_BOX(transcript), state->provider);
+  state->provider = gtk_drop_down_new(NULL, NULL); gtk_widget_set_tooltip_text(state->provider, "Choose the local transcription engine"); gtk_box_append(GTK_BOX(transcript), state->provider);
   GtkWidget *transcription_actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  GtkWidget *transcribe_button = gtk_button_new_with_label("Transcribe locally"); g_signal_connect(transcribe_button, "clicked", G_CALLBACK(transcribe_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), transcribe_button);
-  GtkWidget *models_button = gtk_button_new_with_label("Manage Models…"); g_signal_connect(models_button, "clicked", G_CALLBACK(models_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), models_button);
+  GtkWidget *transcribe_button = gtk_button_new_with_label("Transcribe locally"); gtk_widget_set_tooltip_text(transcribe_button, "Create or replace the transcript using the selected local engine"); g_signal_connect(transcribe_button, "clicked", G_CALLBACK(transcribe_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), transcribe_button);
+  GtkWidget *models_button = gtk_button_new_with_label("Manage Models…"); gtk_widget_set_tooltip_text(models_button, "Download or remove local transcription models"); g_signal_connect(models_button, "clicked", G_CALLBACK(models_clicked), state); gtk_box_append(GTK_BOX(transcription_actions), models_button);
   gtk_box_append(GTK_BOX(transcript), transcription_actions);
   state->transcript = gtk_text_view_new(); gtk_widget_set_vexpand(state->transcript, TRUE); gtk_box_append(GTK_BOX(transcript), state->transcript);
   g_signal_connect(gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->transcript)), "changed", G_CALLBACK(edit_changed), state);
@@ -420,13 +641,14 @@ static void activate(GApplication *application, gpointer user_data) {
   GtkWidget *video_help = gtk_label_new("All chapters are selected in Audio order by default. Add main artwork in Audio; chapter artwork overrides it.");
   gtk_label_set_wrap(GTK_LABEL(video_help), TRUE); gtk_widget_set_halign(video_help, GTK_ALIGN_START); gtk_widget_add_css_class(video_help, "dim-label"); gtk_box_append(GTK_BOX(video), video_help);
   GtkWidget *video_export = gtk_button_new_with_label("Export MP4…");
+  gtk_widget_set_tooltip_text(video_export, "Export the episode's chapters, artwork, and audio as an MP4 video");
   g_object_set_data_full(G_OBJECT(video_export), "operation", g_strdup("export-video"), g_free);
   g_signal_connect(video_export, "clicked", G_CALLBACK(choose_clicked), state);
   gtk_widget_set_halign(video_export, GTK_ALIGN_START); gtk_box_append(GTK_BOX(video), video_export);
   gtk_stack_add_titled(GTK_STACK(stack), video, "video", "Video");
   GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8); gtk_widget_set_margin_start(footer, 12); gtk_widget_set_margin_end(footer, 12); gtk_widget_set_margin_top(footer, 8); gtk_widget_set_margin_bottom(footer, 8);
   state->status = gtk_label_new("Import an audio folder to begin."); gtk_widget_set_hexpand(state->status, TRUE); gtk_widget_set_halign(state->status, GTK_ALIGN_START); gtk_box_append(GTK_BOX(footer), state->status);
-  state->cancel = gtk_button_new_with_label("Cancel"); gtk_widget_set_visible(state->cancel, FALSE); g_signal_connect(state->cancel, "clicked", G_CALLBACK(cancel_clicked), state); gtk_box_append(GTK_BOX(footer), state->cancel);
+  state->cancel = gtk_button_new_with_label("Cancel"); gtk_widget_set_tooltip_text(state->cancel, "Cancel the current operation"); gtk_widget_set_visible(state->cancel, FALSE); g_signal_connect(state->cancel, "clicked", G_CALLBACK(cancel_clicked), state); gtk_box_append(GTK_BOX(footer), state->cancel);
   gtk_box_append(GTK_BOX(root), header); gtk_box_append(GTK_BOX(root), stack); gtk_box_append(GTK_BOX(root), footer);
   gtk_widget_set_vexpand(stack, TRUE);
   adw_application_window_set_content(state->window, root);
@@ -467,5 +689,6 @@ int main(int argc, char **argv) {
   g_clear_object(&state.process);
   g_clear_object(&state.application);
   g_free(state.payload_path); g_free(state.operation); g_free(state.pending_open);
+  g_free(state.mode_before_save);
   return status;
 }

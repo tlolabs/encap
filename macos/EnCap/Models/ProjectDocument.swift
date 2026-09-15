@@ -29,6 +29,14 @@ struct AudioSource: Codable, Identifiable, Hashable {
     var durationSeconds: Double
 
     var id: String { sourcePath }
+
+    var fileTypeLabel: String {
+        switch URL(fileURLWithPath: sourcePath).pathExtension.lowercased() {
+        case "wav", "wave": return "WAV"
+        case "aif", "aiff", "aifc": return "AIFF"
+        default: return URL(fileURLWithPath: sourcePath).pathExtension.uppercased()
+        }
+    }
 }
 
 struct Chapter: Codable, Identifiable, Hashable {
@@ -321,6 +329,18 @@ struct ProjectDocument: Codable, Hashable {
         let cleaned = value.unicodeScalars.map { allowed.contains($0) ? Character(String($0)) : "-" }
         let words = String(cleaned).split(whereSeparator: { $0.isWhitespace })
         return words.isEmpty ? "encap-output" : words.joined(separator: "-")
+    }
+
+    func audioSourceIndex(at timestamp: Double) -> Int {
+        guard !audioSources.isEmpty else { return 0 }
+        var cumulative = 0.0
+        for (index, source) in audioSources.enumerated() {
+            cumulative += source.durationSeconds
+            if timestamp < cumulative {
+                return index
+            }
+        }
+        return audioSources.count - 1
     }
 }
 

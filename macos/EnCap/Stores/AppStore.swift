@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 final class AppStore: ObservableObject {
     enum FileImportKind {
         case audioFolder
+        case audioFiles
         case project
         case artwork
     }
@@ -33,8 +34,13 @@ final class AppStore: ObservableObject {
     @Published var fileImportKind: FileImportKind?
     @Published var isFileImporterPresented = false
     @Published private(set) var isPlaying = false
+    @Published private(set) var playingSourceID: AudioSource.ID?
 
     private let engine = EngineClient()
+    @Published private(set) var sourcePlaybackRate: Float = 0
+    private var sourceReadyObserver: NSKeyValueObservation?
+    private var sourceTimeObserver: Any?
+    private let sourceMediaControls = SourceMediaControls()
     private var player: AVPlayer?
     private var playbackEndObserver: NSObjectProtocol?
     private var videoTimeObserver: Any?
@@ -59,7 +65,7 @@ final class AppStore: ObservableObject {
         alert.addButton(withTitle: "Don't Save")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            presentSavePanel()
+            saveProject()
             return false
         case .alertThirdButtonReturn:
             return true
@@ -162,7 +168,7 @@ final class AppStore: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            presentSavePanel(switchingTo: target)
+            saveProject(switchingTo: target)
         case .alertSecondButtonReturn:
             completeUnsavedWorkspaceSwitch(to: target)
         default:
@@ -190,6 +196,8 @@ final class AppStore: ObservableObject {
             switch fileImportKind {
             case .audioFolder:
                 importFolder(url)
+            case .audioFiles:
+                addAudioFiles(urls)
             case .project:
                 openProject(url)
             case .artwork:
@@ -206,18 +214,49 @@ final class AppStore: ObservableObject {
     func importFolder(_ url: URL) {
         guard confirmDiscardChanges() else { return }
         perform("Reading \(url.lastPathComponent)…") {
-            let project = try await self.engine.inspect(folder: url)
+            var project = try await self.engine.inspect(folder: url)
+            let namingStyle = ChapterNamingStyle(rawValue: UserDefaults.standard.string(forKey: ChapterNamingStyle.preferenceKey) ?? "") ?? .original
+            project.applyChapterNames(namingStyle)
             self.replaceProject(project, saved: false)
             self.status = "Imported \(project.audioSources.count) audio files."
         }
     }
 
+    func addAudioFiles(_ urls: [URL]) {
+        guard project != nil, !isWorking else { return }
+        var known = Set(project?.audioSources.map(\.id) ?? [])
+        let files = urls.map(\.standardizedFileURL).filter { known.insert($0.path).inserted }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        guard !files.isEmpty else {
+            status = "The selected files are already in this project."
+            return
+        }
+        perform("Adding audio files…") {
+            let imported = try await self.engine.inspect(files: files)
+            guard var project = self.project else { return }
+            let namingStyle = ChapterNamingStyle(rawValue: UserDefaults.standard.string(forKey: ChapterNamingStyle.preferenceKey) ?? "") ?? .original
+            project.appendAudioSources(imported.audioSources, namingStyle: namingStyle)
+            self.project = project
+            self.status = "Added \(imported.audioSources.count) audio files."
+        }
+    }
+
     func openProject(_ url: URL) {
+
         guard confirmDiscardChanges() else { return }
         perform("Opening \(url.lastPathComponent)…") {
             let opened = try await self.engine.open(project: url)
             self.replaceProject(opened, saved: true)
             self.status = "Opened \(url.lastPathComponent)."
+        }
+    }
+
+    func saveProject(switchingTo: WorkspaceMode? = nil) {
+        guard let project, !isWorking else { return }
+        if let projectPath = project.projectPath, !projectPath.isEmpty {
+            saveProject(to: URL(fileURLWithPath: projectPath), switchingTo: switchingTo)
+        } else {
+            presentSavePanel(switchingTo: switchingTo)
         }
     }
 
@@ -419,22 +458,45 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func applyChapterNames(_ style: ChapterNamingStyle) {
+        guard var project else { return }
+        project.applyChapterNames(style)
+        self.project = project
+        status = "Applied \(style.rawValue) chapter names."
+    }
+
     func addChapter() {
         guard var project else { return }
         let start = project.chapters.last.map { $0.startTimeSeconds + $0.durationSeconds } ?? 0
-        let number = project.chapters.count + 1
+        let sourceIndex = project.audioSourceIndex(at: start)
+        let chapterNumber = min(sourceIndex + 1, max(1, project.audioSources.count))
+        let titleNumber = project.chapters.count + 1
         project.chapters.append(
             Chapter(
                 startTimeSeconds: start,
                 durationSeconds: 5,
-                chapterNumber: number,
-                title: "Chapter \(number)"
+                chapterNumber: chapterNumber,
+                title: "Chapter \(titleNumber)"
             )
         )
         self.project = project
     }
 
+    func removeAudioSources(ids: Set<AudioSource.ID>) {
+        guard !isWorking, var project else { return }
+        let count = project.audioSources.filter { ids.contains($0.id) }.count
+        guard count > 0 else { return }
+        // Video previews and audio previews share a player and timeline.
+        stopPlayback()
+        project.removeAudioSources(ids: ids)
+        normalizeVideoSelection(&project)
+        videoCurrentTime = 0
+        self.project = project
+        status = "Removed \(count) imported \(count == 1 ? "track" : "tracks") and associated chapters."
+    }
+
     func removeChapters(at offsets: IndexSet) {
+
         project?.chapters.remove(atOffsets: offsets)
         renumberChapters()
     }
@@ -444,34 +506,130 @@ final class AppStore: ObservableObject {
         renumberChapters()
     }
 
-    func play(source: AudioSource, at offset: Double = 0) {
+    var sourcePlaybackPosition: Double { player?.currentTime().seconds ?? 0 }
+
+    func isPlaying(source: AudioSource) -> Bool {
+        playingSourceID == source.id && isPlaying
+    }
+
+    func togglePlayback(source: AudioSource) {
+        if isPlaying(source: source) { pauseSourcePlayback() }
+        else { resumePlayback(source: source) }
+    }
+
+    func pauseSourcePlayback() {
+        guard playingSourceID != nil else { return }
+        player?.pause()
+        isPlaying = false
+        sourcePlaybackRate = 0
+        status = "Playback paused."
+        updateSourceMediaControls()
+    }
+
+    func resumePlayback(source: AudioSource) { setSourceRate(1, source: source) }
+
+    func shuttle(source: AudioSource, direction: Float, slow: Bool) {
+        let current = playingSourceID == source.id ? sourcePlaybackRate : 0
+        setSourceRate(SourceShuttle.rate(current: current, direction: direction, slow: slow), source: source)
+    }
+
+    private func setSourceRate(_ rate: Float, source: AudioSource) {
+        if playingSourceID != source.id || player == nil { play(source: source, rate: rate); return }
+        if rate > 0, sourcePlaybackPosition >= source.durationSeconds - 0.01 { player?.seek(to: .zero) }
+        sourcePlaybackRate = rate
+        isPlaying = true
+        applySourceRate()
+    }
+
+    private func applySourceRate() {
+        guard let player, let item = player.currentItem, playingSourceID != nil else { return }
+        guard item.status != .failed else {
+            let message = item.error?.localizedDescription ?? "The recording could not be opened."
+            stopPlayback(); status = message; return
+        }
+        guard item.status == .readyToPlay else { return }
+        let rate = sourcePlaybackRate
+        let supported = rate == 0 || rate == 1 || (rate > 0 && rate < 1 && item.canPlaySlowForward)
+            || (rate > 1 && (rate <= 2 || item.canPlayFastForward))
+            || (rate == -1 && item.canPlayReverse)
+            || (rate < -1 && item.canPlayFastReverse)
+            || (rate < 0 && rate > -1 && item.canPlaySlowReverse)
+        guard supported else {
+            pauseSourcePlayback()
+            status = "This recording’s macOS decoder does not support \(rate)× playback."
+            return
+        }
+        player.rate = rate
+        isPlaying = rate != 0
+        status = rate == 0 ? "Playback paused." : "Playing at \(rate)×."
+        updateSourceMediaControls()
+    }
+
+    func play(source: AudioSource, at offset: Double = 0, rate: Float = 1) {
         stopPlayback()
         let nextPlayer = AVPlayer(url: URL(fileURLWithPath: source.sourcePath))
         player = nextPlayer
+        playingSourceID = source.id
+        sourcePlaybackRate = rate
         nextPlayer.seek(to: CMTime(seconds: max(0, offset), preferredTimescale: 600),
                         toleranceBefore: .zero, toleranceAfter: .zero)
-        nextPlayer.play()
+        sourceReadyObserver = nextPlayer.currentItem?.observe(\.status, options: [.initial, .new]) { [weak self, weak nextPlayer] _, _ in
+            Task { @MainActor in
+                guard let self, self.player === nextPlayer else { return }
+                self.applySourceRate()
+            }
+        }
+        sourceTimeObserver = nextPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { [weak self, weak nextPlayer] _ in
+            Task { @MainActor in
+                guard let self, self.player === nextPlayer else { return }
+                self.updateSourceMediaControls()
+            }
+        }
         playbackEndObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: nextPlayer.currentItem,
-            queue: .main
+            forName: .AVPlayerItemDidPlayToEndTime, object: nextPlayer.currentItem, queue: .main
         ) { [weak self, weak nextPlayer] _ in
             Task { @MainActor in
                 guard let self, self.player === nextPlayer else { return }
-                self.player = nil
-                if let observer = self.playbackEndObserver {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-                self.playbackEndObserver = nil
-                self.isPlaying = false
+                self.pauseSourcePlayback()
                 self.status = "Playback finished."
             }
         }
+        sourceMediaControls.activate { [weak self] command, position in self?.sourceMediaCommand(command, position: position) }
         isPlaying = true
         status = "Playing \(source.displayName)."
+        updateSourceMediaControls()
+    }
+
+    private func updateSourceMediaControls() {
+        guard let source = project?.audioSources.first(where: { $0.id == playingSourceID }) else { return }
+        sourceMediaControls.update(source: source, position: player?.currentTime().seconds ?? 0, rate: sourcePlaybackRate)
+    }
+
+    private func sourceMediaCommand(_ command: String, position: Double?) {
+        guard let sources = project?.audioSources, let index = sources.firstIndex(where: { $0.id == playingSourceID }) else { return }
+        switch command {
+        case "play": resumePlayback(source: sources[index])
+        case "toggle": togglePlayback(source: sources[index])
+        case "pause": pauseSourcePlayback()
+        case "stop": pauseSourcePlayback(); player?.seek(to: .zero)
+        case "next", "previous":
+            let next = index + (command == "next" ? 1 : -1)
+            if sources.indices.contains(next) { resumePlayback(source: sources[next]) }
+        case "seek":
+            if let position, position.isFinite {
+                player?.seek(to: CMTime(seconds: min(sources[index].durationSeconds, max(0, position)), preferredTimescale: 600))
+            }
+        default: break
+        }
+        updateSourceMediaControls()
     }
 
     func stopPlayback() {
+        sourceReadyObserver = nil
+        if let sourceTimeObserver, let player { player.removeTimeObserver(sourceTimeObserver) }
+        sourceTimeObserver = nil
+        sourcePlaybackRate = 0
+        sourceMediaControls.deactivate()
         player?.pause()
         if let videoTimeObserver, let player {
             player.removeTimeObserver(videoTimeObserver)
@@ -482,6 +640,7 @@ final class AppStore: ObservableObject {
             self.playbackEndObserver = nil
         }
         player = nil
+        playingSourceID = nil
         isPlaying = false
         isVideoPlaying = false
         videoPlaybackIndex = nil
@@ -638,7 +797,8 @@ final class AppStore: ObservableObject {
         guard var project else { return }
         var start = 0.0
         for index in project.chapters.indices {
-            project.chapters[index].chapterNumber = index + 1
+            let sourceIndex = project.audioSourceIndex(at: start)
+            project.chapters[index].chapterNumber = min(sourceIndex + 1, max(1, project.audioSources.count))
             project.chapters[index].startTimeSeconds = start
             start += project.chapters[index].durationSeconds
         }
@@ -656,9 +816,18 @@ final class AppStore: ObservableObject {
     }
 
     private func source(for chapter: Chapter, in project: ProjectDocument) -> AudioSource? {
-        guard chapter.chapterNumber > 0 else { return nil }
-        let index = chapter.chapterNumber - 1
-        return project.audioSources.indices.contains(index) ? project.audioSources[index] : nil
+        guard !project.audioSources.isEmpty else { return nil }
+        if chapter.chapterNumber > 0 {
+            let index = chapter.chapterNumber - 1
+            if project.audioSources.indices.contains(index) {
+                return project.audioSources[index]
+            }
+        }
+        if project.audioSources.count == 1 {
+            return project.audioSources.first
+        }
+        let fallbackIndex = project.audioSourceIndex(at: chapter.startTimeSeconds)
+        return project.audioSources.indices.contains(fallbackIndex) ? project.audioSources[fallbackIndex] : nil
     }
 
     private func playVideoChapter(_ index: Int) {
