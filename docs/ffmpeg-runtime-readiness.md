@@ -1,5 +1,7 @@
 # Managed FFmpeg runtime migration readiness
 
+> Superseded scope (2026-09-15): Windows/Linux GPU parity and GPU machines are no longer requirements. Software encoding is authoritative, VideoToolbox is optional on macOS, and minimum-OS qualification remains required. See [current integration notes](ffmpeg-source-runtime.md). The audit below records the earlier state.
+
 Checked 2026-09-15 at approximately 07:14 UTC. This is a prerequisite audit and
 current-runtime baseline, not a completed migration or release qualification.
 

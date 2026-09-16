@@ -45,6 +45,38 @@ impl MediaTools {
     /// The same host resolution policy with caller-owned validation. Video uses
     /// the shared cancellable validator; unrelated modes retain `discover()`.
     pub fn discover_with_validator<T>(validate: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        // A managed production bundle uses one canonical pair for every mode.
+        // Environment overrides remain an explicit development choice.
+        #[cfg(feature = "managed-runtime")]
+        if std::env::var_os("ENCAP_FFMPEG").is_none() && std::env::var_os("ENCAP_FFPROBE").is_none()
+        {
+            let executable = std::env::current_exe()
+                .map_err(|e| EncapError::Message(format!("Cannot locate application: {e}")))?;
+            let directory = executable.parent().ok_or_else(|| {
+                EncapError::Message("Cannot locate application directory.".into())
+            })?;
+            let metadata = if cfg!(target_os = "macos")
+                && directory.file_name().is_some_and(|n| n == "MacOS")
+                && directory
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .is_some_and(|n| n == "Contents")
+            {
+                directory.join("../Resources/FFmpeg")
+            } else {
+                directory.to_owned()
+            };
+            let pair = avid_core::MediaTools::from_managed_layout(
+                directory,
+                &metadata,
+                &avid_core::CancellationToken::default(),
+            )
+            .map_err(EncapError::from)?;
+            return validate(&Self {
+                ffmpeg: pair.ffmpeg().to_owned(),
+                ffprobe: pair.ffprobe().to_owned(),
+            });
+        }
         let tools = Self {
             ffmpeg: locate_tool("ffmpeg", "ENCAP_FFMPEG")?,
             ffprobe: locate_tool("ffprobe", "ENCAP_FFPROBE")?,

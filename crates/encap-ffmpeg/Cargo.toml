@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+managed-runtime = ["dep:avid-core"]
+
 [dependencies]
+avid-core = { workspace = true, optional = true }
 encap-core = { path = "../encap-core" }
 tempfile.workspace = true
 tracing.workspace = true
