@@ -6,6 +6,14 @@ Windows/Linux GPU encoding is outside this project’s scope. NVENC, QSV, AMF an
 
 Minimum OS remains macOS 13, Windows 10 1809 and the established Linux glibc/toolkit baseline (Ubuntu 24.04). Newer hosted CI does not establish exact minimum-OS runtime behavior. The Core ledger preserves these required gates separately.
 
+## Current source pin
+
+Cargo and packaging/CI helpers now pin the exact `v0.2.1` commit
+`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. Cargo uses an immutable Git
+dependency; packaging checks the sibling source revision and rejects local edits.
+This does not qualify the candidate runtime. See the
+[normal-build audit and exact upstream blockers](normal-runtime-migration.md).
+
 ## Candidate integration
 
 `runtime/core-revision` and the workflow checkout select the same tested Core revision. The `managed-runtime` engine feature selects the complete bundled pair through Core validation, with no silent PATH fallback. Deliberate development overrides remain available. Normal release acquisition is not switched until the remaining software, minimum-OS, toolchain and packaged-host gates pass.
@@ -22,6 +30,6 @@ These are local qualification apps, not release artifacts. See AVID Core `docs/f
 
 The recipe-6 macOS ARM64 pair passed two clean builds with byte-identical executables. This host’s separate qualification app passed original-hash verification, ad-hoc signing, bundled media tests and native tests, then launched successfully. Missing/damaged bundle tests passed with a usable external runtime on PATH. macOS executables remain in Contents/MacOS while spec/build/source/signature records and notices are sealed in Contents/Resources/FFmpeg; Core validates the explicit metadata location without fallback.
 
-These checks ran on macOS 26.7 and do not qualify macOS 13. Windows/Linux and Intel macOS source-runtime CI, exact minimum-OS execution and full production-release acceptance remain incomplete. Windows/Linux GPU qualification is not required. The qualification branch was pushed with explicit user authorization on 2026-09-15 (2026-09-16 UTC), and [build-only CI](https://github.com/tlolabs/encap/actions/runs/35064906664) was dispatched. CI results are pending; this does not establish source-runtime or minimum-OS qualification. No release was published.
+These checks ran on macOS 26.7 and do not qualify macOS 13. Windows/Linux and Intel macOS source-runtime CI, exact minimum-OS execution and full production-release acceptance remain incomplete. Windows/Linux GPU qualification is not required. The qualification branch was pushed with explicit user authorization on 2026-09-15 (2026-09-16 UTC), and [build-only CI](https://github.com/tlolabs/encap/actions/runs/35064906664) was dispatched. That run failed overall; the per-target results and exact upstream runtime failure are recorded in the normal-build audit. It does not establish source-runtime or minimum-OS qualification. No release was published.
 
 See Core’s `docs/ffmpeg/software-qualification.md` and exact-binary evidence ledger. Local logs are `build/managed-package.log`, `build/managed-bundle-tests.log` and `build/managed-launch.json`.

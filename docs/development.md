@@ -20,9 +20,13 @@ The three mode crates are siblings. Do not add dependencies between them. Video
 media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavior
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
-Check out `tlolabs/avid-core` beside EnCAP as `AVID Core`. The workspace path dependency
-and CI use shared revision `0cce6ba838827d0bed540efc98731e74a1014456`. Update it only
-after rerunning shared tests and EnCAP compatibility tests; never copy media implementation.
+Cargo consumes AVID Core `v0.2.1` from Git, pinned to immutable revision
+`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. Packaging helpers and Core tests still use
+a clean sibling `AVID Core` checkout at that same revision; verify it with
+`bash script/check_core_runtime.sh`. Update Cargo, its lockfile,
+`runtime/core-revision` and workflow checkout pins together after compatibility
+tests. Never copy Core media implementation. This source pin does not qualify or
+publish the runtime: see [normal-runtime migration](normal-runtime-migration.md).
 
 ## Engine protocol
 

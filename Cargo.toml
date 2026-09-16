@@ -18,7 +18,8 @@ license = "GPL-3.0-only"
 repository = "https://github.com/tlolabs/encap"
 
 [workspace.dependencies]
-avid-core = { path = "../AVID Core" }
+# AVID Core v0.2.1, pinned to the tag's immutable commit.
+avid-core = { git = "https://github.com/tlolabs/avid-core.git", rev = "eab97dd043187aa8b7a1cae4eb2c1228fa25a9db", version = "=0.2.1" }
 anyhow = "1.0.99"
 base64 = "0.22.1"
 clap = { version = "4.5.47", features = ["derive"] }

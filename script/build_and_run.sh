@@ -21,6 +21,7 @@ esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$ROOT_DIR/script/check_no_python.sh"
+bash "$ROOT_DIR/script/check_core_runtime.sh" >/dev/null
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
