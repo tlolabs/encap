@@ -152,7 +152,7 @@ struct VideoSettings: Codable, Hashable {
     var width = 1920
     var height = 1080
     var codec = "h264"
-    var encoding = "automatic"
+    var encoding = "software"
     var audioBitrate = "128k"
     var fps = 30
     var flipHorizontal = false

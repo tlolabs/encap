@@ -229,6 +229,7 @@ printf complete > "$last"
         let mut project = project(root.path());
         let renderer = fake(root.path(), "success");
         let output = root.path().join("out.mp4");
+        project.video.export_settings.encoding = "automatic".into();
         let before = project.clone();
         let request = render_request(&project, &output).unwrap();
         export_with_renderer(&project, &request, &renderer, &CancellationToken::default()).unwrap();
@@ -267,6 +268,7 @@ printf complete > "$last"
                 render_timeout: Some(Duration::from_millis(80)),
                 ..Default::default()
             });
+            project.video.export_settings.encoding = "automatic".into();
             if mode == "success" {
                 project.video.export_settings.encoding = "hardware".into();
             }

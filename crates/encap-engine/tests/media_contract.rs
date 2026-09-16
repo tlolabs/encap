@@ -41,16 +41,22 @@ impl Harness {
         self.tool(&self.ffmpeg, args).stdout
     }
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
-        let out = Command::new(&self.engine)
-            .args(args)
-            .env("ENCAP_FFMPEG", &self.ffmpeg)
-            .env("ENCAP_FFPROBE", &self.ffprobe)
-            .env(
-                "ENCAP_RECOVERY_PATH",
-                self.root.path().join("recovery.json"),
-            )
-            .output()
-            .unwrap();
+        let mut command = Command::new(&self.engine);
+        command.args(args).env(
+            "ENCAP_RECOVERY_PATH",
+            self.root.path().join("recovery.json"),
+        );
+        if std::env::var_os("ENCAP_TEST_MANAGED").is_some() {
+            command
+                .env_remove("ENCAP_FFMPEG")
+                .env_remove("ENCAP_FFPROBE")
+                .env("PATH", "");
+        } else {
+            command
+                .env("ENCAP_FFMPEG", &self.ffmpeg)
+                .env("ENCAP_FFPROBE", &self.ffprobe);
+        }
+        let out = command.output().unwrap();
         assert_eq!(
             out.status.success(),
             ok,

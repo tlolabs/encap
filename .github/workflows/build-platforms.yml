@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
+          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
           path: AVID Core
           persist-credentials: false
       - name: Enforce native-only source policy
@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
+          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
           path: AVID Core
           persist-credentials: false
       - name: Configure update verification key
@@ -155,7 +155,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
+          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
           path: AVID Core
           persist-credentials: false
       - name: Install Rust target
@@ -261,7 +261,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
+          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
           path: AVID Core
           persist-credentials: false
       - name: Install native build dependencies
@@ -342,7 +342,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
+          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
           path: AVID Core
           persist-credentials: false
       - name: Download packages
