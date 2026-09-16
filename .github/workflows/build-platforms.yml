@@ -34,11 +34,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
+          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
           path: AVID Core
           persist-credentials: false
+      - name: Verify pinned Core helper checkout
+        shell: bash
+        run: bash script/check_core_runtime.sh
       - name: Enforce native-only source policy
         run: ./script/check_no_python.sh
+      - name: Test Core source pin enforcement
+        run: bash script/test_core_revision.sh
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Check formatting and lints
@@ -84,9 +89,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
+          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
           path: AVID Core
           persist-credentials: false
+      - name: Verify pinned Core helper checkout
+        shell: bash
+        run: bash script/check_core_runtime.sh
       - name: Configure update verification key
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
@@ -155,9 +163,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
+          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
           path: AVID Core
           persist-credentials: false
+      - name: Verify pinned Core helper checkout
+        shell: bash
+        run: bash script/check_core_runtime.sh
       - name: Install Rust target
         shell: pwsh
         run: rustup target add '${{ matrix.rust_target }}'
@@ -261,9 +272,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
+          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
           path: AVID Core
           persist-credentials: false
+      - name: Verify pinned Core helper checkout
+        shell: bash
+        run: bash script/check_core_runtime.sh
       - name: Install native build dependencies
         run: |
           sudo apt-get update
@@ -342,9 +356,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tlolabs/avid-core
-          ref: 2e2e8eb79ae80d40823ae3b37f83464e31750cd3
+          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
           path: AVID Core
           persist-credentials: false
+      - name: Verify pinned Core helper checkout
+        shell: bash
+        run: bash script/check_core_runtime.sh
       - name: Download packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
         with:

@@ -96,8 +96,10 @@ disabled.
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Check out `tlolabs/avid-core` beside EnCAP as `AVID Core` at revision
-`0cce6ba838827d0bed540efc98731e74a1014456`. Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
+Cargo fetches AVID Core `v0.2.1` at immutable commit
+`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. For packaging helpers and Core tests,
+check out that same revision beside EnCAP as `AVID Core`; run
+`bash script/check_core_runtime.sh` to verify it. Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
@@ -109,9 +111,10 @@ On macOS, the project run action and the shell use the same entrypoint:
 ```
 
 Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
-`--package`. The script builds the release Rust engine, native SwiftUI app,
-static FFmpeg/ffprobe, local transcription helpers, and an application bundle
-at `dist/EnCap.app`.
+`--package`. The script builds the release Rust engine, native SwiftUI app and
+local transcription helpers, then bundles the current downloaded FFmpeg/ffprobe
+pair at `dist/EnCap.app`. The managed-runtime switchover remains blocked on
+Core publication; see the [integration report](docs/normal-runtime-migration.md).
 
 Shared checks:
 
