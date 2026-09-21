@@ -1,0 +1,59 @@
+name: EnCAP source FFmpeg
+description: Build and cache only EnCAP-owned verified source runtimes
+inputs:
+  platform:
+    required: true
+    description: macos, windows or linux
+  arch:
+    required: true
+    description: arm64 or x86_64
+  shell:
+    default: bash
+    description: Native builder shell
+  clean:
+    default: 'false'
+    description: Bypass artifact cache and rebuild from verified sources
+runs:
+  using: composite
+  steps:
+    - name: Fingerprint source recipe and native toolchain
+      id: fingerprint
+      shell: ${{ inputs.shell }}
+      working-directory: EnCAP
+      env:
+        BUILD_PLATFORM: ${{ inputs.platform }}
+        BUILD_ARCH: ${{ inputs.arch }}
+      run: echo "key=$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" key)" >> "$GITHUB_OUTPUT"
+    - name: Restore exact source build
+      if: inputs.clean != 'true'
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: EnCAP/.build-tools/encap-ffmpeg/${{ steps.fingerprint.outputs.key }}
+        key: encap-source-ffmpeg-${{ steps.fingerprint.outputs.key }}
+    - name: Compile or verify cached runtime
+      shell: ${{ inputs.shell }}
+      working-directory: EnCAP
+      env:
+        BUILD_PLATFORM: ${{ inputs.platform }}
+        BUILD_ARCH: ${{ inputs.arch }}
+        CLEAN_BUILD: ${{ inputs.clean }}
+      run: |
+        action=build
+        if [[ "$CLEAN_BUILD" == true ]]; then action=clean; fi
+        prefix="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" "$action")"
+        # A stable staging input for PowerShell and the application packagers.
+        rm -rf .build-tools/ffmpeg-runtime
+        cp -R "$prefix" .build-tools/ffmpeg-runtime
+    - name: Save verified source build
+      if: inputs.clean != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: EnCAP/.build-tools/encap-ffmpeg/${{ steps.fingerprint.outputs.key }}
+        key: encap-source-ffmpeg-${{ steps.fingerprint.outputs.key }}
+    - name: Upload source, provenance, and native binaries
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: FFmpeg-source-${{ inputs.platform }}-${{ inputs.arch }}
+        path: EnCAP/.build-tools/ffmpeg-runtime
+        include-hidden-files: true
+        if-no-files-found: error

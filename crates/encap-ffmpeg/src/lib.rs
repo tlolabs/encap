@@ -45,42 +45,21 @@ impl MediaTools {
     /// The same host resolution policy with caller-owned validation. Video uses
     /// the shared cancellable validator; unrelated modes retain `discover()`.
     pub fn discover_with_validator<T>(validate: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
-        // A managed production bundle uses one canonical pair for every mode.
-        // Environment overrides remain an explicit development choice.
-        #[cfg(feature = "managed-runtime")]
-        if std::env::var_os("ENCAP_FFMPEG").is_none() && std::env::var_os("ENCAP_FFPROBE").is_none()
+        let executable = std::env::current_exe()
+            .map_err(|e| EncapError::Message(format!("Cannot locate application: {e}")))?;
+        let directory = executable.parent().ok_or_else(runtime_error)?;
+        // Explicit fixtures are allowed only in debug builds. Packaged release
+        // engines always use their own pair, regardless of environment or PATH.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ENCAP_FFMPEG").is_some() || std::env::var_os("ENCAP_FFPROBE").is_some()
         {
-            let executable = std::env::current_exe()
-                .map_err(|e| EncapError::Message(format!("Cannot locate application: {e}")))?;
-            let directory = executable.parent().ok_or_else(|| {
-                EncapError::Message("Cannot locate application directory.".into())
-            })?;
-            let metadata = if cfg!(target_os = "macos")
-                && directory.file_name().is_some_and(|n| n == "MacOS")
-                && directory
-                    .parent()
-                    .and_then(|p| p.file_name())
-                    .is_some_and(|n| n == "Contents")
-            {
-                directory.join("../Resources/FFmpeg")
-            } else {
-                directory.to_owned()
+            let tools = Self {
+                ffmpeg: explicit_tool("ENCAP_FFMPEG")?,
+                ffprobe: explicit_tool("ENCAP_FFPROBE")?,
             };
-            let pair = avid_core::MediaTools::from_managed_layout(
-                directory,
-                &metadata,
-                &avid_core::CancellationToken::default(),
-            )
-            .map_err(EncapError::from)?;
-            return validate(&Self {
-                ffmpeg: pair.ffmpeg().to_owned(),
-                ffprobe: pair.ffprobe().to_owned(),
-            });
+            return validate(&tools);
         }
-        let tools = Self {
-            ffmpeg: locate_tool("ffmpeg", "ENCAP_FFMPEG")?,
-            ffprobe: locate_tool("ffprobe", "ENCAP_FFPROBE")?,
-        };
+        let tools = packaged_tools(directory)?;
         validate(&tools)
     }
 
@@ -185,12 +164,97 @@ pub fn locate_optional_tool(name: &str, environment: &str) -> Option<PathBuf> {
     .or_else(|| find_on_path(&platform_name))
 }
 
-fn locate_tool(name: &str, environment: &str) -> Result<PathBuf> {
-    locate_optional_tool(name, environment).ok_or_else(|| {
-        EncapError::Message(format!(
-            "The bundled {name} tool is missing or damaged. Reinstall EnCap."
-        ))
-    })
+fn runtime_error() -> EncapError {
+    EncapError::Message(
+        "The bundled FFmpeg runtime is missing, damaged or incompatible. Reinstall EnCap.".into(),
+    )
+}
+
+#[cfg(debug_assertions)]
+fn explicit_tool(environment: &str) -> Result<PathBuf> {
+    std::env::var_os(environment)
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute() && p.is_file())
+        .ok_or_else(runtime_error)
+}
+
+#[derive(serde::Deserialize)]
+struct RuntimeManifest {
+    schema: u32,
+    version: String,
+    target: String,
+    binaries: BinaryHashes,
+}
+#[derive(serde::Deserialize)]
+struct BinaryHashes {
+    ffmpeg: String,
+    ffprobe: String,
+}
+
+fn packaged_tools(directory: &Path) -> Result<MediaTools> {
+    let metadata = if cfg!(target_os = "macos")
+        && directory.file_name().is_some_and(|n| n == "MacOS")
+        && directory
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|n| n == "Contents")
+    {
+        directory.join("../Resources/FFmpeg")
+    } else {
+        directory.join("FFmpeg")
+    };
+    let manifest: RuntimeManifest = serde_json::from_slice(
+        &fs::read(metadata.join("runtime.json")).map_err(|_| runtime_error())?,
+    )
+    .map_err(|_| runtime_error())?;
+    let dependencies: serde_json::Value =
+        serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependencies.json"))
+            .expect("checked-in FFmpeg dependency record");
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    if manifest.schema != 1
+        || manifest.version != dependencies["ffmpeg"]["version"]
+        || manifest.target != format!("{platform}-{arch}")
+    {
+        return Err(runtime_error());
+    }
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let tools = MediaTools {
+        ffmpeg: directory.join(format!("ffmpeg{suffix}")),
+        ffprobe: directory.join(format!("ffprobe{suffix}")),
+    };
+    verify_hash(&tools.ffmpeg, &manifest.binaries.ffmpeg)?;
+    verify_hash(&tools.ffprobe, &manifest.binaries.ffprobe)?;
+    Ok(tools)
+}
+
+fn verify_hash(path: &Path, expected: &str) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = fs::File::open(path).map_err(|_| runtime_error())?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let length = file.read(&mut buffer).map_err(|_| runtime_error())?;
+        if length == 0 {
+            break;
+        }
+        hash.update(&buffer[..length]);
+    }
+    if format!("{:x}", hash.finalize()) != expected {
+        return Err(runtime_error());
+    }
+    Ok(())
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {

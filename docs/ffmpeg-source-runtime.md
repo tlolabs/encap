@@ -1,35 +1,137 @@
-# Software FFmpeg source runtime qualification
+# EnCAP-owned FFmpeg source runtime
 
-The authoritative implementation is Core’s pinned source-built FFmpeg software runtime (libx264/libx265 plus the shared Audio/Transcript codecs). Quality, predictable behavior, compatibility, reproducibility and cross-platform consistency take priority over encoding speed.
+EnCAP builds and distributes FFmpeg and ffprobe **9.0.2**, official tag `n9.0.2`,
+from https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz. The official download page
+identified this as the latest stable release on 2026-09-20 (released 2026-09-18).
+`runtime/ffmpeg/dependencies.json` is the dependency/update-check record and the
+single version/configuration source. AVID Core remains the immutable Rust Video
+implementation at its existing API/revision; it supplies no runtime assets.
 
-Windows/Linux GPU encoding is outside this project’s scope. NVENC, QSV, AMF and VAAPI capabilities or GPU-machine access do not gate CI, packaging or release qualification. macOS VideoToolbox remains optional, with valid-stream/decode checks independent of software output; byte and file-size equivalence are not required. Software encoding remains available and is the default for new Video settings.
+## Trust and provenance
 
-Minimum OS remains macOS 13, Windows 10 1809 and the established Linux glibc/toolkit baseline (Ubuntu 24.04). Newer hosted CI does not establish exact minimum-OS runtime behavior. The Core ledger preserves these required gates separately.
+The source archive must match SHA-256
+`8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`.
+Every source build also verifies the official detached OpenPGP signature with
+`gpgv` against the checked-in upstream public key, requiring `VALIDSIG` fingerprint
+`FCF986EA15E6E293A5644F10B4322F04D67658D8`. This fingerprint is published at
+https://www.ffmpeg.org/download.html#release_9.0. No keyserver or user trustdb is
+used. Every external-library source URL, revision and SHA-256 is pinned in the
+same record. Downloads fail closed, use HTTPS, and are verified before extraction.
+No FFmpeg prebuilt executable, system FFmpeg or Core runtime asset is downloaded.
 
-## Current source pin
+## Configuration and licensing
 
-Cargo and packaging/CI helpers now pin the exact `v0.2.1` commit
-`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. Cargo uses an immutable Git
-dependency; packaging checks the sibling source revision and rejects local edits.
-This does not qualify the candidate runtime. See the
-[normal-build audit and exact upstream blockers](normal-runtime-migration.md).
+Common FFmpeg options:
 
-## Candidate integration
-
-`runtime/core-revision` and the workflow checkout select the same tested Core revision. The `managed-runtime` engine feature selects the complete bundled pair through Core validation, with no silent PATH fallback. Deliberate development overrides remain available. Normal release acquisition is not switched until the remaining software, minimum-OS, toolchain and packaged-host gates pass.
-
-The candidate package script stages a separate application with source/license manifests, verifies original hashes before signing, records signed hashes separately, and exercises the packaged pair. No published release or old download cache is replaced by candidate tests.
-
-```sh
-bash script/package_core_candidate_macos.sh '/absolute/path/to/validated/Core/runtime'
+```
+--disable-autodetect --disable-shared --enable-static --enable-gpl
+--disable-nonfree --enable-libx264 --enable-libx265 --enable-libmp3lame
+--enable-zlib --enable-ffmpeg --enable-ffprobe --disable-ffplay
+--disable-doc --disable-debug
 ```
 
-These are local qualification apps, not release artifacts. See AVID Core `docs/ffmpeg/README.md` and `runtime/ffmpeg/qualification.json` for the authoritative policy and current evidence.
+All default internal codecs, formats, protocols and filters remain enabled.
+There is no minimal codec allowlist. EnCAP's Audio exports MP3/LAME and AAC,
+including AudioToolbox on macOS; Transcript converts to mono 16 kHz PCM;
+Video retains software H.264/HEVC, artwork, composition, scale/crop/blur/overlay,
+flips, frame rates and audio resampling. Native decoders, PNG/JPEG, WAV/AIFF and
+metadata/chapter handling remain available. x265 is an 8-bit build, matching
+EnCAP's existing `yuv420p` output. macOS additionally enables AudioToolbox and
+VideoToolbox. Windows/Linux keep the existing software video policy.
 
-## Local result (2026-09-15)
+External libraries are built statically from source:
 
-The recipe-6 macOS ARM64 pair passed two clean builds with byte-identical executables. This host’s separate qualification app passed original-hash verification, ad-hoc signing, bundled media tests and native tests, then launched successfully. Missing/damaged bundle tests passed with a usable external runtime on PATH. macOS executables remain in Contents/MacOS while spec/build/source/signature records and notices are sealed in Contents/Resources/FFmpeg; Core validates the explicit metadata location without fallback.
+| Library | Pin | License |
+| --- | --- | --- |
+| x264 | `b35605ace3ddf7c1a5d67a2eb553f034aef41d55` | GPL-2.0-or-later |
+| x265 | 4.2 | GPL-2.0-or-later |
+| LAME | 3.100 | LGPL-2.0-or-later |
+| zlib | 1.3.1 | Zlib |
 
-These checks ran on macOS 26.7 and do not qualify macOS 13. Windows/Linux and Intel macOS source-runtime CI, exact minimum-OS execution and full production-release acceptance remain incomplete. Windows/Linux GPU qualification is not required. The qualification branch was pushed with explicit user authorization on 2026-09-15 (2026-09-16 UTC), and [build-only CI](https://github.com/tlolabs/encap/actions/runs/35064906664) was dispatched. That run failed overall; the per-target results and exact upstream runtime failure are recorded in the normal-build audit. It does not establish source-runtime or minimum-OS qualification. No release was published.
+The resulting FFmpeg programs report GPL v2 or later; nonfree components are
+forbidden. EnCAP itself remains GPL-3.0-only and invokes the programs as separate
+processes. Official guidance: https://ffmpeg.org/legal.html. Each application
+package contains the exact corresponding source archives (including libraries),
+licenses, recipe, configure arguments, toolchain record, source verification and
+pre/post-ad-hoc-sign binary hashes under `FFmpeg/`. This also makes source
+available wherever the application artifact is distributed. No source patches
+are applied. OS system frameworks/libc remain system dependencies; Windows
+compiler runtimes must be linked statically. The linkage audit rejects codec or
+compiler DLL dependencies and Homebrew dylibs.
 
-See Core’s `docs/ffmpeg/software-qualification.md` and exact-binary evidence ledger. Local logs are `build/managed-package.log`, `build/managed-bundle-tests.log` and `build/managed-launch.json`.
+## Building and upgrading
+
+Prerequisites: Bash, C/C++ compiler, make, CMake, NASM, pkg-config, jq, curl, tar,
+xz, Perl (`shasum`), GnuPG/gpgv. On macOS use Xcode and deployment target 13.0.
+Windows uses MSYS2 CLANG64 or CLANGARM64 on the corresponding native runner.
+Linux uses the Ubuntu 24.04 toolchain, separately on x64 and ARM64. Package
+managers supply build tools only, never the distributed FFmpeg runtime.
+
+```
+bash script/prepare_ffmpeg.sh macos arm64
+bash script/prepare_ffmpeg.sh linux x86_64
+bash script/prepare_ffmpeg.sh windows arm64
+```
+
+The native compiler architecture must match. `aarch64` is accepted as `arm64`.
+stdout contains only the built prefix; progress goes to stderr. The legacy
+`build_ffmpeg.sh`, `build_ffmpeg_linux.sh` and `fetch_ffmpeg.sh` entrypoints all
+call this same source recipe. `script/ffmpeg/stage.sh` verifies and packages the
+result. Normal macOS development and packaging use `script/build_and_run.sh`;
+Windows/Linux normal native CI uses the same source action and staging function.
+There is no qualification-only application, runtime feature or Core staging path.
+
+To upgrade, select a stable release from the official download page, verify its
+signature using the published fingerprint, update the version/tag/URL/SHA-256 in
+`dependencies.json`, and run the clean six-target workflow. Change library pins
+and hashes explicitly when updating them. Configuration changes belong in the
+record or versioned recipe, never undocumented local compiler flags. Existing
+project schemas, encoder identifiers and Core API calls are unchanged.
+
+## Reproducibility and cache boundaries
+
+`SOURCE_DATE_EPOCH=1789699562`, `TZ=UTC`, `LC_ALL=C`, `ZERO_AR_DATE=1`, prefix maps,
+no debug information, no host-native CPU tuning, no Windows PE timestamps, and
+static external libraries reduce variability. Build logs record every effective
+configure/CMake command. Per-target `toolchain.txt` records compiler, C++ compiler,
+assembler, linker, archiver, make, CMake, pkg-config, SDK/Xcode/deployment target,
+runner image and MSYS2 package versions (or Linux libc/binutils/compiler package
+versions). Build jobs are native for all six targets.
+
+The exact artifact cache key hashes target, dependency record, public key, all
+runtime scripts and toolchain record. There are no prefix/partial restore keys.
+Cached files are verified by SHA-256 before reuse and again before staging.
+Recipe, FFmpeg, library, compiler, SDK and runner-image changes invalidate it.
+Build directories and downloads are not restored as compiled artifacts.
+
+`workflow_dispatch: clean_ffmpeg=true` bypasses restore/save and deletes the
+matching build/install trees. Locally use a third argument `clean`. Downloads
+may be reused only after their pinned checksum is checked; signatures are
+verified anew. Compare the two `runtime.json` binary digests from clean builds
+for repeatability. Bit identity across different toolchains/SDKs, OS patch levels
+or signing identities is not promised. The cache keys deliberately distinguish
+these environments, and signing hashes are separate from source-build hashes.
+
+## Discovery and acceptance
+
+The release engine resolves `ffmpeg[.exe]` and `ffprobe[.exe]` beside its own
+executable. Metadata is `Contents/Resources/FFmpeg/runtime.json` on macOS and
+`FFmpeg/runtime.json` beside the engine in portable packages. It requires the
+expected version/target/schema and SHA-256 of both binaries before any mode can
+use them. Missing/malformed/corrupt pairs fail with a reinstall message. Release
+engines ignore FFmpeg environment overrides and never search PATH. Debug builds
+allow an explicit absolute *pair* for process fixtures; an invalid override fails.
+Optional transcription helper discovery retains its existing behavior.
+
+`script/ffmpeg/qualify.sh <normal packaged engine>` runs real Audio, Transcript
+and Video operations, project save/reopen/recovery, codec/filter inventories,
+actual FFmpeg cancellation, real Whisper inference using the normal Transcript
+backend, and missing/corrupt tool/manifest tests while a working pair is on PATH.
+The engine subprocesses have PATH empty for media tests. The speech fixture comes
+from the pinned whisper.cpp checkout; the Base English test model is hash-checked
+and stored only in the ignored qualification cache, not shipped in the app.
+These tests use the release engine packaged with the ordinary native UI.
+Native app build/model checks remain in the workflow. Signing is ad-hoc only on
+macOS; no Developer ID/notarization credential is needed.
+
+For actual run results and limitations, see [verification results](ffmpeg-runtime-readiness.md).

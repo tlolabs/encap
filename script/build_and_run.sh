@@ -21,7 +21,6 @@ esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$ROOT_DIR/script/check_no_python.sh"
-bash "$ROOT_DIR/script/check_core_runtime.sh" >/dev/null
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -165,7 +164,7 @@ if [[ ! -s "$APP_RESOURCES/AppIcon.icns" ]]; then
 fi
 cp "$RUST_ENGINE" "$ENGINE_BINARY"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
-cp "$ROOT_DIR/../AVID Core/LICENSE" "$APP_RESOURCES/AVID_CORE_LICENSE.txt"
+cp "$ROOT_DIR/runtime/AVID_CORE_LICENSE.txt" "$APP_RESOURCES/AVID_CORE_LICENSE.txt"
 "$FFMPEG_INSTALL_DIR/bin/ffmpeg" -buildconf > "$APP_RESOURCES/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
 ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
 chmod +x "$APP_BINARY" "$ENGINE_BINARY"
@@ -174,10 +173,7 @@ chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$INFO_PLIST"
 
-for TOOL_NAME in ffmpeg ffprobe; do
-  cp "$FFMPEG_INSTALL_DIR/bin/$TOOL_NAME" "$APP_MACOS/$TOOL_NAME"
-  chmod +x "$APP_MACOS/$TOOL_NAME"
-done
+bash "$ROOT_DIR/script/ffmpeg/stage.sh" "$FFMPEG_INSTALL_DIR" "$APP_MACOS" "$APP_RESOURCES/FFmpeg"
 cp "$WHISPER_CPP_DIR/build/bin/whisper-cli" "$APP_MACOS/whisper-cli"
 cp "$APPLE_TRANSCRIBER" "$APP_MACOS/apple-transcriber"
 cp "$APPLE_AAC_INFO" "$APP_MACOS/apple-aac-info"
@@ -188,6 +184,7 @@ if [[ "$NATIVE_ARCH" == "arm64" && -x "$WHISPERKIT_TRANSCRIBER" ]]; then
 fi
 
 for SIGNABLE in "$APP_MACOS"/*; do
+  case "$(basename "$SIGNABLE")" in ffmpeg|ffprobe) continue;; esac
   codesign --force --sign - "$SIGNABLE"
 done
 codesign --force --sign - "$APP_FRAMEWORKS/Sparkle.framework"
@@ -206,12 +203,10 @@ fi
 file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 
 # Exercise the actual bundled pair through all modes before launch or packaging.
-ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_FFMPEG="$APP_MACOS/ffmpeg" ENCAP_FFPROBE="$APP_MACOS/ffprobe" \
-  "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test media_contract -- --ignored
+bash "$ROOT_DIR/script/ffmpeg/qualify.sh" "$ENGINE_BINARY"
 ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_REQUIRE_CLONING=1 \
   "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
 DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift"
-PATH="$APP_MACOS:$PATH" "$CARGO" test --manifest-path "$ROOT_DIR/../AVID Core/Cargo.toml" --locked --test ffmpeg -- --ignored
 ! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
 
 open_app() {

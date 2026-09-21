@@ -13,7 +13,7 @@ fn shell(path: &Path, body: &str) {
 }
 
 #[test]
-fn host_resolution_invalid_override_fallback_and_pair_identity() {
+fn host_resolution_rejects_invalid_overrides_and_path_fallback() {
     let root = tempfile::tempdir().unwrap();
     shell(&root.path().join("ffmpeg"),"if [ \"$1\" = -version ]; then echo 'ffmpeg version 9.0.1'; else echo ' V..... libx264 software'; fi");
     shell(&root.path().join("ffprobe"), "echo 'ffprobe version 9.0.1'");
@@ -28,22 +28,10 @@ fn host_resolution_invalid_override_fallback_and_pair_identity() {
     };
     for command in ["validate-tools", "video-capabilities"] {
         let out = invoke(command);
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stdout)
-        );
-        let _: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(!out.status.success());
+        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(error["error"].as_str().unwrap().contains("bundled"));
     }
-    shell(&root.path().join("ffprobe"), "echo 'ffprobe version 8.0'");
-    let out = invoke("video-capabilities");
-    assert!(!out.status.success());
-    let error: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert!(error["error"].as_str().unwrap().contains("matching"));
-    assert!(!error["error"]
-        .as_str()
-        .unwrap()
-        .contains(root.path().to_str().unwrap()));
 }
 
 #[test]

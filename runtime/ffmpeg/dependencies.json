@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "recipe": 1,
+  "source_date_epoch": 1789699562,
+  "ffmpeg": {
+    "version": "9.0.2",
+    "tag": "n9.0.2",
+    "repository": "https://git.ffmpeg.org/ffmpeg.git",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "signature": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz.asc",
+    "signer": "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+    "license": "GPL-2.0-or-later (enabled GPL codecs); no nonfree components"
+  },
+  "libraries": [
+    {
+      "name": "x264", "version": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+      "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9",
+      "license": "GPL-2.0-or-later"
+    },
+    {
+      "name": "x265", "version": "4.2",
+      "url": "https://download.videolan.org/pub/videolan/x265/x265_4.2.tar.gz",
+      "sha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "license": "GPL-2.0-or-later"
+    },
+    {
+      "name": "lame", "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "license": "LGPL-2.0-or-later"
+    },
+    {
+      "name": "zlib", "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "license": "Zlib"
+    }
+  ],
+  "configure": [
+    "--disable-autodetect", "--disable-shared", "--enable-static",
+    "--enable-gpl", "--disable-nonfree", "--enable-libx264", "--enable-libx265",
+    "--enable-libmp3lame", "--enable-zlib", "--enable-ffmpeg", "--enable-ffprobe",
+    "--disable-ffplay", "--disable-doc", "--disable-debug"
+  ],
+  "platform_configure": {
+    "macos": ["--enable-audiotoolbox", "--enable-videotoolbox"],
+    "windows": ["--target-os=mingw32"],
+    "linux": []
+  },
+  "targets": ["macos-arm64", "macos-x86_64", "windows-x86_64", "windows-arm64", "linux-x86_64", "linux-arm64"],
+  "build_recipe": "script/ffmpeg/build.sh",
+  "toolchain_record": "toolchain.txt in each runtime; SHA-256 included in cache key",
+  "policy": "All default internal codecs, formats and filters retained. Static external codecs, x265 8-bit (EnCAP exports yuv420p). Apple system AudioToolbox/VideoToolbox on macOS. Software video encoding on Windows/Linux."
+}

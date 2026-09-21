@@ -9,9 +9,6 @@ license.workspace = true
 name = "encap-engine"
 path = "src/main.rs"
 
-[features]
-managed-runtime = ["encap-ffmpeg/managed-runtime"]
-
 [dependencies]
 avid-core.workspace = true
 clap.workspace = true

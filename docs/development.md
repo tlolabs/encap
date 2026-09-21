@@ -276,26 +276,19 @@ an uncredentialed local build.
 
 ## Common media distribution gate
 
-`script/fetch_ffmpeg.sh` records the same immutable upstream platform artifacts as ATIV.
-The existing `build_ffmpeg.sh` and `build_ffmpeg_linux.sh` entrypoints now prepare that
-one pair in the existing install directory, replacing the previous recipe. The shared
-crate bundles nothing. No Video-specific binary directory or runtime fallback exists.
-Cache reuse checks both the recipe hash and executable hashes.
+EnCAP owns the verified source recipe, dependency pins and package metadata.
+See [FFmpeg source runtime](ffmpeg-source-runtime.md) for six-target native builds,
+clean qualification, cache invalidation, provenance, licensing and upgrades.
+There is no dependency on a sibling Core checkout or Core runtime publication.
+The pinned Cargo dependency and its Video API remain unchanged.
 
-Before launch/package, macOS runs the three `encap-engine` media contract tests and
-three shared real-media tests against the staged pair. Windows x64 and Linux CI use
-the same gates; Windows ARM64 still needs native execution. The tests cover codec/filter
-requirements plus MP3/AAC/AudioToolbox, Transcript PCM conversion, and Video rendering.
-Platform capability advertisement alone is not approval for a release artifact.
-
-Run the explicit tests with the actual distribution paths:
+Run all media/discovery checks on the normal packaged release engine:
 
 ```sh
-ENCAP_FFMPEG="$PWD/dist/EnCap.app/Contents/MacOS/ffmpeg" \
-ENCAP_FFPROBE="$PWD/dist/EnCap.app/Contents/MacOS/ffprobe" \
-ENCAP_TEST_ENGINE="$PWD/dist/EnCap.app/Contents/MacOS/encap-engine" \
-cargo test --locked -p encap-engine --test media_contract -- --ignored
+bash script/ffmpeg/qualify.sh "$PWD/dist/EnCap.app/Contents/MacOS/encap-engine"
 ```
 
-`ENCAP_TEST_ENGINE` and optional `ENCAP_REFERENCE_ENGINE` are test-harness inputs only.
-See [migration evidence and remaining gates](migration-avid-core.md).
+This requires the normal packaged Whisper helper and pinned whisper.cpp checkout
+for its speech fixture; the harness fetches and verifies a test model separately.
+Release discovery ignores FFmpeg overrides and PATH; debug fixture overrides must
+specify both absolute tool paths. Application project and file formats are unchanged.
