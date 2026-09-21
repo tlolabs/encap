@@ -43,10 +43,10 @@ impl Harness {
     #[track_caller]
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
         let mut command = Command::new(&self.engine);
-        command
-            .args(args)
-            .env("RUST_LOG", "encap_video=debug")
-            .env("ENCAP_RECOVERY_PATH", self.root.path().join("recovery.json"));
+        command.args(args).env("RUST_LOG", "encap_video=debug").env(
+            "ENCAP_RECOVERY_PATH",
+            self.root.path().join("recovery.json"),
+        );
         if std::env::var_os("ENCAP_TEST_PACKAGED").is_some() {
             command
                 .env_remove("ENCAP_FFMPEG")
