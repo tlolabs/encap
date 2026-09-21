@@ -40,12 +40,13 @@ impl Harness {
     fn ff(&self, args: &[&OsStr]) -> Vec<u8> {
         self.tool(&self.ffmpeg, args).stdout
     }
+    #[track_caller]
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
         let mut command = Command::new(&self.engine);
-        command.args(args).env(
-            "ENCAP_RECOVERY_PATH",
-            self.root.path().join("recovery.json"),
-        );
+        command
+            .args(args)
+            .env("RUST_LOG", "encap_video=debug")
+            .env("ENCAP_RECOVERY_PATH", self.root.path().join("recovery.json"));
         if std::env::var_os("ENCAP_TEST_PACKAGED").is_some() {
             command
                 .env_remove("ENCAP_FFMPEG")
@@ -60,8 +61,9 @@ impl Harness {
         assert_eq!(
             out.status.success(),
             ok,
-            "{}",
-            String::from_utf8_lossy(&out.stdout)
+            "engine {args:?}: stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
         );
         let value: Value = serde_json::from_slice(&out.stdout).expect("exactly one JSON value");
         assert_eq!(value.get("error").is_none(), ok);
