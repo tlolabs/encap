@@ -132,6 +132,14 @@ set -x
 cmake -S "$WORK/x265/source" -B "$WORK/x265-build" "${CMAKE_ARGS[@]}" -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_LIBNUMA=OFF -DENABLE_PIC=ON -DENABLE_ASSEMBLY=ON -DENABLE_SVE=OFF -DENABLE_SVE2=OFF >&2
 cmake --build "$WORK/x265-build" -j "$JOBS" >&2
 cmake --install "$WORK/x265-build" >&2
+if [[ "$PLATFORM" == windows ]]; then
+  # Validate the static codec's public C ABI before FFmpeg configure. This
+  # emits ordinary compiler diagnostics only; no configure log is uploaded.
+  printf '#include <x265.h>\nint main(void) { return x265_api_get(8) ? 0 : 1; }\n' > "$WORK/x265-link.c"
+  $CC $CFLAGS $CPPFLAGS $(pkg-config --cflags --static x265) -c "$WORK/x265-link.c" -o "$WORK/x265-link.o" >&2
+  $CXX $LDFLAGS "$WORK/x265-link.o" $(pkg-config --libs --static x265) -o "$WORK/x265-link.exe" >&2
+  "$WORK/x265-link.exe" >&2
+fi
 OPTIONS=()
 while IFS= read -r option; do OPTIONS+=("$option"); done < <(jq -b -r --arg p "$PLATFORM" '.configure[], .platform_configure[$p][]' "$SPEC")
 OPTIONS+=("--prefix=$PREFIX" "--cc=$CC" "--cxx=$CXX" '--pkg-config-flags=--static' "--extra-cflags=$CFLAGS $CPPFLAGS" "--extra-ldflags=$LDFLAGS")
