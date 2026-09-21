@@ -500,6 +500,31 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
             }
         }
     }
+    // Preserve the portrait/60 fps/two-flip composition that previously exposed
+    // a Windows software-encode crash in the Core runtime candidate. Exercise it
+    // through the ordinary packaged EnCAP engine, without changing the graph.
+    project["video"]["export_settings"]["width"] = json!(90);
+    project["video"]["export_settings"]["height"] = json!(160);
+    project["video"]["export_settings"]["fps"] = json!(60);
+    let portrait = h.root.path().join("portrait60.mp4");
+    h.engine(
+        &[
+            s("export-video"),
+            h.write(&project).as_os_str(),
+            portrait.as_os_str(),
+        ],
+        true,
+    );
+    let probe = h.probe(&portrait);
+    let stream = probe["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["codec_type"] == "video")
+        .unwrap();
+    assert_eq!(stream["width"], 90);
+    assert_eq!(stream["height"], 160);
+    assert_eq!(stream["r_frame_rate"], "60/1");
     let output = h.root.path().join("old.mp4");
     fs::write(&output, b"old").unwrap();
     let source_bytes = fs::read(&source).unwrap();
