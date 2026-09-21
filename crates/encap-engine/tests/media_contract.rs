@@ -43,7 +43,7 @@ impl Harness {
     #[track_caller]
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
         let mut command = Command::new(&self.engine);
-        command.args(args).env("RUST_LOG", "encap_video=debug").env(
+        command.args(args).env(
             "ENCAP_RECOVERY_PATH",
             self.root.path().join("recovery.json"),
         );
@@ -509,69 +509,6 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
     project["video"]["export_settings"]["height"] = json!(160);
     project["video"]["export_settings"]["fps"] = json!(60);
     let portrait = h.root.path().join("portrait60.mp4");
-    #[cfg(target_os = "windows")]
-    {
-        // Isolated synthetic FFmpeg reproduction: never read application logs.
-        // Keep the ordinary engine assertion below as the acceptance gate.
-        let graph = "[0:v]hflip,vflip,split=2[bgsrc0][fgsrc0];[bgsrc0]scale=90:160:force_original_aspect_ratio=increase,crop=90:160,gblur=sigma=20[bg0];[fgsrc0]scale=90:90:force_original_aspect_ratio=decrease,pad=90:90:(ow-iw)/2:(oh-ih)/2[fg0];[bg0][fg0]overlay=(W-w)/2:(H-h)/2,trim=duration=1.000000,setpts=PTS-STARTPTS,format=yuv420p[v0];[1:a:0]atrim=duration=1.000000,aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[a0];[v0][a0]concat=n=1:v=1:a=1[outv][outa]";
-        for flags in ["default", "0", "-avx2", "-avx", "-sse4.1"] {
-            let mut command = Command::new(&h.ffmpeg);
-            if flags != "default" {
-                command.args(["-cpuflags", flags]);
-            }
-            let out = command
-                .args([
-                    "-nostdin",
-                    "-hide_banner",
-                    "-loglevel",
-                    "warning",
-                    "-y",
-                    "-loop",
-                    "1",
-                    "-framerate",
-                    "60",
-                    "-t",
-                    "1",
-                    "-i",
-                ])
-                .arg(&image)
-                .args(["-t", "1", "-i"])
-                .arg(&source)
-                .args([
-                    "-filter_complex",
-                    graph,
-                    "-map",
-                    "[outv]",
-                    "-map",
-                    "[outa]",
-                    "-c:v",
-                    "libx264",
-                    "-tune",
-                    "stillimage",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-r",
-                    "60",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-shortest",
-                    "-movflags",
-                    "+faststart",
-                    "-f",
-                    "mp4",
-                ])
-                .arg(h.root.path().join("synthetic-diagnostic.mp4"))
-                .output()
-                .unwrap();
-            eprintln!(
-                "Synthetic portrait cpuflags={flags}: status={} stderr={}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
-    }
     h.engine(
         &[
             s("export-video"),
