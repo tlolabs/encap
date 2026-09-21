@@ -91,6 +91,11 @@ fn main() -> Result<()> {
     let base_url = format!("{REPOSITORY_URL}/releases/download/{}", args.tag);
     let specs = [
         (
+            "linux-arm64",
+            format!("EnCap-{}-linux-arm64.tar.gz", args.version),
+            "tar.gz",
+        ),
+        (
             "linux-x64",
             format!("EnCap-{}-linux-x64.tar.gz", args.version),
             "tar.gz",

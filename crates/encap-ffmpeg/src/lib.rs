@@ -288,6 +288,64 @@ pub fn os(value: impl AsRef<OsStr>) -> OsString {
 mod tests {
     use super::*;
 
+    #[test]
+    fn package_manifest_requires_complete_matching_pair() {
+        use sha2::{Digest, Sha256};
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = directory.path().join("ffmpeg-runtime");
+        fs::create_dir(&metadata).unwrap();
+        let suffix = if cfg!(windows) { ".exe" } else { "" };
+        let ffmpeg = directory.path().join(format!("ffmpeg{suffix}"));
+        let ffprobe = directory.path().join(format!("ffprobe{suffix}"));
+        fs::write(&ffmpeg, b"source-built-ffmpeg").unwrap();
+        fs::write(&ffprobe, b"source-built-ffprobe").unwrap();
+        let deps: serde_json::Value =
+            serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependencies.json"))
+                .unwrap();
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(windows) {
+            "windows"
+        } else {
+            "linux"
+        };
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "x86_64"
+        };
+        let good = serde_json::json!({
+            "schema": 1, "version": deps["ffmpeg"]["version"], "target": format!("{platform}-{arch}"),
+            "binaries": {
+                "ffmpeg": format!("{:x}", Sha256::digest(b"source-built-ffmpeg")),
+                "ffprobe": format!("{:x}", Sha256::digest(b"source-built-ffprobe"))
+            }
+        });
+        let path = metadata.join("runtime.json");
+        fs::write(&path, serde_json::to_vec(&good).unwrap()).unwrap();
+        let pair = packaged_tools(directory.path()).unwrap();
+        assert_eq!(pair.ffmpeg(), ffmpeg);
+        assert_eq!(pair.ffprobe(), ffprobe);
+        for (field, value) in [
+            ("schema", serde_json::json!(2)),
+            ("version", serde_json::json!("0.0.0")),
+            ("target", serde_json::json!("wrong-arch")),
+        ] {
+            let mut bad = good.clone();
+            bad[field] = value;
+            fs::write(&path, serde_json::to_vec(&bad).unwrap()).unwrap();
+            assert!(packaged_tools(directory.path()).is_err());
+        }
+        fs::write(&path, serde_json::to_vec(&good).unwrap()).unwrap();
+        fs::write(&ffprobe, b"different ffprobe").unwrap();
+        assert!(packaged_tools(directory.path()).is_err());
+        fs::remove_file(&ffprobe).unwrap();
+        assert!(packaged_tools(directory.path()).is_err());
+        fs::write(&ffprobe, b"source-built-ffprobe").unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(packaged_tools(directory.path()).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn cancellation_terminates_the_owned_child() {
