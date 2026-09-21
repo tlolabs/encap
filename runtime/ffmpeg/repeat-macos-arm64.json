@@ -1,0 +1,13 @@
+{
+  "target": "macos-arm64",
+  "cache_key": "119c50796ba506db07a7139e2b4ebe5b76e514abe7376b8d51aa5ed8831f22bd",
+  "first": {
+    "ffmpeg": "9f97d0d7c87b66910918590b1870b9b083e95578ded3e7e690139b3fecec83a4",
+    "ffprobe": "e3ff45ca9b3d12730302f7b691e27d6b2a881842553fd750632b5b1c7bf2dbd5"
+  },
+  "second": {
+    "ffmpeg": "9f97d0d7c87b66910918590b1870b9b083e95578ded3e7e690139b3fecec83a4",
+    "ffprobe": "e3ff45ca9b3d12730302f7b691e27d6b2a881842553fd750632b5b1c7bf2dbd5"
+  },
+  "identical": true
+}
