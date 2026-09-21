@@ -117,7 +117,10 @@ matching build/install trees. Locally use a third argument `clean`. Downloads
 may be reused only after their pinned checksum is checked; signatures are
 verified anew. Compare the two `runtime.json` binary digests from clean builds
 for repeatability. The recorded macOS ARM64 clean-repeat check is in
-`runtime/ffmpeg/repeat-macos-arm64.json`; both binaries matched byte for byte.
+`runtime/ffmpeg/repeat-macos-arm64.json`. In the final-recipe repeat, ffprobe
+matched byte for byte; ffmpeg differed in its Mach-O UUID/signature metadata,
+with the executable payload unchanged. An earlier repeat matched both binaries,
+so that result is not treated as a general guarantee of Apple linker bit identity.
 Bit identity across different toolchains/SDKs, OS patch levels
 or signing identities is not promised. The cache keys deliberately distinguish
 these environments, and signing hashes are separate from source-build hashes.

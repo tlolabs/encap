@@ -1,13 +1,20 @@
 {
   "target": "macos-arm64",
-  "cache_key": "119c50796ba506db07a7139e2b4ebe5b76e514abe7376b8d51aa5ed8831f22bd",
+  "source_commit": "a1af987feca9b071680894c271f36e984c10092f",
+  "recipe_sha256": "28b54e1b699ead8d52b45b37a49f8cc22406d7a25f40d3d2796eb648cb350306",
+  "cache_key": "87167c596d7d09a274500ba1e6c1027cc394adb669f460fe8f50d59b67790407",
   "first": {
-    "ffmpeg": "9f97d0d7c87b66910918590b1870b9b083e95578ded3e7e690139b3fecec83a4",
-    "ffprobe": "e3ff45ca9b3d12730302f7b691e27d6b2a881842553fd750632b5b1c7bf2dbd5"
+    "ffmpeg": "fffc0a6ecc10ce317218c29fced1f00b0b0488ed960713da5fc49c52914d4483",
+    "ffprobe": "4ed11546da336aa02bb6f9ead3ada19c5827ddfdb0bb0e81426ba8fce669c088"
   },
   "second": {
-    "ffmpeg": "9f97d0d7c87b66910918590b1870b9b083e95578ded3e7e690139b3fecec83a4",
-    "ffprobe": "e3ff45ca9b3d12730302f7b691e27d6b2a881842553fd750632b5b1c7bf2dbd5"
+    "ffmpeg": "0f6c40a8a888cd337c41a755b16f9af5f3f1b457b8a5cc74aaf6c3f0461afcd3",
+    "ffprobe": "4ed11546da336aa02bb6f9ead3ada19c5827ddfdb0bb0e81426ba8fce669c088"
   },
-  "identical": true
+  "identical": false,
+  "per_binary_identical": {
+    "ffmpeg": false,
+    "ffprobe": true
+  },
+  "notes": "ffprobe is byte-identical. ffmpeg UUID differs; comparison of the first build staged in the app with the second source binary finds identical payload outside Mach-O UUID and code-signing metadata. Earlier recipe 67046b7 yielded two identical pairs, but general bit identity is not claimed."
 }
