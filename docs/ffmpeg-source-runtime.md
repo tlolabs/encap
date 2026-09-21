@@ -94,18 +94,19 @@ project schemas, encoder identifiers and Core API calls are unchanged.
 ## Reproducibility and cache boundaries
 
 `SOURCE_DATE_EPOCH=1789699562`, `TZ=UTC`, `LC_ALL=C`, `ZERO_AR_DATE=1`, prefix maps,
-no debug information, no host-native CPU tuning, no Windows PE timestamps, and
+no debug information, no host-native CPU tuning, no Windows PE timestamps, Apple linker reproducible mode, and
 static external libraries reduce variability. Build logs record every effective
 configure/CMake command. Per-target `toolchain.txt` records compiler, C++ compiler,
 assembler, linker, archiver, make, CMake, pkg-config, SDK/Xcode/deployment target,
 runner image and MSYS2 package versions (or Linux libc/binutils/compiler package
 versions). Build jobs are native for all six targets.
 
-The exact artifact cache key hashes target, dependency record, public key, all
-runtime scripts and toolchain record. There are no prefix/partial restore keys.
+The exact artifact cache key hashes target, dependency record, public key, the
+source build script and toolchain record. There are no prefix/partial restore keys.
 Cached files are verified by SHA-256 before reuse and again before staging.
 Recipe, FFmpeg, library, compiler, SDK and runner-image changes invalidate it.
 Build directories and downloads are not restored as compiled artifacts.
+Packaging/test-only edits do not force recompilation of unchanged FFmpeg sources.
 
 `workflow_dispatch: clean_ffmpeg=true` bypasses restore/save and deletes the
 matching build/install trees. Locally use a third argument `clean`. Downloads

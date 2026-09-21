@@ -43,7 +43,7 @@ trap 'rm -f "$TOOLCHAIN"' EXIT
   if [[ "$PLATFORM" == linux ]]; then ldd --version; dpkg-query -W libc6 libc6-dev binutils gcc g++ 2>/dev/null || true; fi
 } > "$TOOLCHAIN"
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
-RECIPE="$(cat "$SPEC" "$ROOT"/runtime/ffmpeg/release-key.asc "$ROOT"/script/ffmpeg/*.sh | shasum -a 256 | awk '{print $1}')"
+RECIPE="$(cat "$SPEC" "$ROOT"/runtime/ffmpeg/release-key.asc "$ROOT/script/ffmpeg/build.sh" | shasum -a 256 | awk '{print $1}')"
 KEY="$(printf '%s\n%s\n' "$RECIPE" "$(sha "$TOOLCHAIN")" | shasum -a 256 | awk '{print $1}')"
 PREFIX="$WORK_ROOT/$TARGET-$KEY"
 if [[ "$ACTION" == key ]]; then printf '%s\n' "$TARGET-$KEY"; exit; fi
@@ -60,7 +60,7 @@ rm -rf "$WORK" "$PREFIX"
 mkdir -p "$WORK" "$PREFIX/bin" "$PREFIX/licenses" "$PREFIX/sources" "$PREFIX/recipe"
 cp "$TOOLCHAIN" "$PREFIX/toolchain.txt"
 cp "$SPEC" "$PREFIX/dependencies.json"
-cp "$ROOT"/script/ffmpeg/*.sh "$PREFIX/recipe/"
+cp "$ROOT/script/ffmpeg/build.sh" "$PREFIX/recipe/"
 cp "$ROOT/runtime/ffmpeg/release-key.asc" "$PREFIX/recipe/"
 DOWNLOADS="$ROOT/.build-tools/encap-source-downloads"
 mkdir -p "$DOWNLOADS"
@@ -109,6 +109,8 @@ export CFLAGS="-O2 -g0 -ffile-prefix-map=$WORK=/encap-build -fdebug-prefix-map=$
 export CXXFLAGS="$CFLAGS"
 export CPPFLAGS="-I$DEPS/include"
 export LDFLAGS="-L$DEPS/lib"
+# Apple ld reproducible mode stabilizes content-derived UUIDs and signatures.
+if [[ "$PLATFORM" == macos ]]; then export LDFLAGS="$LDFLAGS -Wl,-reproducible"; fi
 export PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
 JOBS="${ENCAP_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 CMAKE_ARGS=(-G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
@@ -130,6 +132,8 @@ cmake --install "$WORK/x265-build" >&2
 OPTIONS=()
 while IFS= read -r option; do OPTIONS+=("$option"); done < <(jq -b -r --arg p "$PLATFORM" '.configure[], .platform_configure[$p][]' "$SPEC")
 OPTIONS+=("--prefix=$PREFIX" "--cc=$CC" "--cxx=$CXX" '--pkg-config-flags=--static' "--extra-cflags=$CFLAGS $CPPFLAGS" "--extra-ldflags=$LDFLAGS")
+# x265 is C++; let the native C++ driver supply its matching runtime libraries.
+if [[ "$PLATFORM" == windows ]]; then OPTIONS+=("--ld=$CXX"); fi
 if [[ "$PLATFORM" == macos || "$PLATFORM" == windows ]]; then OPTIONS+=(--extra-libs=-lc++); else OPTIONS+=(--extra-libs=-lstdc++); fi
 printf '%s\n' "${OPTIONS[@]}" > "$PREFIX/configure.txt"
 (cd "$WORK/ffmpeg"; ./configure "${OPTIONS[@]}"; make -j"$JOBS"; make install) >&2

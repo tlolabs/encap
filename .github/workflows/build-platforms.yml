@@ -7,6 +7,11 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
+      platform:
+        description: Native platform group to qualify
+        type: choice
+        options: [all, macos, windows, linux]
+        default: all
       clean_ffmpeg:
         description: Rebuild FFmpeg from source without the artifact cache
         type: boolean
@@ -52,6 +57,7 @@ jobs:
         run: cargo build --package encap-engine --locked
 
   macos:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos'
     defaults:
       run:
         working-directory: EnCAP
@@ -112,6 +118,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'windows'
     defaults:
       run:
         working-directory: EnCAP
@@ -248,6 +255,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'linux'
     defaults:
       run:
         working-directory: EnCAP
