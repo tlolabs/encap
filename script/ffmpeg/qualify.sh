@@ -13,9 +13,12 @@ export ENCAP_TEST_SPEECH="$ROOT/.whisper-cpp/samples/jfk.wav"
 mkdir -p "$ENCAP_MODEL_DIR"
 MODEL="$ENCAP_MODEL_DIR/ggml-base.en.bin"
 MODEL_SHA=a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002
-if [[ ! -f "$MODEL" ]] || [[ "$(shasum -a 256 "$MODEL" | awk '{print $1}')" != "$MODEL_SHA" ]]; then
+sha() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'
+}
+if [[ ! -f "$MODEL" ]] || [[ "$(sha "$MODEL")" != "$MODEL_SHA" ]]; then
   curl --fail --location --retry 3 'https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-base.en.bin?download=true' -o "$MODEL.part"
-  echo "$MODEL_SHA  $MODEL.part" | shasum -a 256 -c -
+  [[ "$(sha "$MODEL.part")" == "$MODEL_SHA" ]] || { echo "Test model checksum mismatch" >&2; exit 1; }
   mv "$MODEL.part" "$MODEL"
 fi
 cargo test --manifest-path "$ROOT/Cargo.toml" --locked -p encap-engine --test media_contract -- --ignored
