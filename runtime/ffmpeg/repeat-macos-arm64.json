@@ -16,5 +16,49 @@
     "ffmpeg": false,
     "ffprobe": true
   },
-  "notes": "ffprobe is byte-identical. ffmpeg UUID differs; comparison of the first build staged in the app with the second source binary finds identical payload outside Mach-O UUID and code-signing metadata. Earlier recipe 67046b7 yielded two identical pairs, but general bit identity is not claimed."
+  "notes": "ffprobe is byte-identical. ffmpeg UUID differs; comparison of the first build staged in the app with the second source binary finds identical payload outside Mach-O UUID and code-signing metadata. Earlier recipe 67046b7 yielded two identical pairs, but general bit identity is not claimed.",
+  "additional_runs": [
+    {
+      "source_commit": "d25bec9",
+      "recipe_sha256": "3ed8a30165e278faf92ccdb1763a75a7c9c62a2a694826ef0055c5c871e39ea5",
+      "cache_key": "5afe361eb8aabba3a5c92805961072130d51820ca746e5a41be0fdee035618d2",
+      "first": {
+        "ffmpeg": "f5f532ffe947845e98381dfed28c7b9b21ca3892f06244207ec85dbbb6c350ce",
+        "ffprobe": "8a1d315d1d573a31692f48334b760922a853fc6f03a59240d25ed8bb8cc04b95"
+      },
+      "second": {
+        "ffmpeg": "f5f532ffe947845e98381dfed28c7b9b21ca3892f06244207ec85dbbb6c350ce",
+        "ffprobe": "71f9c01dd5d9b308b3cd8cffb79595bf3217503f3b7c4234802469373ae6187e"
+      },
+      "identical": false,
+      "per_binary_identical": {
+        "ffmpeg": true,
+        "ffprobe": false
+      },
+      "notes": "Hash-only comparison: ffmpeg matches, ffprobe differs. The first binary was not retained for a byte-level comparison; the exact differing bytes in this additional run are unverified."
+    },
+    {
+      "source_commit": "de8c184",
+      "recipe_sha256": "6e9f8c11040aeaf18d294a52f725be17bcd01326783e88e790610123ef8de3d1",
+      "cache_key": "3f2a65b7910df9071aef25eb68630b6a1dd0507ef25f64325e4cbbaa677f0503",
+      "first": {
+        "ffmpeg": "5dcfc9bf6a6f67b80ed7ffad92a4df21638b3069f2f0e4dc0220375fd4c98494",
+        "ffprobe": "fcbf44c5f71e9e812a7f5c45bea57a7cf1ec36ea94168628d150e177ec20dc55"
+      },
+      "second": {
+        "ffmpeg": "5dcfc9bf6a6f67b80ed7ffad92a4df21638b3069f2f0e4dc0220375fd4c98494",
+        "ffprobe": "4ba5cd59cc04d483393fbcf4f22a2c0d82f0346e8eab7a70f016c917cfd2a5a0"
+      },
+      "identical": false,
+      "per_binary_identical": {
+        "ffmpeg": true,
+        "ffprobe": false
+      },
+      "notes": "ffmpeg is byte-identical. ffprobe has exactly 48 differing bytes, all inside LC_UUID (16) and LC_CODE_SIGNATURE (32); executable payload outside those metadata regions is identical.",
+      "ffprobe_differences_by_region": {
+        "LC_UUID": 16,
+        "LC_CODE_SIGNATURE": 32
+      }
+    }
+  ]
 }
