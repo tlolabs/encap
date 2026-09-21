@@ -19,7 +19,7 @@ or AVID Core runtime artifact is required.
 
 Every package includes corresponding source archives, license texts, build
 recipe, source verification, configuration and toolchain information in its
-FFmpeg metadata folder (`Contents/Resources/FFmpeg` on macOS, `FFmpeg` beside
+FFmpeg metadata folder (`Contents/Resources/FFmpeg` on macOS, `ffmpeg-runtime` beside
 the engine elsewhere). The versioned dependency record is
 `runtime/ffmpeg/dependencies.json`. See `docs/ffmpeg-source-runtime.md`.
 

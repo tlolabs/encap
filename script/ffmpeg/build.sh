@@ -9,7 +9,7 @@ ACTION="${3:-build}"
 case "$ARCH" in aarch64) ARCH=arm64;; amd64|x64) ARCH=x86_64;; esac
 TARGET="$PLATFORM-$ARCH"
 jq -e --arg target "$TARGET" '.targets | index($target) != null' "$SPEC" >/dev/null
-for tool in jq curl tar gpg gpgv cmake make pkg-config; do command -v "$tool" >/dev/null; done
+for tool in jq curl tar git gpg gpgv cmake make pkg-config; do command -v "$tool" >/dev/null; done
 export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch "$SPEC")" ZERO_AR_DATE=1
 export CC="${CC:-cc}" CXX="${CXX:-c++}"
 # User flags would be hidden recipe inputs. Reject them rather than reuse a wrong cache.
@@ -34,7 +34,7 @@ trap 'rm -f "$TOOLCHAIN"' EXIT
 {
   echo "target=$TARGET"; echo "epoch=$SOURCE_DATE_EPOCH"; echo "deployment=${MACOSX_DEPLOYMENT_TARGET:-}"
   echo "image=${ImageOS:-local}/${ImageVersion:-local}"; uname -srm
-  for tool in "$CC" "$CXX" cmake make nasm pkg-config ar ld; do
+  for tool in "$CC" "$CXX" cmake make nasm pkg-config git ar ld; do
     command -v "$tool" || true
     "$tool" --version 2>&1 || true
   done
@@ -83,10 +83,23 @@ gpgv --homedir "$WORK/gnupg" --keyring "$WORK/gnupg/release-key.gpg" --status-fd
 grep -F "[GNUPG:] VALIDSIG $(jq -r .ffmpeg.signer "$SPEC") " "$PREFIX/source-verification.txt" >/dev/null
 extract "$FFSOURCE" ffmpeg
 [[ "$(cat "$WORK/ffmpeg/VERSION")" == "$(jq -r .ffmpeg.version "$SPEC")" ]]
-while IFS=$'\t' read -r name url digest; do
-  archive="$(fetch "$url" "$digest")"
+while IFS=$'\t' read -r name url digest acquisition revision; do
+  if [[ "$acquisition" == git-archive ]]; then
+    archive="$DOWNLOADS/$name-$revision.tar"
+    if [[ ! -f "$archive" ]] || [[ "$(sha "$archive")" != "$digest" ]]; then
+      git init --bare "$WORK/$name.git" >&2
+      git -C "$WORK/$name.git" fetch --depth=1 "$url" "$revision" >&2
+      [[ "$(git -C "$WORK/$name.git" rev-parse FETCH_HEAD)" == "$revision" ]]
+      git -C "$WORK/$name.git" archive --format=tar --prefix="$name/" "$revision" > "$archive.part"
+      [[ "$(sha "$archive.part")" == "$digest" ]] || { echo "$name Git archive checksum mismatch" >&2; exit 1; }
+      mv "$archive.part" "$archive"
+    fi
+    cp "$archive" "$PREFIX/sources/"
+  else
+    archive="$(fetch "$url" "$digest")"
+  fi
   extract "$archive" "$name"
-done < <(jq -r '.libraries[] | [.name,.url,.sha256] | @tsv' "$SPEC")
+done < <(jq -r '.libraries[] | [.name,.url,.sha256,(.acquisition // "archive"),.version] | @tsv' "$SPEC")
 DEPS="$WORK/deps"
 mkdir -p "$DEPS"
 # Whitespace in a checkout path must not become CFLAGS word splitting.

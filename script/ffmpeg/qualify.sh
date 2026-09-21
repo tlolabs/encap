@@ -22,15 +22,15 @@ cargo test --manifest-path "$ROOT/Cargo.toml" --locked -p encap-engine --test me
 # Production discovery must also ignore poisoned explicit environment inputs.
 ENCAP_FFMPEG=/missing ENCAP_FFPROBE=/missing "$ENGINE" validate-tools
 TEMP="$(mktemp -d)"; trap 'rm -rf "$TEMP"' EXIT
-mkdir -p "$TEMP/FFmpeg"
+mkdir -p "$TEMP/ffmpeg-runtime"
 cp "$ENGINE" "$TEMP/encap-engine$SUFFIX"
-META="$BIN/FFmpeg"; [[ -d "$META" ]] || META="$BIN/../Resources/FFmpeg"
-cp "$META/runtime.json" "$TEMP/FFmpeg/"
+META="$BIN/ffmpeg-runtime"; [[ -d "$META" ]] || META="$BIN/../Resources/FFmpeg"
+cp "$META/runtime.json" "$TEMP/ffmpeg-runtime/"
 cp "$BIN/ffmpeg$SUFFIX" "$BIN/ffprobe$SUFFIX" "$TEMP/"
 # Release engine relocation uses the same ordinary portable layout as Windows/Linux.
 for damaged in ffmpeg ffprobe manifest; do
   case "$damaged" in
-    manifest) victim="$TEMP/FFmpeg/runtime.json";;
+    manifest) victim="$TEMP/ffmpeg-runtime/runtime.json";;
     *) victim="$TEMP/$damaged$SUFFIX";;
   esac
   mv "$victim" "$victim.saved"

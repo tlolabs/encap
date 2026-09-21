@@ -16,7 +16,10 @@ Every source build also verifies the official detached OpenPGP signature with
 `FCF986EA15E6E293A5644F10B4322F04D67658D8`. This fingerprint is published at
 https://www.ffmpeg.org/download.html#release_9.0. No keyserver or user trustdb is
 used. Every external-library source URL, revision and SHA-256 is pinned in the
-same record. Downloads fail closed, use HTTPS, and are verified before extraction.
+same record. x264 is fetched by exact commit from its official Git repository;
+a deterministic uncompressed `git archive` must also match its pinned SHA-256.
+This avoids the archive web endpoint's bot challenge on hosted runners.
+Downloads fail closed, use HTTPS, and are verified before extraction.
 No FFmpeg prebuilt executable, system FFmpeg or Core runtime asset is downloaded.
 
 ## Configuration and licensing
@@ -116,7 +119,7 @@ these environments, and signing hashes are separate from source-build hashes.
 
 The release engine resolves `ffmpeg[.exe]` and `ffprobe[.exe]` beside its own
 executable. Metadata is `Contents/Resources/FFmpeg/runtime.json` on macOS and
-`FFmpeg/runtime.json` beside the engine in portable packages. It requires the
+`ffmpeg-runtime/runtime.json` beside the engine in portable packages. It requires the
 expected version/target/schema and SHA-256 of both binaries before any mode can
 use them. Missing/malformed/corrupt pairs fail with a reinstall message. Release
 engines ignore FFmpeg environment overrides and never search PATH. Debug builds

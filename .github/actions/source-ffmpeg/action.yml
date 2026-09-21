@@ -23,7 +23,10 @@ runs:
       env:
         BUILD_PLATFORM: ${{ inputs.platform }}
         BUILD_ARCH: ${{ inputs.arch }}
-      run: echo "key=$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" key)" >> "$GITHUB_OUTPUT"
+      run: |
+        set -euo pipefail
+        key="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" key)"
+        echo "key=$key" >> "$GITHUB_OUTPUT"
     - name: Restore exact source build
       if: inputs.clean != 'true'
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -38,6 +41,7 @@ runs:
         BUILD_ARCH: ${{ inputs.arch }}
         CLEAN_BUILD: ${{ inputs.clean }}
       run: |
+        set -euo pipefail
         action=build
         if [[ "$CLEAN_BUILD" == true ]]; then action=clean; fi
         prefix="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" "$action")"
