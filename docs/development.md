@@ -21,12 +21,10 @@ media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavi
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
 Cargo consumes AVID Core `v0.2.1` from Git, pinned to immutable revision
-`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. Packaging helpers and Core tests still use
-a clean sibling `AVID Core` checkout at that same revision; verify it with
-`bash script/check_core_runtime.sh`. Update Cargo, its lockfile,
-`runtime/core-revision` and workflow checkout pins together after compatibility
-tests. Never copy Core media implementation. This source pin does not qualify or
-publish the runtime: see [normal-runtime migration](normal-runtime-migration.md).
+`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. No sibling source checkout is
+required. EnCAP builds, verifies and packages its own FFmpeg/ffprobe runtime.
+The Core API and revision remain unchanged in this migration.
+
 
 ## Engine protocol
 
@@ -59,7 +57,7 @@ record for manual recovery, and never overwrites a known-good project file.
 
 This is the canonical build-and-launch path used by the Codex Run action. It
 builds the Xcode SwiftUI target for the host architecture, the release Rust
-engine, the approved common FFmpeg/ffprobe 9.0.1 artifact, whisper.cpp, Apple
+engine, the source-built FFmpeg/ffprobe 9.0.2 pair, whisper.cpp, Apple
 helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 

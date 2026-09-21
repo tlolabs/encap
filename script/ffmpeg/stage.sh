@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage the identical source-built payload in a normal app or a relocated test copy.
 set -euo pipefail
-PREFIX="${1:?source build prefix}"; BIN="${2:?package executable directory}"; META="${3:-$BIN/FFmpeg}"
+PREFIX="${1:?source build prefix}"; BIN="${2:?package executable directory}"; META="${3:-$BIN/ffmpeg-runtime}"
 (cd "$PREFIX" && shasum -a 256 -c files.sha256 >&2)
 mkdir -p "$BIN" "$META"
 SUFFIX=; [[ "$(jq -r .target "$PREFIX/runtime.json")" != windows-* ]] || SUFFIX=.exe

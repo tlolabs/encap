@@ -234,7 +234,7 @@ printf complete > "$last"
         let request = render_request(&project, &output).unwrap();
         export_with_renderer(&project, &request, &renderer, &CancellationToken::default()).unwrap();
         let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        let graph = include_str!("../../../../AVID Core/tests/fixtures/encap-graph.txt").trim();
+        let graph = include_str!("../tests/fixtures/encap-graph.txt").trim();
         assert!(arguments.lines().any(|line| line == graph));
         assert!(arguments.contains("h264_videotoolbox\n"));
         assert!(arguments.contains("libx264\n"));

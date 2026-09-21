@@ -158,7 +158,7 @@ jobs:
           msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            make diffutils perl curl tar xz gnupg
+            make diffutils perl curl tar xz gnupg git
             ${{ matrix.package_prefix }}-clang
             ${{ matrix.package_prefix }}-cmake
             ${{ matrix.package_prefix }}-nasm

@@ -201,7 +201,7 @@ fn packaged_tools(directory: &Path) -> Result<MediaTools> {
     {
         directory.join("../Resources/FFmpeg")
     } else {
-        directory.join("FFmpeg")
+        directory.join("ffmpeg-runtime")
     };
     let manifest: RuntimeManifest = serde_json::from_slice(
         &fs::read(metadata.join("runtime.json")).map_err(|_| runtime_error())?,
