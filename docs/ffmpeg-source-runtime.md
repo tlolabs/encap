@@ -61,7 +61,10 @@ available wherever the application artifact is distributed. No source patches
 are applied. On Windows the recipe normalizes x265 4.2 generated pkg-config
 metadata: its CMake code incorrectly prefixes an existing `-l:libunwind.a`
 entry with another `-l`. The recipe corrects `-l-l:` to `-l:` and verifies a
-tiny statically linked x265 C ABI program before configuring FFmpeg. OS system frameworks/libc remain system dependencies; Windows
+tiny statically linked x265 C ABI program before configuring FFmpeg. CMake
+receives the explicit native processor. Windows ARM64 uses x265 portable code
+(`ENABLE_ASSEMBLY=OFF`), matching the [MSYS2 x265 build policy](https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-x265/PKGBUILD);
+HEVC features remain enabled, while FFmpeg/x264 keep their own optimizations. OS system frameworks/libc remain system dependencies; Windows
 compiler runtimes must be linked statically. Windows uses the matching C++
 linker and disables libc++ DLL-import annotations for static x265 compilation,
 as required by the [libc++ build configuration](https://github.com/llvm/llvm-project/blob/main/libcxx/CMakeLists.txt).
