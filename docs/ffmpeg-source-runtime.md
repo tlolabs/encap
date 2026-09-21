@@ -2,7 +2,8 @@
 
 EnCAP builds and distributes FFmpeg and ffprobe **9.0.2**, official tag `n9.0.2`,
 from https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz. The official download page
-identified this as the latest stable release on 2026-09-20 (released 2026-09-18).
+identified this as the latest stable release on 2026-09-20 and was rechecked on
+2026-09-21 (released 2026-09-18).
 `runtime/ffmpeg/dependencies.json` is the dependency/update-check record and the
 single version/configuration source. AVID Core remains the immutable Rust Video
 implementation at its existing API/revision; it supplies no runtime assets.
@@ -65,18 +66,24 @@ tiny statically linked x265 C ABI program before configuring FFmpeg. CMake
 receives the explicit native processor. Windows ARM64 uses x265 portable code
 (`ENABLE_ASSEMBLY=OFF`), matching the [MSYS2 x265 build policy](https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-x265/PKGBUILD);
 HEVC features remain enabled, while FFmpeg/x264 keep their own optimizations. OS system frameworks/libc remain system dependencies; Windows
-compiler runtimes must be linked statically. Windows uses the matching C++
-linker and disables libc++ DLL-import annotations for static x265 compilation,
+compiler runtimes must be linked statically. Windows uses the matching C++ linker. The Clang ARM64 build disables libc++
+DLL-import annotations for static x265 compilation,
 as required by the [libc++ build configuration](https://github.com/llvm/llvm-project/blob/main/libcxx/CMakeLists.txt).
 Installed compiler-runtime license texts are included alongside codec licenses;
-these cover libc++, libc++abi, libunwind, compiler-rt and MinGW runtime code. The linkage audit rejects codec or
+these cover GCC/libstdc++ (including the GCC Runtime Library Exception),
+libc++, libc++abi, libunwind, compiler-rt and MinGW runtime code as applicable. The linkage audit rejects codec or
 compiler DLL dependencies and Homebrew dylibs.
 
 ## Building and upgrading
 
 Prerequisites: Bash, C/C++ compiler, make, CMake, NASM, pkg-config, jq, curl, tar,
 xz, Perl (`shasum`), GnuPG/gpgv. On macOS use Xcode and deployment target 13.0.
-Windows uses MSYS2 CLANG64 or CLANGARM64 on the corresponding native runner.
+Windows x64 uses MSYS2 UCRT64 with GCC/G++; Windows ARM64 uses CLANGARM64
+with Clang/Clang++. Both run on native builders. The Windows x64 Clang 22.1.8
+build reproduced an access violation in a 90x160 Gaussian blur operation, even
+with scalar CPU flags. GCC/UCRT passes the same nine isolated pipeline probes
+without disabling any codec, filter or optimization. This selects a tested
+compiler/runtime combination; it does not claim a proven compiler root cause.
 Linux uses the Ubuntu 24.04 toolchain, separately on x64 and ARM64. Package
 managers supply build tools only, never the distributed FFmpeg runtime.
 
@@ -123,15 +130,20 @@ matching build/install trees. Locally use a third argument `clean`. Downloads
 may be reused only after their pinned checksum is checked; signatures are
 verified anew. Compare the two `runtime.json` binary digests from clean builds
 for repeatability. The recorded macOS ARM64 clean-repeat check is in
-`runtime/ffmpeg/repeat-macos-arm64.json`. In the final-recipe repeat, ffprobe
-matched byte for byte; ffmpeg differed in its Mach-O UUID/signature metadata,
-with the executable payload unchanged. An earlier repeat matched both binaries,
+`runtime/ffmpeg/repeat-macos-arm64.json`. In the `a1af987` repeat, ffprobe matched byte for byte; ffmpeg differed in
+Mach-O UUID/signature metadata, with executable payload unchanged. The later
+`d25bec9` repeat matched ffmpeg but differed for ffprobe; that hash-only comparison
+did not retain the first binary to identify its differing bytes. The current
+`de8c184` repeat matches ffmpeg exactly; ffprobe differs only in 16 UUID bytes
+and 32 code-signature bytes, with every other byte matching. An earlier repeat matched both binaries,
 so that result is not treated as a general guarantee of Apple linker bit identity.
 Bit identity across different toolchains/SDKs, OS patch levels
 checkout paths or signing identities is not promised. Configure provenance
 retains absolute build/install paths even though compiler prefix maps normalize
-source paths. The cache keys deliberately distinguish
-these environments, and signing hashes are separate from source-build hashes.
+source paths. Cache keys distinguish source, toolchain, SDK and runner-image
+changes; checkout paths are not a separate cache key input because the static
+runtime is relocatable. Recorded configure strings can still differ across
+checkout paths. Signing hashes are separate from source-build hashes.
 
 ## Discovery and acceptance
 
@@ -156,3 +168,9 @@ Native app build/model checks remain in the workflow. Signing is ad-hoc only on
 macOS; no Developer ID/notarization credential is needed.
 
 For actual run results and limitations, see [verification results](ffmpeg-runtime-readiness.md).
+
+The manual `runtime-probes` workflow option isolates portrait filtering/encoding
+using fresh synthetic inputs and the same source recipe. It prints each command's
+exit status and fails if any probe fails; it does not read application logs or
+replace normal packaged-engine acceptance. Windows package jobs run these probes
+immediately after source compilation to detect runtime failures early.

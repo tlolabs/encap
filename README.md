@@ -101,7 +101,9 @@ Cargo fetches AVID Core `v0.2.1` at immutable commit
 `eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. No sibling checkout or Core runtime
 asset is required. EnCAP builds its own FFmpeg/ffprobe 9.0.2 from authenticated
 official source; see the [source runtime recipe](docs/ffmpeg-source-runtime.md)
-for toolchain prerequisites, licensing, caching and upgrades.
+for toolchain prerequisites, licensing, caching and upgrades. The
+[six-target verification record](docs/ffmpeg-runtime-readiness.md) tracks completed
+checks and remaining qualification blockers.
 Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
