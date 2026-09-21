@@ -113,6 +113,7 @@ export LDFLAGS="-L$DEPS/lib"
 if [[ "$PLATFORM" == macos ]]; then export LDFLAGS="$LDFLAGS -Wl,-reproducible"; fi
 export PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
 JOBS="${ENCAP_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
+X265_ASSEMBLY=ON
 CMAKE_ARGS=(-G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
 if [[ "$PLATFORM" == macos ]]; then CMAKE_ARGS+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0); fi
 if [[ "$PLATFORM" == windows ]]; then
@@ -120,7 +121,10 @@ if [[ "$PLATFORM" == windows ]]; then
   # disable those annotations, including when building the x265 archive.
   export CXXFLAGS="$CXXFLAGS -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS"
   export LDFLAGS="$LDFLAGS -static -Wl,--no-insert-timestamp"
-  CMAKE_ARGS+=(-DCMAKE_SYSTEM_NAME=Windows)
+  CMAKE_ARGS+=(-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_PROCESSOR="$ARCH")
+  # Match the native MSYS2 x265 ARM64 portability policy; all codec features
+  # remain enabled. FFmpeg and x264 retain their own architecture optimizations.
+  if [[ "$ARCH" == arm64 ]]; then X265_ASSEMBLY=OFF; fi
 fi
 # Record every effective command, including compiler flags, with the artifacts.
 exec 3>&2
@@ -129,7 +133,7 @@ set -x
 (cd "$WORK/zlib"; ./configure --static --prefix="$DEPS"; make -j"$JOBS"; make install) >&2
 (cd "$WORK/lame"; ./configure --prefix="$DEPS" --disable-shared --enable-static --disable-frontend --disable-decoder --disable-dependency-tracking; make -j"$JOBS"; make install) >&2
 (cd "$WORK/x264"; ./configure --prefix="$DEPS" --enable-static --enable-pic --disable-cli --disable-opencl; make -j"$JOBS"; make install) >&2
-cmake -S "$WORK/x265/source" -B "$WORK/x265-build" "${CMAKE_ARGS[@]}" -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_LIBNUMA=OFF -DENABLE_PIC=ON -DENABLE_ASSEMBLY=ON -DENABLE_SVE=OFF -DENABLE_SVE2=OFF >&2
+cmake -S "$WORK/x265/source" -B "$WORK/x265-build" "${CMAKE_ARGS[@]}" -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_LIBNUMA=OFF -DENABLE_PIC=ON -DENABLE_ASSEMBLY="$X265_ASSEMBLY" -DENABLE_SVE=OFF -DENABLE_SVE2=OFF >&2
 cmake --build "$WORK/x265-build" -j "$JOBS" >&2
 cmake --install "$WORK/x265-build" >&2
 if [[ "$PLATFORM" == windows ]]; then
