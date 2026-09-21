@@ -8,9 +8,9 @@ ARCH="${2:?arm64 or x86_64}"
 ACTION="${3:-build}"
 case "$ARCH" in aarch64) ARCH=arm64;; amd64|x64) ARCH=x86_64;; esac
 TARGET="$PLATFORM-$ARCH"
-jq -e --arg target "$TARGET" '.targets | index($target) != null' "$SPEC" >/dev/null
+jq -b -e --arg target "$TARGET" '.targets | index($target) != null' "$SPEC" >/dev/null
 for tool in jq curl tar git gpg gpgv cmake make pkg-config; do command -v "$tool" >/dev/null; done
-export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH="$(jq -r .source_date_epoch "$SPEC")" ZERO_AR_DATE=1
+export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH="$(jq -b -r .source_date_epoch "$SPEC")" ZERO_AR_DATE=1
 export CC="${CC:-cc}" CXX="${CXX:-c++}"
 # User flags would be hidden recipe inputs. Reject them rather than reuse a wrong cache.
 for flag in CFLAGS CXXFLAGS CPPFLAGS LDFLAGS; do
@@ -75,14 +75,14 @@ fetch() {
   printf '%s\n' "$dest"
 }
 extract() { mkdir -p "$WORK/$2"; tar -xf "$1" -C "$WORK/$2" --strip-components=1; }
-FFSOURCE="$(fetch "$(jq -r .ffmpeg.url "$SPEC")" "$(jq -r .ffmpeg.sha256 "$SPEC")")"
-curl --fail --location --retry 3 --proto '=https' "$(jq -r .ffmpeg.signature "$SPEC")" -o "$PREFIX/sources/${FFSOURCE##*/}.asc" >&2
+FFSOURCE="$(fetch "$(jq -b -r .ffmpeg.url "$SPEC")" "$(jq -b -r .ffmpeg.sha256 "$SPEC")")"
+curl --fail --location --retry 3 --proto '=https' "$(jq -b -r .ffmpeg.signature "$SPEC")" -o "$PREFIX/sources/${FFSOURCE##*/}.asc" >&2
 mkdir "$WORK/gnupg"; chmod 700 "$WORK/gnupg"
 gpg --batch --yes --dearmor --output "$WORK/gnupg/release-key.gpg" "$ROOT/runtime/ffmpeg/release-key.asc"
 gpgv --homedir "$WORK/gnupg" --keyring "$WORK/gnupg/release-key.gpg" --status-fd 1 "$PREFIX/sources/${FFSOURCE##*/}.asc" "$FFSOURCE" > "$PREFIX/source-verification.txt" 2>&1
-grep -F "[GNUPG:] VALIDSIG $(jq -r .ffmpeg.signer "$SPEC") " "$PREFIX/source-verification.txt" >/dev/null
+grep -F "[GNUPG:] VALIDSIG $(jq -b -r .ffmpeg.signer "$SPEC") " "$PREFIX/source-verification.txt" >/dev/null
 extract "$FFSOURCE" ffmpeg
-[[ "$(cat "$WORK/ffmpeg/VERSION")" == "$(jq -r .ffmpeg.version "$SPEC")" ]]
+[[ "$(cat "$WORK/ffmpeg/VERSION")" == "$(jq -b -r .ffmpeg.version "$SPEC")" ]]
 while IFS=$'\t' read -r name url digest acquisition revision; do
   if [[ "$acquisition" == git-archive ]]; then
     archive="$DOWNLOADS/$name-$revision.tar"
@@ -99,7 +99,7 @@ while IFS=$'\t' read -r name url digest acquisition revision; do
     archive="$(fetch "$url" "$digest")"
   fi
   extract "$archive" "$name"
-done < <(jq -r '.libraries[] | [.name,.url,.sha256,(.acquisition // "archive"),.version] | @tsv' "$SPEC")
+done < <(jq -b -r '.libraries[] | [.name,.url,.sha256,(.acquisition // "archive"),.version] | @tsv' "$SPEC")
 DEPS="$WORK/deps"
 mkdir -p "$DEPS"
 # Whitespace in a checkout path must not become CFLAGS word splitting.
@@ -128,7 +128,7 @@ cmake -S "$WORK/x265/source" -B "$WORK/x265-build" "${CMAKE_ARGS[@]}" -DENABLE_S
 cmake --build "$WORK/x265-build" -j "$JOBS" >&2
 cmake --install "$WORK/x265-build" >&2
 OPTIONS=()
-while IFS= read -r option; do OPTIONS+=("$option"); done < <(jq -r --arg p "$PLATFORM" '.configure[], .platform_configure[$p][]' "$SPEC")
+while IFS= read -r option; do OPTIONS+=("$option"); done < <(jq -b -r --arg p "$PLATFORM" '.configure[], .platform_configure[$p][]' "$SPEC")
 OPTIONS+=("--prefix=$PREFIX" "--cc=$CC" "--cxx=$CXX" '--pkg-config-flags=--static' "--extra-cflags=$CFLAGS $CPPFLAGS" "--extra-ldflags=$LDFLAGS")
 if [[ "$PLATFORM" == macos || "$PLATFORM" == windows ]]; then OPTIONS+=(--extra-libs=-lc++); else OPTIONS+=(--extra-libs=-lstdc++); fi
 printf '%s\n' "${OPTIONS[@]}" > "$PREFIX/configure.txt"
@@ -137,7 +137,7 @@ set +x
 SUFFIX=; [[ "$PLATFORM" != windows ]] || SUFFIX=.exe
 for tool in ffmpeg ffprobe; do
   "$PREFIX/bin/$tool$SUFFIX" -version > "$PREFIX/$tool-version.txt" 2>&1
-  grep -F "$tool version $(jq -r .ffmpeg.version "$SPEC")" "$PREFIX/$tool-version.txt" >/dev/null
+  grep -F "$tool version $(jq -b -r .ffmpeg.version "$SPEC")" "$PREFIX/$tool-version.txt" >/dev/null
   case "$PLATFORM" in
     macos) otool -L "$PREFIX/bin/$tool" > "$PREFIX/$tool-linkage.txt";;
     linux) ldd "$PREFIX/bin/$tool" > "$PREFIX/$tool-linkage.txt";;
@@ -150,7 +150,7 @@ for name in ffmpeg x264 x265 lame zlib; do
   find "$WORK/$name" -maxdepth 1 -type f \( -iname '*copying*' -o -iname '*license*' -o -name README \) -exec cp {} "$PREFIX/licenses/$name/" \;
 done
 cp "$WORK/ffmpeg/ffbuild/config.log" "$PREFIX/config.log"
-jq -n --slurpfile deps "$SPEC" --arg target "$TARGET" --arg key "$KEY" --arg recipe "$RECIPE" --arg ffmpeg "$(sha "$PREFIX/bin/ffmpeg$SUFFIX")" --arg ffprobe "$(sha "$PREFIX/bin/ffprobe$SUFFIX")" \
+jq -b -n --slurpfile deps "$SPEC" --arg target "$TARGET" --arg key "$KEY" --arg recipe "$RECIPE" --arg ffmpeg "$(sha "$PREFIX/bin/ffmpeg$SUFFIX")" --arg ffprobe "$(sha "$PREFIX/bin/ffprobe$SUFFIX")" \
   '{schema:1,version:$deps[0].ffmpeg.version,target:$target,cache_key:$key,recipe_sha256:$recipe,dependencies:$deps[0],binaries:{ffmpeg:$ffmpeg,ffprobe:$ffprobe}}' > "$PREFIX/runtime.json"
 # Corresponding source travels with the runtime; not merely links to upstream.
 # Include all evidence except the checksum file itself in cache integrity checks.
