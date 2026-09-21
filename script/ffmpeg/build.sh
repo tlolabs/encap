@@ -19,7 +19,12 @@ done
 case "$PLATFORM" in
   macos) [[ "$(uname -s)" == Darwin ]]; export MACOSX_DEPLOYMENT_TARGET=13.0 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}";;
   linux) [[ "$(uname -s)" == Linux ]];;
-  windows) [[ "${MSYSTEM:-}" == CLANG64 || "${MSYSTEM:-}" == CLANGARM64 ]]; export CC=clang CXX=clang++;;
+  windows)
+    case "${MSYSTEM:-}" in
+      UCRT64) export CC=gcc CXX=g++;;
+      CLANG64|CLANGARM64) export CC=clang CXX=clang++;;
+      *) echo 'Use native MSYS2 UCRT64 (x64) or CLANGARM64 (ARM64)' >&2; exit 1;;
+    esac;;
 esac
 NATIVE="$($CC -dumpmachine)"
 case "$ARCH:$NATIVE" in
@@ -119,7 +124,9 @@ if [[ "$PLATFORM" == macos ]]; then CMAKE_ARGS+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=1
 if [[ "$PLATFORM" == windows ]]; then
   # libc++ headers default to DLL imports on Windows. Static consumers must
   # disable those annotations, including when building the x265 archive.
-  export CXXFLAGS="$CXXFLAGS -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS"
+  if [[ "$CXX" == clang++ ]]; then
+    export CXXFLAGS="$CXXFLAGS -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS"
+  fi
   export LDFLAGS="$LDFLAGS -static -Wl,--no-insert-timestamp"
   CMAKE_ARGS+=(-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_PROCESSOR="$ARCH")
   # Match the native MSYS2 x265 ARM64 portability policy; all codec features
@@ -154,7 +161,7 @@ while IFS= read -r option; do OPTIONS+=("$option"); done < <(jq -b -r --arg p "$
 OPTIONS+=("--prefix=$PREFIX" "--cc=$CC" "--cxx=$CXX" '--pkg-config-flags=--static' "--extra-cflags=$CFLAGS $CPPFLAGS" "--extra-ldflags=$LDFLAGS")
 # x265 is C++; let the native C++ driver supply its matching runtime libraries.
 if [[ "$PLATFORM" == windows ]]; then OPTIONS+=("--ld=$CXX"); fi
-if [[ "$PLATFORM" == macos || "$PLATFORM" == windows ]]; then OPTIONS+=(--extra-libs=-lc++); else OPTIONS+=(--extra-libs=-lstdc++); fi
+if [[ "$PLATFORM" == macos || ( "$PLATFORM" == windows && "$CXX" == clang++ ) ]]; then OPTIONS+=(--extra-libs=-lc++); else OPTIONS+=(--extra-libs=-lstdc++); fi
 printf '%s\n' "${OPTIONS[@]}" > "$PREFIX/configure.txt"
 (cd "$WORK/ffmpeg"; ./configure "${OPTIONS[@]}"; make -j"$JOBS"; make install) >&2
 set +x
