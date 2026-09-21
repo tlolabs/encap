@@ -133,6 +133,11 @@ cmake -S "$WORK/x265/source" -B "$WORK/x265-build" "${CMAKE_ARGS[@]}" -DENABLE_S
 cmake --build "$WORK/x265-build" -j "$JOBS" >&2
 cmake --install "$WORK/x265-build" >&2
 if [[ "$PLATFORM" == windows ]]; then
+  # x265 4.2 prepends -l to CMake implicit libraries that already use the
+  # -l:filename spelling (LLVM's static libunwind). Repair generated metadata,
+  # not upstream source, and retain the static library selection.
+  sed 's/-l-l:/-l:/g' "$DEPS/lib/pkgconfig/x265.pc" > "$WORK/x265.pc"
+  mv "$WORK/x265.pc" "$DEPS/lib/pkgconfig/x265.pc"
   # Validate the static codec's public C ABI before FFmpeg configure. This
   # emits ordinary compiler diagnostics only; no configure log is uploaded.
   printf '#include <x265.h>\nint main(void) { return x265_api_get(8) ? 0 : 1; }\n' > "$WORK/x265-link.c"

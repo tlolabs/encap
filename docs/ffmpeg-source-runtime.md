@@ -58,7 +58,10 @@ package contains the exact corresponding source archives (including libraries),
 licenses, recipe, configure arguments, toolchain record, source verification and
 pre/post-ad-hoc-sign binary hashes under `FFmpeg/`. This also makes source
 available wherever the application artifact is distributed. No source patches
-are applied. OS system frameworks/libc remain system dependencies; Windows
+are applied. On Windows the recipe normalizes x265 4.2 generated pkg-config
+metadata: its CMake code incorrectly prefixes an existing `-l:libunwind.a`
+entry with another `-l`. The recipe corrects `-l-l:` to `-l:` and verifies a
+tiny statically linked x265 C ABI program before configuring FFmpeg. OS system frameworks/libc remain system dependencies; Windows
 compiler runtimes must be linked statically. Windows uses the matching C++
 linker and disables libc++ DLL-import annotations for static x265 compilation,
 as required by the [libc++ build configuration](https://github.com/llvm/llvm-project/blob/main/libcxx/CMakeLists.txt).
@@ -122,7 +125,9 @@ matched byte for byte; ffmpeg differed in its Mach-O UUID/signature metadata,
 with the executable payload unchanged. An earlier repeat matched both binaries,
 so that result is not treated as a general guarantee of Apple linker bit identity.
 Bit identity across different toolchains/SDKs, OS patch levels
-or signing identities is not promised. The cache keys deliberately distinguish
+checkout paths or signing identities is not promised. Configure provenance
+retains absolute build/install paths even though compiler prefix maps normalize
+source paths. The cache keys deliberately distinguish
 these environments, and signing hashes are separate from source-build hashes.
 
 ## Discovery and acceptance
