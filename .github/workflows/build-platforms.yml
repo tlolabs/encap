@@ -6,13 +6,17 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      clean_ffmpeg:
+        description: Rebuild FFmpeg from source without the artifact cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  FFMPEG_VERSION: "9.0.1"
   MACOSX_DEPLOYMENT_TARGET: "13.0"
   WHISPER_CPP_VERSION: "v1.9.1"
   WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
@@ -30,32 +34,14 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
-          path: AVID Core
-          persist-credentials: false
-      - name: Verify pinned Core helper checkout
-        shell: bash
-        run: bash script/check_core_runtime.sh
       - name: Enforce native-only source policy
         run: ./script/check_no_python.sh
-      - name: Test Core source pin enforcement
-        run: bash script/test_core_revision.sh
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Check formatting and lints
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Verify canonical media core
-        run: |
-          cargo fmt --manifest-path '../AVID Core/Cargo.toml' --all -- --check
-          cargo check --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets
-          cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets
-          cargo clippy --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets -- -D warnings
       - name: Test Rust workspace
         run: cargo test --workspace --locked
       - name: Check portable chapter timestamp rules
@@ -76,8 +62,10 @@ jobs:
         include:
           - runner: macos-15
             label: arm64
+            arch: arm64
           - runner: macos-15-intel
             label: intel
+            arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
@@ -85,16 +73,14 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install source-build prerequisites
+        run: brew install nasm cmake pkg-config gnupg jq
+      - name: Build EnCAP source FFmpeg
+        uses: ./EnCAP/.github/actions/source-ffmpeg
         with:
-          repository: tlolabs/avid-core
-          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
-          path: AVID Core
-          persist-credentials: false
-      - name: Verify pinned Core helper checkout
-        shell: bash
-        run: bash script/check_core_runtime.sh
+          platform: macos
+          arch: ${{ matrix.arch }}
+          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Configure update verification key
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
@@ -115,7 +101,7 @@ jobs:
       - name: Verify packaged media tools
         run: |
           dist/EnCap.app/Contents/MacOS/encap-engine validate-tools
-          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
           ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
           codesign --verify --deep --strict dist/EnCap.app
       - name: Upload package
@@ -135,51 +121,57 @@ jobs:
       matrix:
         include:
           - label: x64
+            runner: windows-2025
+            arch: x86_64
+            msystem: CLANG64
+            package_prefix: mingw-w64-clang-x86_64
             rust_target: x86_64-pc-windows-msvc
             runtime: win-x64
             platform: x64
             cmake_arch: x64
             cmake_toolset: ""
             pe_machine: "8664"
-            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-9.0.zip
-            ffmpeg_sha256: af971817c209439bb0374b5e623aca894042aa435426217d0dd5cfd15fb69d1b
           - label: arm64
+            runner: windows-11-arm
+            arch: arm64
+            msystem: CLANGARM64
+            package_prefix: mingw-w64-clang-aarch64
             rust_target: aarch64-pc-windows-msvc
             runtime: win-arm64
             platform: ARM64
             cmake_arch: ARM64
             cmake_toolset: ClangCL
             pe_machine: "AA64"
-            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-winarm64-gpl-9.0.zip
-            ffmpeg_sha256: 8961216fe1fea620fefe893ae8b00f215b3351c3baa7705f7855d61c968296b1
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
-          path: AVID Core
-          persist-credentials: false
-      - name: Verify pinned Core helper checkout
-        shell: bash
-        run: bash script/check_core_runtime.sh
       - name: Install Rust target
         shell: pwsh
         run: rustup target add '${{ matrix.rust_target }}'
-      - name: Download checksum-pinned FFmpeg 9.0.1 tools
-        shell: pwsh
-        run: |
-          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-11-13-20/${{ matrix.ffmpeg_archive }}'
-          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
-          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne '${{ matrix.ffmpeg_sha256 }}') { throw "FFmpeg archive SHA-256 mismatch: $actual" }
-          Expand-Archive ffmpeg.zip -DestinationPath .build-tools/ffmpeg
+      - name: Install native FFmpeg source toolchain
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            make diffutils perl curl tar xz gnupg
+            ${{ matrix.package_prefix }}-clang
+            ${{ matrix.package_prefix }}-cmake
+            ${{ matrix.package_prefix }}-nasm
+            ${{ matrix.package_prefix }}-pkgconf
+            ${{ matrix.package_prefix }}-jq
+            ${{ matrix.package_prefix }}-binutils
+      - name: Build EnCAP source FFmpeg
+        uses: ./EnCAP/.github/actions/source-ffmpeg
+        with:
+          platform: windows
+          arch: ${{ matrix.arch }}
+          shell: msys2 {0}
+          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Build local Whisper runtime
         shell: pwsh
         run: |
@@ -207,16 +199,13 @@ jobs:
         run: |
           $stage = Resolve-Path dist/staging/EnCap
           Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          $ffmpeg = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          $ffprobe = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffprobe.exe | Select-Object -First 1
-          if (!$ffmpeg -or !$ffprobe) { throw 'FFmpeg archive is incomplete' }
-          Copy-Item $ffmpeg.FullName "$stage/ffmpeg.exe"
-          Copy-Item $ffprobe.FullName "$stage/ffprobe.exe"
+          msys2 -c 'bash script/ffmpeg/stage.sh .build-tools/ffmpeg-runtime dist/staging/EnCap'
+          if ($LASTEXITCODE -ne 0) { throw 'Source FFmpeg staging failed' }
           $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
           if (!$whisper) { throw 'whisper-cli build is missing' }
           Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
-          Copy-Item '../AVID Core/LICENSE' "$stage/AVID_CORE_LICENSE.txt"
+          Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
           function Assert-PeMachine([string] $path, [uint16] $expected) {
             $bytes = [IO.File]::ReadAllBytes($path)
@@ -230,25 +219,27 @@ jobs:
           foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
-          if ('${{ matrix.label }}' -eq 'x64') {
+          & {
+            $env:ENCAP_TEST_PACKAGED = "1"
             $env:ENCAP_TEST_ENGINE = "$stage/encap-engine.exe"
             $env:ENCAP_FFMPEG = "$stage/ffmpeg.exe"
             $env:ENCAP_FFPROBE = "$stage/ffprobe.exe"
             $env:PATH = "$stage;" + $env:PATH
-            cargo test --locked -p encap-engine --test media_contract -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged media tests failed' }
             cargo test --locked -p encap-core
             if ($LASTEXITCODE -ne 0) { throw 'EnCAP persistence tests failed' }
             cargo test --locked -p encap-engine --test save_protocol -- --nocapture
             if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged save tests failed' }
-            cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'Shared packaged media tests failed' }
+            cargo test --locked -p encap-ffmpeg
+            if ($LASTEXITCODE -ne 0) { throw 'Media lifecycle tests failed' }
             & "$stage/encap-engine.exe" validate-tools
-            & "$stage/ffmpeg.exe" -hide_banner -version | Select-String "ffmpeg version $env:FFMPEG_VERSION"
+            & "$stage/ffmpeg.exe" -hide_banner -version
           }
           New-Item -ItemType Directory -Force dist/release | Out-Null
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
+      - name: Verify packaged runtime discovery and rejection
+        shell: bash
+        run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -260,34 +251,39 @@ jobs:
     defaults:
       run:
         working-directory: EnCAP
-    name: Linux x64
-    runs-on: ubuntu-latest
+    name: Linux ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            label: x64
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            label: arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
-          path: AVID Core
-          persist-credentials: false
-      - name: Verify pinned Core helper checkout
-        shell: bash
-        run: bash script/check_core_runtime.sh
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes autoconf automake btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libtool meson nasm ninja-build xz-utils zlib1g-dev
+          sudo apt-get install --yes autoconf automake btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libtool meson nasm ninja-build xz-utils pkg-config gnupg jq
       - name: Install pinned Rust toolchain
         run: rustup show
+      - name: Build EnCAP source FFmpeg
+        uses: ./EnCAP/.github/actions/source-ffmpeg
+        with:
+          platform: linux
+          arch: ${{ matrix.arch }}
+          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Build shared engine and bundled media tools
         run: |
           cargo build --package encap-engine --release --locked
-          ./script/build_ffmpeg_linux.sh
       - name: Build local Whisper runtime
         run: |
           git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
@@ -301,22 +297,21 @@ jobs:
           meson compile -C build/linux-native
           meson test -C build/linux-native --print-errorlogs
           meson install -C build/linux-native
-          ffmpeg_prefix="$(./script/build_ffmpeg_linux.sh | tail -n 1)"
+          ffmpeg_prefix="$PWD/.build-tools/ffmpeg-runtime"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
-          cp "$ffmpeg_prefix/bin/ffmpeg" "$prefix/bin/ffmpeg"
-          cp "$ffmpeg_prefix/bin/ffprobe" "$prefix/bin/ffprobe"
+          bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
           cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
-          cp '../AVID Core/LICENSE' "$prefix/AVID_CORE_LICENSE.txt"
+          cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
-          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" ENCAP_FFMPEG="$prefix/bin/ffmpeg" ENCAP_FFPROBE="$prefix/bin/ffprobe" cargo test --locked -p encap-engine --test media_contract -- --ignored
           ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
-          PATH="$prefix/bin:$PATH" cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
+          bash script/ffmpeg/qualify.sh "$prefix/bin/encap-engine"
+          cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
-          "$prefix/bin/ffmpeg" -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          "$prefix/bin/ffmpeg" -hide_banner -version
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-x64.tar.gz" EnCap
+          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-${{ matrix.label }}.tar.gz" EnCap
       - name: Verify Linux cloning and mode-switch latency on Btrfs
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
@@ -332,7 +327,7 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-linux-x64
+          name: EnCap-linux-${{ matrix.label }}
           path: EnCAP/dist/release/*.tar.gz
           if-no-files-found: error
 
@@ -352,16 +347,6 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db # v0.2.1
-          path: AVID Core
-          persist-credentials: false
-      - name: Verify pinned Core helper checkout
-        shell: bash
-        run: bash script/check_core_runtime.sh
       - name: Download packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
         with:

@@ -46,7 +46,7 @@ impl Harness {
             "ENCAP_RECOVERY_PATH",
             self.root.path().join("recovery.json"),
         );
-        if std::env::var_os("ENCAP_TEST_MANAGED").is_some() {
+        if std::env::var_os("ENCAP_TEST_PACKAGED").is_some() {
             command
                 .env_remove("ENCAP_FFMPEG")
                 .env_remove("ENCAP_FFPROBE")
@@ -104,10 +104,11 @@ fn release_pair_has_complete_audio_transcript_video_capabilities() {
     h.engine(&[s("video-capabilities")], true);
     let version = String::from_utf8(h.ff(&[s("-version")])).unwrap();
     let identifier = version.split_whitespace().nth(2).unwrap();
-    assert!(
-        identifier == "9.0.1"
-            || identifier.starts_with("9.0.1-")
-            || identifier.starts_with("n9.0.1-")
+    let dependencies: Value =
+        serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependencies.json")).unwrap();
+    assert_eq!(
+        identifier,
+        dependencies["ffmpeg"]["version"].as_str().unwrap()
     );
     for (option, required) in [
         (
@@ -562,4 +563,101 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
         .file_name()
         .to_string_lossy()
         .starts_with(".avid-")));
+}
+
+#[test]
+#[ignore = "requires the packaged source runtime"]
+fn real_ffmpeg_cancellation_reaps_child() {
+    use encap_ffmpeg::{os, run, CancellationToken};
+    use std::time::{Duration, Instant};
+    let h = Harness::new();
+    let cancellation = CancellationToken::default();
+    let worker_token = cancellation.clone();
+    let started = Instant::now();
+    let worker = std::thread::spawn(move || {
+        run(
+            &h.ffmpeg,
+            &[
+                os("-nostdin"),
+                os("-re"),
+                os("-f"),
+                os("lavfi"),
+                os("-i"),
+                os("sine=duration=30"),
+                os("-f"),
+                os("null"),
+                os("-"),
+            ],
+            &worker_token,
+            "Actual FFmpeg cancellation",
+        )
+    });
+    std::thread::sleep(Duration::from_millis(250));
+    cancellation.cancel();
+    assert!(worker
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .to_string()
+        .contains("cancelled safely"));
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+#[ignore = "requires packaged Whisper and the checksum-verified Base English model"]
+fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
+    let h = Harness::new();
+    let speech = PathBuf::from(
+        std::env::var_os("ENCAP_TEST_SPEECH").expect("pinned Whisper speech fixture"),
+    );
+    let input = h.root.path().join("speech");
+    fs::create_dir(&input).unwrap();
+    // Force the normal Transcript path to convert stereo 44.1 kHz input.
+    h.ff(&[
+        s("-v"),
+        s("error"),
+        s("-i"),
+        speech.as_os_str(),
+        s("-ar"),
+        s("44100"),
+        s("-ac"),
+        s("2"),
+        input.join("speech.wav").as_os_str(),
+    ]);
+    let mut project = h.engine(&[s("inspect"), input.as_os_str()], true);
+    let payload = h.write(&project);
+    let result = h.engine(
+        &[s("transcribe"), payload.as_os_str(), s("whisper-base-en")],
+        true,
+    );
+    let segments = result.as_array().expect("transcript segment array");
+    assert!(!segments.is_empty());
+    let text = segments
+        .iter()
+        .filter_map(|segment| segment["text"].as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    assert!(
+        text.contains("country"),
+        "unexpected speech recognition: {text}"
+    );
+    project["transcript_segments"] = result;
+    let payload = h.write(&project);
+    for format in ["txt", "srt"] {
+        let output = h.root.path().join(format!("speech.{format}"));
+        h.engine(
+            &[
+                s("export-transcript"),
+                payload.as_os_str(),
+                output.as_os_str(),
+                s(format),
+            ],
+            true,
+        );
+        assert!(fs::read_to_string(output)
+            .unwrap()
+            .to_lowercase()
+            .contains("country"));
+    }
 }

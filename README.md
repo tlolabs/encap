@@ -28,7 +28,7 @@ EnCap has three peer application modes over one shared project format:
 The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
 and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
-Video delegates media work to the canonical sibling `avid-core` crate. A small
+Video delegates media work to the pinned `avid-core` crate. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
 GTK 4/libadwaita applications thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
@@ -46,6 +46,7 @@ Video's timing, encoder selection, and composition rules are documented in
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
 | Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
+| Linux ARM64 | `EnCap-<version>-linux-arm64.tar.gz` | GTK 4 + libadwaita 1 |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
 to install media tools. macOS builds are currently ad-hoc signed while Developer
@@ -97,9 +98,11 @@ disabled.
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
 Cargo fetches AVID Core `v0.2.1` at immutable commit
-`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. For packaging helpers and Core tests,
-check out that same revision beside EnCAP as `AVID Core`; run
-`bash script/check_core_runtime.sh` to verify it. Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
+`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. No sibling checkout or Core runtime
+asset is required. EnCAP builds its own FFmpeg/ffprobe 9.0.2 from authenticated
+official source; see the [source runtime recipe](docs/ffmpeg-source-runtime.md)
+for toolchain prerequisites, licensing, caching and upgrades.
+Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
@@ -112,9 +115,9 @@ On macOS, the project run action and the shell use the same entrypoint:
 
 Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
 `--package`. The script builds the release Rust engine, native SwiftUI app and
-local transcription helpers, then bundles the current downloaded FFmpeg/ffprobe
-pair at `dist/EnCap.app`. The managed-runtime switchover remains blocked on
-Core publication; see the [integration report](docs/normal-runtime-migration.md).
+local transcription helpers, then bundles the source-built FFmpeg/ffprobe pair
+at `dist/EnCap.app`. All modes use this verified pair with no production PATH
+fallback. Clean qualification uses the same normal application and packaging path.
 
 Shared checks:
 
@@ -133,7 +136,7 @@ artifacts, and the engine protocol. The project format is specified in
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
 version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64 packages. Tagged
+and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64/ARM64 packages. Tagged
 runs additionally publish checksummed release assets and signed update metadata.
 macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release

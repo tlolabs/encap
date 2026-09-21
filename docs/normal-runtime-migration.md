@@ -1,3 +1,7 @@
+> Historical audit (2026-09-16). Its Core-runtime migration proposal is superseded
+> by EnCAP's independent [source runtime](ffmpeg-source-runtime.md). These older
+> candidate results and prerequisites do not describe current normal packaging.
+
 # Normal-build AVID Core migration
 
 ## Audit before structural changes — 2026-09-16

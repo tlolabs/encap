@@ -4,31 +4,37 @@ EnCap includes the `whisper.cpp` inference runtime but does not include any
 speech-recognition model weights. Optional OpenAI Whisper model weights are
 downloaded only at the user's request.
 
-## FFmpeg and FFprobe
+## FFmpeg, ffprobe, and codec libraries
 
-EnCap distributes one checksum-pinned FFmpeg/ffprobe 9.0.1 pair for all modes.
-The platform/architecture artifacts match ATIV's approved input catalog in
-`script/fetch_ffmpeg.sh`: Martin Riedl macOS distributions and BtbN GPL builds
-for Windows/Linux. EnCap no longer builds a separate audio-only FFmpeg recipe.
-The exact upstream artifact URLs and archive hashes are in that script;
-`FFMPEG_BUILD_CONFIGURATION.txt` records the packaged build configuration.
+EnCAP builds FFmpeg and ffprobe 9.0.2 from the official signed source release:
+https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz (tag n9.0.2).
+The enabled GPL components make these programs GPL v2 or later; nonfree
+components are disabled. EnCAP invokes them as separate processes.
 
-FFmpeg source, licensing and corresponding build information:
+Static external libraries: x264 at b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+(GPL-2.0-or-later), x265 4.2 (GPL-2.0-or-later), LAME 3.100
+(LGPL-2.0-or-later), and zlib 1.3.1 (Zlib license). macOS also uses system
+AudioToolbox and VideoToolbox frameworks. No third-party prebuilt FFmpeg
+or AVID Core runtime artifact is required.
+
+Every package includes corresponding source archives, license texts, build
+recipe, source verification, configuration and toolchain information in its
+FFmpeg metadata folder (`Contents/Resources/FFmpeg` on macOS, `FFmpeg` beside
+the engine elsewhere). The versioned dependency record is
+`runtime/ffmpeg/dependencies.json`. See `docs/ffmpeg-source-runtime.md`.
+
+Upstream projects and licensing information:
 https://ffmpeg.org/legal.html
-https://ffmpeg.martin-riedl.de/
-https://github.com/BtbN/FFmpeg-Builds
-
-The GPL builds include libx264 and libx265 (GPL) and libmp3lame (LGPL).
-EnCap invokes these executables as separate processes. Corresponding codec
-source and license information is available at https://www.videolan.org/developers/x264.html,
-https://www.videolan.org/developers/x265.html and https://lame.sourceforge.io/.
-The former EnCap-specific LAME 4.0 build description does not describe these artifacts.
+https://www.videolan.org/developers/x264.html
+https://www.videolan.org/developers/x265.html
+https://lame.sourceforge.io/
+https://zlib.net/
 
 ## AVID Core
 
 EnCap Video uses `avid-core` under GPL-3.0-only. Its license is distributed as
 `AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
-Tested revision: 0cce6ba838827d0bed540efc98731e74a1014456.
+Pinned revision: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db (v0.2.1).
 
 ## whisper.cpp
 
