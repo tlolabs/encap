@@ -59,7 +59,11 @@ licenses, recipe, configure arguments, toolchain record, source verification and
 pre/post-ad-hoc-sign binary hashes under `FFmpeg/`. This also makes source
 available wherever the application artifact is distributed. No source patches
 are applied. OS system frameworks/libc remain system dependencies; Windows
-compiler runtimes must be linked statically. The linkage audit rejects codec or
+compiler runtimes must be linked statically. Windows uses the matching C++
+linker and disables libc++ DLL-import annotations for static x265 compilation,
+as required by the [libc++ build configuration](https://github.com/llvm/llvm-project/blob/main/libcxx/CMakeLists.txt).
+Installed compiler-runtime license texts are included alongside codec licenses;
+these cover libc++, libc++abi, libunwind, compiler-rt and MinGW runtime code. The linkage audit rejects codec or
 compiler DLL dependencies and Homebrew dylibs.
 
 ## Building and upgrading
@@ -112,7 +116,9 @@ Packaging/test-only edits do not force recompilation of unchanged FFmpeg sources
 matching build/install trees. Locally use a third argument `clean`. Downloads
 may be reused only after their pinned checksum is checked; signatures are
 verified anew. Compare the two `runtime.json` binary digests from clean builds
-for repeatability. Bit identity across different toolchains/SDKs, OS patch levels
+for repeatability. The recorded macOS ARM64 clean-repeat check is in
+`runtime/ffmpeg/repeat-macos-arm64.json`; both binaries matched byte for byte.
+Bit identity across different toolchains/SDKs, OS patch levels
 or signing identities is not promised. The cache keys deliberately distinguish
 these environments, and signing hashes are separate from source-build hashes.
 

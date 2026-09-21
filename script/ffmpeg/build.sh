@@ -116,6 +116,9 @@ JOBS="${ENCAP_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 CMAKE_ARGS=(-G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_POLICY_VERSION_MINIMUM=3.5)
 if [[ "$PLATFORM" == macos ]]; then CMAKE_ARGS+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0); fi
 if [[ "$PLATFORM" == windows ]]; then
+  # libc++ headers default to DLL imports on Windows. Static consumers must
+  # disable those annotations, including when building the x265 archive.
+  export CXXFLAGS="$CXXFLAGS -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS"
   export LDFLAGS="$LDFLAGS -static -Wl,--no-insert-timestamp"
   CMAKE_ARGS+=(-DCMAKE_SYSTEM_NAME=Windows)
 fi
@@ -147,12 +150,17 @@ for tool in ffmpeg ffprobe; do
     linux) ldd "$PREFIX/bin/$tool" > "$PREFIX/$tool-linkage.txt";;
     windows) objdump -p "$PREFIX/bin/$tool.exe" > "$PREFIX/$tool-linkage.txt";;
   esac
-  if grep -Ei 'lib(x264|x265|mp3lame|z)\.(so|dylib)|lib(x264|x265|mp3lame|winpthread|stdc\+\+|gcc|c\+\+).*\.dll|msys-2.0.dll|/opt/homebrew|/Cellar/' "$PREFIX/$tool-linkage.txt"; then echo 'Unexpected runtime library dependency' >&2; exit 1; fi
+  if grep -Ei 'lib(x264|x265|mp3lame|z)\.(so|dylib)|lib(x264|x265|mp3lame|winpthread|stdc\+\+|gcc|c\+\+|unwind|ssp).*\.dll|msys-2.0.dll|/opt/homebrew|/Cellar/' "$PREFIX/$tool-linkage.txt"; then echo 'Unexpected runtime library dependency' >&2; exit 1; fi
 done
 for name in ffmpeg x264 x265 lame zlib; do
   mkdir -p "$PREFIX/licenses/$name"
   find "$WORK/$name" -maxdepth 1 -type f \( -iname '*copying*' -o -iname '*license*' -o -name README \) -exec cp {} "$PREFIX/licenses/$name/" \;
 done
+if [[ "$PLATFORM" == windows ]]; then
+  # Compiler runtimes are static too; retain their installed license texts.
+  mkdir -p "$PREFIX/licenses/toolchain"
+  cp -R "$MINGW_PREFIX/share/licenses/." "$PREFIX/licenses/toolchain/"
+fi
 cp "$WORK/ffmpeg/ffbuild/config.log" "$PREFIX/config.log"
 jq -b -n --slurpfile deps "$SPEC" --arg target "$TARGET" --arg key "$KEY" --arg recipe "$RECIPE" --arg ffmpeg "$(sha "$PREFIX/bin/ffmpeg$SUFFIX")" --arg ffprobe "$(sha "$PREFIX/bin/ffprobe$SUFFIX")" \
   '{schema:1,version:$deps[0].ffmpeg.version,target:$target,cache_key:$key,recipe_sha256:$recipe,dependencies:$deps[0],binaries:{ffmpeg:$ffmpeg,ffprobe:$ffprobe}}' > "$PREFIX/runtime.json"
