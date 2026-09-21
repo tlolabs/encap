@@ -515,15 +515,17 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
         // Keep the ordinary engine assertion below as the acceptance gate.
         let graph = "[0:v]hflip,vflip,split=2[bgsrc0][fgsrc0];[bgsrc0]scale=90:160:force_original_aspect_ratio=increase,crop=90:160,gblur=sigma=20[bg0];[fgsrc0]scale=90:90:force_original_aspect_ratio=decrease,pad=90:90:(ow-iw)/2:(oh-ih)/2[fg0];[bg0][fg0]overlay=(W-w)/2:(H-h)/2,trim=duration=1.000000,setpts=PTS-STARTPTS,format=yuv420p[v0];[1:a:0]atrim=duration=1.000000,aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[a0];[v0][a0]concat=n=1:v=1:a=1[outv][outa]";
         for flags in ["default", "0", "-avx2", "-avx", "-sse4.1"] {
-            let out = Command::new(&h.ffmpeg)
+            let mut command = Command::new(&h.ffmpeg);
+            if flags != "default" {
+                command.args(["-cpuflags", flags]);
+            }
+            let out = command
                 .args([
                     "-nostdin",
                     "-hide_banner",
                     "-loglevel",
                     "warning",
                     "-y",
-                    "-cpuflags",
-                    flags,
                     "-loop",
                     "1",
                     "-framerate",
