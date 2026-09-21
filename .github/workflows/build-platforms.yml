@@ -10,7 +10,7 @@ on:
       platform:
         description: Native platform group to qualify
         type: choice
-        options: [all, macos, windows, linux]
+        options: [all, macos, windows, linux, checks]
         default: all
       clean_ffmpeg:
         description: Rebuild FFmpeg from source without the artifact cache

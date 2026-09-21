@@ -263,9 +263,17 @@ printf complete > "$last"
             let mut project = project(root.path());
             let output = root.path().join("out.mp4");
             fs::write(&output, b"old output").unwrap();
+            // Only the deliberate sleep fixtures need a short timeout. Applying
+            // 80 ms to ordinary failures can test scheduler load instead of the
+            // fallback/error contract on shared native CI runners.
+            let timeout = if mode.ends_with("sleep") {
+                Duration::from_millis(80)
+            } else {
+                Duration::from_secs(5)
+            };
             let renderer = fake(root.path(), mode).with_options(avid_core::OperationOptions {
-                probe_timeout: Some(Duration::from_millis(80)),
-                render_timeout: Some(Duration::from_millis(80)),
+                probe_timeout: Some(timeout),
+                render_timeout: Some(timeout),
                 ..Default::default()
             });
             project.video.export_settings.encoding = "automatic".into();
@@ -282,7 +290,7 @@ printf complete > "$last"
                 assert!(error.contains("timed out"));
             }
             if mode == "fail" {
-                assert!(error.contains("software fallback also failed"));
+                assert!(error.contains("software fallback also failed"), "{error}");
             }
             assert_clean(root.path(), &project, &output);
         }
