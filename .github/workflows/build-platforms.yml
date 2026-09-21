@@ -130,8 +130,9 @@ jobs:
           - label: x64
             runner: windows-2025
             arch: x86_64
-            msystem: CLANG64
-            package_prefix: mingw-w64-clang-x86_64
+            msystem: UCRT64
+            compiler: gcc
+            package_prefix: mingw-w64-ucrt-x86_64
             rust_target: x86_64-pc-windows-msvc
             runtime: win-x64
             platform: x64
@@ -142,6 +143,7 @@ jobs:
             runner: windows-11-arm
             arch: arm64
             msystem: CLANGARM64
+            compiler: clang
             package_prefix: mingw-w64-clang-aarch64
             rust_target: aarch64-pc-windows-msvc
             runtime: win-arm64
@@ -166,7 +168,7 @@ jobs:
           update: true
           install: >-
             make diffutils perl curl tar xz gnupg git
-            ${{ matrix.package_prefix }}-clang
+            ${{ matrix.package_prefix }}-${{ matrix.compiler }}
             ${{ matrix.package_prefix }}-cmake
             ${{ matrix.package_prefix }}-nasm
             ${{ matrix.package_prefix }}-pkgconf
@@ -179,6 +181,9 @@ jobs:
           arch: ${{ matrix.arch }}
           shell: msys2 {0}
           clean: ${{ inputs.clean_ffmpeg || 'false' }}
+      - name: Verify synthetic portrait pipeline
+        shell: msys2 {0}
+        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/bin/ffmpeg.exe
       - name: Build local Whisper runtime
         shell: pwsh
         run: |
@@ -353,13 +358,13 @@ jobs:
           path: EnCAP
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
         with:
-          msystem: CLANG64
+          msystem: UCRT64
           update: true
           install: >-
             make diffutils perl curl tar xz gnupg git
-            mingw-w64-clang-x86_64-clang mingw-w64-clang-x86_64-cmake
-            mingw-w64-clang-x86_64-nasm mingw-w64-clang-x86_64-pkgconf
-            mingw-w64-clang-x86_64-jq mingw-w64-clang-x86_64-binutils
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-jq mingw-w64-ucrt-x86_64-binutils
       - uses: ./EnCAP/.github/actions/source-ffmpeg
         with:
           platform: windows
