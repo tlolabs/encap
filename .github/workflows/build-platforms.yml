@@ -106,9 +106,10 @@ jobs:
       - name: Build, test, sign, and package native app
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-        run: |
-          cargo test --workspace --locked --all-features
-          ./script/build_and_run.sh --package
+        run: ./script/build_and_run.sh --package
+      - name: Test complete native Rust workspace
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked --all-features --no-fail-fast
       - name: Test native models
         run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path macos --scratch-path build/native-swift
       - name: Verify packaged media tools

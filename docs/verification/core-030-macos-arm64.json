@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-23",
+  "implementation_commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+  "platform": "macos-arm64",
+  "macos_version": "26.7",
+  "normal_engine": {
+    "avid_core": {
+      "revision": "3fb68807bc7c350359e1634b32af477ea3042c16",
+      "source": "git+https://github.com/tlolabs/avid-core?rev=3fb68807bc7c350359e1634b32af477ea3042c16#3fb68807bc7c350359e1634b32af477ea3042c16",
+      "version": "0.3.0"
+    },
+    "encap_version": "2.0.3"
+  },
+  "ffmpeg_source": {
+    "version": "9.0.2",
+    "tag": "n9.0.2",
+    "git": "https://git.ffmpeg.org/ffmpeg.git",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "signature_url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz.asc",
+    "release_key_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8"
+  },
+  "recipe_sha256": "d8c5f43d9f00ba09b9eea69e0e49366057d8346b85261a856ca64dcd0d35f7f8",
+  "binary_sha256": {
+    "original_binary_sha256": {
+      "ffmpeg": "6de9f188551dfec6c924f4d09ad5b35aae0260721f1df7a4cfa4e12b7d69cf92",
+      "ffprobe": "a098dd355ea0c7ba7ace29979f871536f4144df005e4f920b7728d39260bf2c3"
+    },
+    "schema": 1,
+    "signed_binary_sha256": {
+      "ffmpeg": "05067361bdb8cbd4c6d86d50355967af98eb30a8453d2516ff5f4ed1716adb81",
+      "ffprobe": "bcd431d4e2d473914bc1c1d9b1fe6d3683829b485f8e02d6bd6c353f1c22227e"
+    },
+    "target": "macos-arm64"
+  },
+  "dmg": {
+    "name": "EnCap-2.0.3-macos-arm64.dmg",
+    "sha256": "13bead8b78dfa13c08589ca32e8ece79ea1d2ccc8c6253dd1246713a2abc7eab"
+  },
+  "passed": [
+    "normal Xcode app build and launch",
+    "normal DMG creation and mounted payload verification",
+    "Cargo workspace default tests",
+    "Cargo workspace all-feature tests",
+    "all-target/all-feature Clippy with warnings denied",
+    "Rust formatting",
+    "8 source-builder regression tests",
+    "2 runtime ownership tests",
+    "5 normal packaged engine media contracts",
+    "26 native Swift tests",
+    "5 Core real-media tests",
+    "2 Core installed-runtime lifecycle tests",
+    "256 MiB release save benchmark",
+    "portable C chapter timestamp tests",
+    "runtime relocation and missing/corrupt/provenance-mismatch rejection with working PATH tools"
+  ],
+  "modes": {
+    "Audio": "MP3/AAC, metadata/chapters, source edits and archive round trips",
+    "Transcript": "real Whisper speech recognition through bundled PCM conversion; TXT/SRT export",
+    "Video": "Core probing, H.264/HEVC, artwork/flips/portrait, chapter order and trims, safe failure/cancellation"
+  },
+  "limitations": [
+    "One save-latency run during concurrent builds exceeded 250 ms; isolated full suite and normal packaged runs passed with threshold unchanged.",
+    "UI inspection verified loaded Audio and Transcript; the inspection service disconnected during the loaded Video check. EnCAP remained running. Automated Video media tests passed.",
+    "Native CI and minimum-OS manual acceptance are reported separately in normal-runtime-migration.md."
+  ]
+}
