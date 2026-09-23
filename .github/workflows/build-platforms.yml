@@ -83,7 +83,9 @@ jobs:
           persist-credentials: false
           path: EnCAP
       - name: Install source-build prerequisites
-        run: brew install nasm cmake pkg-config gnupg jq python@3.12
+        run: |
+          brew install nasm cmake pkg-config gnupg jq
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python 3.12+ required"' 
       - name: Build EnCAP source FFmpeg
         uses: ./EnCAP/.github/actions/source-ffmpeg
         with:

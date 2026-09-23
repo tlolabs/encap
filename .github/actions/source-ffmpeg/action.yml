@@ -46,6 +46,7 @@ runs:
         if [[ "$CLEAN_BUILD" == true ]]; then action=clean; fi
         prefix="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" "$action")"
         # A stable staging input for PowerShell and the application packagers.
+        mkdir -p .build-tools
         rm -rf .build-tools/ffmpeg-runtime
         cp -R "$prefix" .build-tools/ffmpeg-runtime
     - name: Save verified source build

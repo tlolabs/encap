@@ -47,10 +47,20 @@ Local macOS ARM64 results (2026-09-23):
 - Normal package relocation and missing/damaged/mismatched provenance tests pass
   with usable fallback tools on PATH. Release overrides are ignored as intended.
 - Native Swift tests: 26 pass, including playback and mode/model compatibility.
-- Core's five existing real-media tests pass against this exact FFmpeg pair.
+- Core's five existing real-media tests and both installed-runtime replacement,
+  rollback, cancellation and cleanup tests pass against this exact FFmpeg pair.
+- The normal ARM64 DMG was created and the UI opened the saved verification project;
+  Audio showed its source/artwork/settings and Transcript displayed the real result.
+- An additional default-suite run during concurrent package compilation exceeded
+  the existing 250 ms save threshold (642 ms after reopening). The isolated full
+  default suite then passed, as did both packaged runs. No threshold was relaxed.
 - Existing 256 MiB release-mode save benchmark and portable C chapter tests pass.
 
-The six-target native workflow will verify the committed migration. Earlier
+The first native CI run passed general engine checks and built macOS ARM64
+FFmpeg, then exposed a fresh-checkout staging-directory omission and an Intel
+Homebrew Python symlink conflict. These packaging issues were corrected; the
+runner's existing Python is used, and staging explicitly creates its parent.
+The six-target native workflow verifies the committed migration. Earlier
 0.2.1 runtime results are historical and do not qualify this recipe. Until the
 new matrix completes, Windows/Linux and macOS Intel package acceptance remain
 release gates. Interactive testing on minimum supported OS versions, Developer
