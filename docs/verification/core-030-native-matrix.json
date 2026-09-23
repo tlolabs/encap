@@ -1,0 +1,394 @@
+{
+  "schema": 1,
+  "date": "2026-09-23",
+  "application_implementation_commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+  "latest_ci_commit": "b532f609ff978bfad4417b6ddddfd4c4767ebfec",
+  "avid_core": {
+    "version": "0.3.0",
+    "revision": "3fb68807bc7c350359e1634b32af477ea3042c16"
+  },
+  "ffmpeg_version": "9.0.2",
+  "recipe": 2,
+  "recipe_sha256": "d8c5f43d9f00ba09b9eea69e0e49366057d8346b85261a856ca64dcd0d35f7f8",
+  "results": [
+    {
+      "target": "macOS arm64",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35898348711",
+      "commit": "b532f609ff978bfad4417b6ddddfd4c4767ebfec",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35898348711/job/107307857378",
+      "conclusion": "success",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install source-build prerequisites",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Configure update verification key",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned Rust toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build, test, sign, and package native app",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test complete native Rust workspace",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test native models",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify packaged media tools",
+          "conclusion": "success"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "target": "macOS intel",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35898348711",
+      "commit": "b532f609ff978bfad4417b6ddddfd4c4767ebfec",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35898348711/job/107307857220",
+      "conclusion": "failure",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install source-build prerequisites",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Configure update verification key",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned Rust toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build, test, sign, and package native app",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Test complete native Rust workspace",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Test native models",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify packaged media tools",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "target": "Linux x64",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35897372702",
+      "commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555837",
+      "conclusion": "success",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install native build dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned Rust toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build shared engine and bundled media tools",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build local Whisper runtime",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build and assemble GTK 4 package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify Linux cloning and mode-switch latency on Btrfs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "target": "Linux arm64",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35897372702",
+      "commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555923",
+      "conclusion": "success",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install native build dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned Rust toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build shared engine and bundled media tools",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build local Whisper runtime",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build and assemble GTK 4 package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify Linux cloning and mode-switch latency on Btrfs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "target": "Windows x64",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35897372702",
+      "commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555958",
+      "conclusion": "success",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Rust target",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install native FFmpeg source toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify synthetic portrait pipeline",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build local Whisper runtime",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build shared Rust engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check portable persistence tests for target architecture",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test Windows chapter naming",
+          "conclusion": "success"
+        },
+        {
+          "name": "Publish native WinUI 3 app",
+          "conclusion": "success"
+        },
+        {
+          "name": "Assemble and verify portable package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify packaged runtime discovery and rejection",
+          "conclusion": "success"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "target": "Windows arm64",
+      "run": "https://github.com/tlolabs/encap/actions/runs/35897372702",
+      "commit": "b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3",
+      "job": "https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555982",
+      "conclusion": "success",
+      "packaged_media_contracts": "5 passed: Audio, Transcript, Video, archive compatibility, process cancellation",
+      "runtime_discovery": "passed: Core identity, relocation, damage rejection, no PATH fallback",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check out repository",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Rust target",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install native FFmpeg source toolchain",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EnCAP source FFmpeg",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify synthetic portrait pipeline",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build local Whisper runtime",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build shared Rust engine",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check portable persistence tests for target architecture",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test Windows chapter naming",
+          "conclusion": "success"
+        },
+        {
+          "name": "Publish native WinUI 3 app",
+          "conclusion": "success"
+        },
+        {
+          "name": "Assemble and verify portable package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify packaged runtime discovery and rejection",
+          "conclusion": "success"
+        },
+        {
+          "name": "Upload package",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "release_blockers": [
+    "macOS Intel unchanged save-latency test: 271.441872 ms exceeds 250 ms after reopening a 257 MiB project; final DMG/native Swift steps skipped after failure."
+  ],
+  "limits": [
+    "No same-runner pre-migration performance baseline was established.",
+    "Minimum supported OS manual acceptance and complete loaded-Video manual UI acceptance are not verified.",
+    "Developer ID/notarization and credentialed release publication were not performed.",
+    "The later CI-only runtime handoff adjustment was exercised by the macOS rerun; Windows/Linux runs use the same final application/runtime implementation before that CI adjustment."
+  ]
+}

@@ -65,12 +65,50 @@ EnCAP codec profile links glibc's system libmvec in addition to libm. Recipe 2
 allows that system library, retains rejection of dynamic codec dependencies,
 and records the C++ compiler version on every target. No upstream/Core patch
 or change to media behavior is required.
-Intel macOS also reproduced the pre-existing save-latency failure (509 ms after
-reopening versus the unchanged 250 ms limit). Normal package checks run before
-the additional complete Rust suite so this unrelated performance gate does not
-hide media acceptance; both checks remain required and failures still fail CI.
-The six-target native workflow verifies the committed migration. Earlier
-0.2.1 runtime results are historical and do not qualify this recipe. Until the
-new matrix completes, Windows/Linux and macOS Intel package acceptance remain
-release gates. Interactive testing on minimum supported OS versions, Developer
-ID/notarization and credentialed release publication are not claimed here.
+
+## Native matrix
+
+The final implementation is `b6452ebae3481b3f68bd6ead8bf37ac93f6cc9f3` with recipe
+2 (`d8c5f43d9f00ba09b9eea69e0e49366057d8346b85261a856ca64dcd0d35f7f8`).
+Subsequent commits improve CI ordering and verified-payload handoff, without
+changing application or runtime code. Historical 0.2.1/recipe-1 results are not
+used to qualify this recipe.
+
+| Native target | Normal app and packaged media | Complete job |
+| --- | --- | --- |
+| macOS ARM64 | Pass: all three modes, strict discovery, native tests, DMG | [Pass](https://github.com/tlolabs/encap/actions/runs/35898348711/job/107307857378) |
+| macOS Intel | Pass: all five packaged media contracts and discovery/rejection | [Blocked by save performance](https://github.com/tlolabs/encap/actions/runs/35898348711/job/107307857220) |
+| Linux x64 | Pass: all three modes, normal GTK package, Btrfs save contract | [Pass](https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555837) |
+| Linux ARM64 | Pass: all three modes, normal GTK package, Btrfs save contract | [Pass](https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555923) |
+| Windows x64 | Pass: all three modes, native WinUI portable package | [Pass](https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555958) |
+| Windows ARM64 | Pass: all three modes, native WinUI portable package | [Pass](https://github.com/tlolabs/encap/actions/runs/35897372702/job/107304555982) |
+
+Native CI used macOS 15 ARM64/Intel, Windows 2025 x64/Windows 11 ARM64 runners,
+and Ubuntu 24.04 x64/ARM64. The normal application media tests pass on all six
+targets; five complete package jobs pass. The overall matrix is red because of
+the Intel save-performance gate. The [native matrix record](verification/core-030-native-matrix.json)
+preserves exact run/commit and step outcomes.
+
+General native engine checks pass. The local [machine-readable ARM64 record](verification/core-030-macos-arm64.json)
+records the mounted DMG identity, exact executable hashes and additional Core
+real-media/lifecycle tests. CI package checks exercise the ordinary release
+engine built into each native application, not a qualification application.
+
+## Remaining release blockers and limits
+
+- Intel macOS fails the unchanged `mode_switch_save_latency_does_not_scale_with_existing_media`
+  gate. In the final complete Rust suite, a 257 MiB project save after reopening
+  took 271.44 ms against 250 ms; earlier runs also exceeded the limit. Archive
+  implementation and this test were not changed by the migration. This is a
+  measured release blocker, not evidence of media or project-format failure;
+  a pre-migration baseline on the same runner was not established. The threshold
+  remains required. The Intel native app/media tests passed before this gate,
+  but the gate stopped DMG creation and later Swift checks on that runner.
+- Interactive acceptance on minimum supported OS versions and a complete manual
+  loaded-Video UI pass remain unverified. Automated Video operations pass.
+- Developer ID signing/notarization and credentialed release publication were
+  not performed. CI/local package checks do not substitute for those release steps.
+
+No AVID Core change or EnCAP-specific Core workaround was required. AVID Core
+and ATIV source checkouts were left untouched. The branch is pushed; no release
+was published.
