@@ -20,10 +20,6 @@ pub struct ProcessOutput {
 pub struct MediaTools(avid_core::MediaTools);
 
 impl MediaTools {
-    pub fn discover() -> Result<Self> {
-        Self::discover_with_cancellation(&CancellationToken::default())
-    }
-
     pub fn discover_with_cancellation(token: &CancellationToken) -> Result<Self> {
         // Production release engines only use the packaged pair. Debug fixture
         // overrides require both paths; they never fall back to PATH or a bundle.

@@ -60,6 +60,11 @@ The first native CI run passed general engine checks and built macOS ARM64
 FFmpeg, then exposed a fresh-checkout staging-directory omission and an Intel
 Homebrew Python symlink conflict. These packaging issues were corrected; the
 runner's existing Python is used, and staging explicitly creates its parent.
+The next run exposed an overly narrow Linux linkage allowlist: the broader
+EnCAP codec profile links glibc's system libmvec in addition to libm. Recipe 2
+allows that system library, retains rejection of dynamic codec dependencies,
+and records the C++ compiler version on every target. No upstream/Core patch
+or change to media behavior is required.
 The six-target native workflow verifies the committed migration. Earlier
 0.2.1 runtime results are historical and do not qualify this recipe. Until the
 new matrix completes, Windows/Linux and macOS Intel package acceptance remain

@@ -83,9 +83,9 @@ workload.
 ## Linux
 
 The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
-CI builds the Rust engine, fetches the pinned common Linux FFmpeg artifact,
+CI builds the Rust engine and the pinned official FFmpeg source runtime,
 builds whisper.cpp, stages the application layout, runs
-tool validation, and creates an x64 tarball. A development host needs Meson,
+tool validation, and creates x64/ARM64 tarballs. A development host needs Meson,
 Ninja, GTK 4, libadwaita 1, json-glib, and GStreamer 1.20+ headers. Recording
 previews use GStreamer playbin directly for forward/reverse playback rates.
 Install its playback and WAV/AIFF plugins (on Ubuntu,

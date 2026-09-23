@@ -230,7 +230,7 @@ fn run(
             json(serde_json::json!({ "ok": true }))
         }
         Commands::ValidateTools => {
-            MediaTools::discover()?;
+            MediaTools::discover_with_cancellation(cancellation)?;
             json(serde_json::json!({ "ok": true }))
         }
     }

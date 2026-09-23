@@ -45,7 +45,8 @@ The same workflow runs native macOS ARM64/Intel, Windows x64/ARM64 and Linux
 x64/ARM64 builds. Windows uses UCRT64/GCC on x64 and CLANGARM64/Clang on ARM64,
 following ATIV. Compiler packages supply tools, not FFmpeg/codec binaries.
 macOS targets 13.0; Linux uses Ubuntu 24.04. Codec libraries are static; only
-platform/compiler system libraries may be dynamic.
+platform/compiler system libraries may be dynamic (including glibc vector math
+and the C++ runtime needed by x265 on Linux).
 
 The builder verifies every source archive's checksum and FFmpeg's upstream
 signature in an isolated keyring before building. It rejects unsafe archive
