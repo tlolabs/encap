@@ -29,7 +29,7 @@ pub fn resolve(
     ffprobe: Option<PathBuf>,
     token: &CancellationToken,
 ) -> encap_core::Result<MediaTools> {
-    // Both explicit CLI paths are required for a deliberate development/test override.
+    // Both explicit paths are required for a deliberate debug/test override.
     // No environment override or PATH search can affect packaged discovery.
     let packaged = ffmpeg.is_none() && ffprobe.is_none();
     let expected: Value =
@@ -122,10 +122,11 @@ pub fn resolve(
         }
     };
     let tools = MediaTools::from_paths(ffmpeg, ffprobe, token).map_err(|error| {
-        if matches!(error, avid_core::Error::ToolUnavailable { .. }) {
-            unavailable()
-        } else {
-            EncapError::from(error)
+        tracing::error!(code = error.code(), details = ?error, "shared media tool validation failed");
+        match error {
+            avid_core::Error::Cancelled => EncapError::Message("Media tool validation was cancelled safely.".into()),
+            avid_core::Error::Timeout(_) => EncapError::Message("The bundled media tools did not respond in time.".into()),
+            _ => unavailable(),
         }
     })?;
     if packaged

@@ -126,7 +126,7 @@ fn shared_validation_rejects_partial_mismatched_and_unidentified_pairs() {
 
 #[test]
 fn audio_and_transcript_signals_cancel_shared_pair_validation() {
-    for mode in ["audio", "transcript"] {
+    for mode in ["audio", "transcript", "validation"] {
         let root = tempfile::tempdir().unwrap();
         let ready = root.path().join("ready");
         let ffmpeg = root.path().join("ffmpeg");
@@ -148,6 +148,8 @@ fn audio_and_transcript_signals_cancel_shared_pair_validation() {
         let mut command = Command::new(env!("CARGO_BIN_EXE_encap-engine"));
         if mode == "audio" {
             command.arg("export").arg(&payload).arg(&output);
+        } else if mode == "validation" {
+            command.arg("validate-tools");
         } else {
             command
                 .arg("transcribe")

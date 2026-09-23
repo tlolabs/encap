@@ -72,8 +72,8 @@ def toolchain(target):
               'platform': platform.platform(), 'python': platform.python_version(),
               'runner_image': os.environ.get('ImageVersion', ''),
               'environment': {k: os.environ.get(k, '') for k in ['CC', 'CXX', 'CXXFLAGS', 'AR', 'RANLIB', 'CFLAGS', 'CPPFLAGS', 'LDFLAGS', 'SDKROOT', 'DEVELOPER_DIR', 'MSYSTEM']}}
+    result['cxx_version'] = output([result['cxx'], '--version'])
     if target.startswith('macos'):
-        result['cxx_version'] = output([result['cxx'], '--version'])
         result['sdk'] = output(['xcrun', '--show-sdk-version'])
         result['xcode'] = output(['xcodebuild', '-version'])
     elif target.startswith('windows'):
@@ -204,7 +204,12 @@ def build(target, clean=False):
         def run(args, cwd):
             commands.append({'directory': str(cwd.relative_to(work)), 'arguments': [str(a) for a in args]})
             print('Building ' + str(cwd.relative_to(work)) + ': ' + str(args[0]), file=__import__('sys').stderr, flush=True)
-            subprocess.run([str(a) for a in args], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            try:
+                subprocess.run([str(a) for a in args], cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            except subprocess.CalledProcessError:
+                log.flush()
+                print('\n'.join((work / 'build.log').read_text(errors='replace').splitlines()[-60:]), file=__import__('sys').stderr)
+                raise
         for name in ['zlib', 'lame', 'x264', 'x265']:
             source = extract(archives[name], work / name)
             options = SPEC['external_libraries'][name]['configure']
@@ -320,7 +325,8 @@ def build(target, clean=False):
             report = output(['readelf', '-d', executable])
             import re
             imports = re.findall(r'NEEDED.*?\[(.*?)\]', report)
-            if any(n not in {'libc.so.6', 'libm.so.6', 'libpthread.so.0', 'libdl.so.2', 'librt.so.1', 'ld-linux-x86-64.so.2', 'ld-linux-aarch64.so.1', 'libstdc++.so.6', 'libgcc_s.so.1'} for n in imports):
+            # EnCAP's C++ codec profile also uses glibc's vector math library.
+            if any(n not in {'libc.so.6', 'libm.so.6', 'libmvec.so.1', 'libpthread.so.0', 'libdl.so.2', 'librt.so.1', 'ld-linux-x86-64.so.2', 'ld-linux-aarch64.so.1', 'libstdc++.so.6', 'libgcc_s.so.1'} for n in imports):
                 raise ValueError('Non-system Linux runtime linkage: ' + repr(imports))
         linkage[name] = report
     write_json(stage / 'linkage.json', linkage)
