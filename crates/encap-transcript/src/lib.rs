@@ -233,7 +233,7 @@ pub fn transcribe(
             "Import audio before transcribing.".into(),
         ));
     }
-    let tools = MediaTools::discover()?;
+    let tools = MediaTools::discover_with_cancellation(cancellation)?;
     let mut resolved = resolve_provider(provider);
     if provider != "apple-local" && resolved.is_none() {
         return Err(EncapError::Message(

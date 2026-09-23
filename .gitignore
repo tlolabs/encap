@@ -15,3 +15,5 @@ target/
 # Native .NET build outputs.
 windows/**/bin/
 windows/**/obj/
+
+__pycache__/

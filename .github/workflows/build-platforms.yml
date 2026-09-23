@@ -48,7 +48,10 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test Rust workspace
-        run: cargo test --workspace --locked
+        run: |
+          cargo test --workspace --locked --all-features
+          python3 script/test_ffmpeg_build.py
+          python3 script/test_runtime_ownership.py
       - name: Check portable chapter timestamp rules
         run: |
           cc -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c -o /tmp/encap-chapter-names-test
@@ -80,7 +83,7 @@ jobs:
           persist-credentials: false
           path: EnCAP
       - name: Install source-build prerequisites
-        run: brew install nasm cmake pkg-config gnupg jq
+        run: brew install nasm cmake pkg-config gnupg jq python@3.12
       - name: Build EnCAP source FFmpeg
         uses: ./EnCAP/.github/actions/source-ffmpeg
         with:
@@ -101,7 +104,9 @@ jobs:
       - name: Build, test, sign, and package native app
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-        run: ./script/build_and_run.sh --package
+        run: |
+          cargo test --workspace --locked --all-features
+          ./script/build_and_run.sh --package
       - name: Test native models
         run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path macos --scratch-path build/native-swift
       - name: Verify packaged media tools
@@ -167,13 +172,14 @@ jobs:
           msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            make diffutils perl curl tar xz gnupg git
+            make diffutils perl curl tar xz gnupg git python
             ${{ matrix.package_prefix }}-${{ matrix.compiler }}
             ${{ matrix.package_prefix }}-cmake
             ${{ matrix.package_prefix }}-nasm
             ${{ matrix.package_prefix }}-pkgconf
             ${{ matrix.package_prefix }}-jq
             ${{ matrix.package_prefix }}-binutils
+            ${{ matrix.package_prefix }}-llvm
       - name: Build EnCAP source FFmpeg
         uses: ./EnCAP/.github/actions/source-ffmpeg
         with:
@@ -183,7 +189,7 @@ jobs:
           clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
-        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/bin/ffmpeg.exe
+        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/ffmpeg.exe
       - name: Build local Whisper runtime
         shell: pwsh
         run: |
@@ -196,7 +202,11 @@ jobs:
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
-        run: cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+        run: |
+          cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
+          cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
@@ -296,6 +306,7 @@ jobs:
           clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Build shared engine and bundled media tools
         run: |
+          cargo test --workspace --locked --all-features
           cargo build --package encap-engine --release --locked
       - name: Build local Whisper runtime
         run: |
@@ -361,10 +372,10 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            make diffutils perl curl tar xz gnupg git
+            make diffutils perl curl tar xz gnupg git python
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf
-            mingw-w64-ucrt-x86_64-jq mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-jq mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-llvm
       - uses: ./EnCAP/.github/actions/source-ffmpeg
         with:
           platform: windows
@@ -372,7 +383,7 @@ jobs:
           shell: msys2 {0}
       - name: Isolate synthetic filtering and encoding paths
         shell: msys2 {0}
-        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/bin/ffmpeg.exe
+        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/ffmpeg.exe
 
   release:
     defaults:

@@ -191,15 +191,9 @@ printf complete > "$last"
                 root = root.display()
             ),
         );
-        let tools = avid_core::MediaTools::discover(
-            ToolDiscovery {
-                ffmpeg: Some(ffmpeg),
-                ffprobe: Some(ffprobe),
-                ..Default::default()
-            },
-            &CancellationToken::default(),
-        )
-        .unwrap();
+        let tools =
+            avid_core::MediaTools::from_paths(ffmpeg, ffprobe, &CancellationToken::default())
+                .unwrap();
         Renderer::new(tools)
     }
 

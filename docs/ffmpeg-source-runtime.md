@@ -1,176 +1,92 @@
 # EnCAP-owned FFmpeg source runtime
 
-EnCAP builds and distributes FFmpeg and ffprobe **9.0.2**, official tag `n9.0.2`,
-from https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz. The official download page
-identified this as the latest stable release on 2026-09-20 and was rechecked on
-2026-09-21 (released 2026-09-18).
-`runtime/ffmpeg/dependencies.json` is the dependency/update-check record and the
-single version/configuration source. AVID Core remains the immutable Rust Video
-implementation at its existing API/revision; it supplies no runtime assets.
+EnCAP consumes AVID Core 0.3.0 at `3fb68807bc7c350359e1634b32af477ea3042c16`,
+the exact ATIV pin. Cargo.lock and a build-time check enforce the pin; normal
+`encap-engine build-info` reports the compiled version, revision and Cargo source.
+Core is a source library. It supplies no runtime assets or packaging helpers.
 
-## Trust and provenance
+## Dependency and reference
 
-The source archive must match SHA-256
-`8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`.
-Every source build also verifies the official detached OpenPGP signature with
-`gpgv` against the checked-in upstream public key, requiring `VALIDSIG` fingerprint
-`FCF986EA15E6E293A5644F10B4322F04D67658D8`. This fingerprint is published at
-https://www.ffmpeg.org/download.html#release_9.0. No keyserver or user trustdb is
-used. Every external-library source URL, revision and SHA-256 is pinned in the
-same record. x264 is fetched by exact commit from its official Git repository;
-a deterministic uncompressed `git archive` must also match its pinned SHA-256.
-This avoids the archive web endpoint's bot challenge on hosted runners.
-Downloads fail closed, use HTTPS, and are verified before extraction.
-No FFmpeg prebuilt executable, system FFmpeg or Core runtime asset is downloaded.
+[`runtime/ffmpeg/dependency.json`](../runtime/ffmpeg/dependency.json) follows ATIV's
+machine-readable dependency/configuration record. FFmpeg **9.0.2**, released
+September 18, is the current stable release on the [official download page](https://ffmpeg.org/download.html)
+as checked September 23, 2026. Both hosts use the same official archive, SHA-256
+`8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`, detached
+signature and pinned signer `FCF986EA15E6E293A5644F10B4322F04D67658D8`.
 
-## Configuration and licensing
+The native builder and stage/finish/validate pipeline are adapted from ATIV
+`bc43ed0fc3c82acc4ea2ffbf0bb65fd2c8ebb91e`. The reference files and checksums are
+recorded in [ativ-reference.json](../runtime/ffmpeg/ativ-reference.json) for future
+upstream comparisons. This is the same methodology with EnCAP-specific codec and
+layout extensions, not a dependency on an adjacent checkout. No Core source is copied.
 
-Common FFmpeg options:
+FFmpeg, x264 (stable `b35605a`) and zlib 1.3.1 exactly match ATIV's source pins.
+EnCAP additionally builds checksum-pinned x265 4.2 and LAME 3.100 to preserve HEVC
+and MP3 export. It retains all built-in encoders and filters and macOS
+AudioToolbox/VideoToolbox support. ATIV's narrower H.264/AAC profile cannot preserve
+EnCAP's features. The FFmpeg source version is identical; the binaries and full
+configure profiles intentionally differ. No FFmpeg source patch is applied.
 
-```
---disable-autodetect --disable-shared --enable-static --enable-gpl
---disable-nonfree --enable-libx264 --enable-libx265 --enable-libmp3lame
---enable-zlib --enable-ffmpeg --enable-ffprobe --disable-ffplay
---disable-doc --disable-debug
-```
+## Build and package
 
-All default internal codecs, formats, protocols and filters remain enabled.
-There is no minimal codec allowlist. EnCAP's Audio exports MP3/LAME and AAC,
-including AudioToolbox on macOS; Transcript converts to mono 16 kHz PCM;
-Video retains software H.264/HEVC, artwork, composition, scale/crop/blur/overlay,
-flips, frame rates and audio resampling. Native decoders, PNG/JPEG, WAV/AIFF and
-metadata/chapter handling remain available. x265 is an 8-bit build, matching
-EnCAP's existing `yuv420p` output. macOS additionally enables AudioToolbox and
-VideoToolbox. Windows/Linux keep the existing software video policy.
+Python 3.12+, a native C/C++ compiler, make, CMake, pkg-config and GnuPG are build
+tools only. The installed app remains Rust plus native SwiftUI, WinUI or GTK;
+users need neither Python nor system FFmpeg. The existing shell entrypoints call
+`script/ffmpeg_build.py` and `script/ffmpeg_runtime.py`.
 
-External libraries are built statically from source:
-
-| Library | Pin | License |
-| --- | --- | --- |
-| x264 | `b35605ace3ddf7c1a5d67a2eb553f034aef41d55` | GPL-2.0-or-later |
-| x265 | 4.2 | GPL-2.0-or-later |
-| LAME | 3.100 | LGPL-2.0-or-later |
-| zlib | 1.3.1 | Zlib |
-
-The resulting FFmpeg programs report GPL v2 or later; nonfree components are
-forbidden. EnCAP itself remains GPL-3.0-only and invokes the programs as separate
-processes. Official guidance: https://ffmpeg.org/legal.html. Each application
-package contains the exact corresponding source archives (including libraries),
-licenses, recipe, configure arguments, toolchain record, source verification and
-pre/post-ad-hoc-sign binary hashes under `FFmpeg/`. This also makes source
-available wherever the application artifact is distributed. No source patches
-are applied. On Windows the recipe normalizes x265 4.2 generated pkg-config
-metadata: its CMake code incorrectly prefixes an existing `-l:libunwind.a`
-entry with another `-l`. The recipe corrects `-l-l:` to `-l:` and verifies a
-tiny statically linked x265 C ABI program before configuring FFmpeg. CMake
-receives the explicit native processor. Windows ARM64 uses x265 portable code
-(`ENABLE_ASSEMBLY=OFF`), matching the [MSYS2 x265 build policy](https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-x265/PKGBUILD);
-HEVC features remain enabled, while FFmpeg/x264 keep their own optimizations. OS system frameworks/libc remain system dependencies; Windows
-compiler runtimes must be linked statically. Windows uses the matching C++ linker. The Clang ARM64 build disables libc++
-DLL-import annotations for static x265 compilation,
-as required by the [libc++ build configuration](https://github.com/llvm/llvm-project/blob/main/libcxx/CMakeLists.txt).
-Installed compiler-runtime license texts are included alongside codec licenses;
-these cover GCC/libstdc++ (including the GCC Runtime Library Exception),
-libc++, libc++abi, libunwind, compiler-rt and MinGW runtime code as applicable. The linkage audit rejects codec or
-compiler DLL dependencies and Homebrew dylibs.
-
-## Building and upgrading
-
-Prerequisites: Bash, C/C++ compiler, make, CMake, NASM, pkg-config, jq, curl, tar,
-xz, Perl (`shasum`), GnuPG/gpgv. On macOS use Xcode and deployment target 13.0.
-Windows x64 uses MSYS2 UCRT64 with GCC/G++; Windows ARM64 uses CLANGARM64
-with Clang/Clang++. Both run on native builders. The Windows x64 Clang 22.1.8
-build reproduced an access violation in a 90x160 Gaussian blur operation, even
-with scalar CPU flags. GCC/UCRT passes the same nine isolated pipeline probes
-without disabling any codec, filter or optimization. This selects a tested
-compiler/runtime combination; it does not claim a proven compiler root cause.
-Linux uses the Ubuntu 24.04 toolchain, separately on x64 and ARM64. Package
-managers supply build tools only, never the distributed FFmpeg runtime.
-
-```
-bash script/prepare_ffmpeg.sh macos arm64
-bash script/prepare_ffmpeg.sh linux x86_64
-bash script/prepare_ffmpeg.sh windows arm64
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+python3 script/ffmpeg_build.py build macos-arm64 --clean
+./script/build_and_run.sh --verify
+./script/build_and_run.sh --package
 ```
 
-The native compiler architecture must match. `aarch64` is accepted as `arm64`.
-stdout contains only the built prefix; progress goes to stderr. The legacy
-`build_ffmpeg.sh`, `build_ffmpeg_linux.sh` and `fetch_ffmpeg.sh` entrypoints all
-call this same source recipe. `script/ffmpeg/stage.sh` verifies and packages the
-result. Normal macOS development and packaging use `script/build_and_run.sh`;
-Windows/Linux normal native CI uses the same source action and staging function.
-There is no qualification-only application, runtime feature or Core staging path.
+The same workflow runs native macOS ARM64/Intel, Windows x64/ARM64 and Linux
+x64/ARM64 builds. Windows uses UCRT64/GCC on x64 and CLANGARM64/Clang on ARM64,
+following ATIV. Compiler packages supply tools, not FFmpeg/codec binaries.
+macOS targets 13.0; Linux uses Ubuntu 24.04. Codec libraries are static; only
+platform/compiler system libraries may be dynamic.
 
-To upgrade, select a stable release from the official download page, verify its
-signature using the published fingerprint, update the version/tag/URL/SHA-256 in
-`dependencies.json`, and run the clean six-target workflow. Change library pins
-and hashes explicitly when updating them. Configuration changes belong in the
-record or versioned recipe, never undocumented local compiler flags. Existing
-project schemas, encoder identifiers and Core API calls are unchanged.
+The builder verifies every source archive's checksum and FFmpeg's upstream
+signature in an isolated keyring before building. It rejects unsafe archive
+entries, missing capabilities, incorrect executable architecture, unexpected
+versions and non-system linkage. It sets SOURCE_DATE_EPOCH, locale, deterministic
+archive settings, path maps and Windows timestamp flags as ATIV does. Assembly
+is disabled in the portable reference profile. Reproducibility means recorded,
+verified inputs and build commands; bit identity across SDK/toolchain versions
+is not promised.
 
-## Reproducibility and cache boundaries
+The exact cache fingerprint covers dependency/configuration, release key, both
+build scripts, target, actual compiler/toolchain/SDK/runner inputs. A restored
+payload is verified. There are no partial cache keys or binary-download fallbacks.
+`clean_ffmpeg=true` bypasses CI cache restore/save. `ENCAP_FFMPEG_RUNTIME` may select
+only a verified EnCAP source payload for packaging; it cannot select arbitrary binaries.
 
-`SOURCE_DATE_EPOCH=1789699562`, `TZ=UTC`, `LC_ALL=C`, `ZERO_AR_DATE=1`, prefix maps,
-no debug information, no host-native CPU tuning, no Windows PE timestamps, Apple linker reproducible mode, and
-static external libraries reduce variability. Build logs record every effective
-configure/CMake command. Per-target `toolchain.txt` records compiler, C++ compiler,
-assembler, linker, archiver, make, CMake, pkg-config, SDK/Xcode/deployment target,
-runner image and MSYS2 package versions (or Linux libc/binutils/compiler package
-versions). Build jobs are native for all six targets.
+Normal package assembly calls provision, stage, finish and validate. `build.json`
+records inputs, configure commands, toolchain, signature verification and original
+binary hashes. `payload.json` hashes source and metadata; `signed-payload.json`
+records post-signing executable hashes. `encap-runtime.json` binds these to the
+compiled Core/application identity. Both executables live beside `encap-engine`.
+Metadata lives in `Contents/Resources/FFmpeg` on macOS and `ffmpeg-runtime` beside
+the engine on Windows/Linux. The corresponding sources, signature, release key,
+build scripts and license texts travel in every package.
 
-The exact artifact cache key hashes target, dependency record, public key, the
-source build script and toolchain record. There are no prefix/partial restore keys.
-Cached files are verified by SHA-256 before reuse and again before staging.
-Recipe, FFmpeg, library, compiler, SDK and runner-image changes invalidate it.
-Build directories and downloads are not restored as compiled artifacts.
-Packaging/test-only edits do not force recompilation of unchanged FFmpeg sources.
+All modes use this one host-owned pair. Release engines ignore PATH and the
+`ENCAP_FFMPEG`/`ENCAP_FFPROBE` environment variables. Debug tests may explicitly
+supply both absolute paths; partial, missing or mismatched overrides fail.
+Core validates the explicit pair and owns Video media operations. Audio/Transcript
+retain their host workflows. Native project and ZIP schemas remain unchanged.
 
-`workflow_dispatch: clean_ffmpeg=true` bypasses restore/save and deletes the
-matching build/install trees. Locally use a third argument `clean`. Downloads
-may be reused only after their pinned checksum is checked; signatures are
-verified anew. Compare the two `runtime.json` binary digests from clean builds
-for repeatability. The recorded macOS ARM64 clean-repeat check is in
-`runtime/ffmpeg/repeat-macos-arm64.json`. In the `a1af987` repeat, ffprobe matched byte for byte; ffmpeg differed in
-Mach-O UUID/signature metadata, with executable payload unchanged. The later
-`d25bec9` repeat matched ffmpeg but differed for ffprobe; that hash-only comparison
-did not retain the first binary to identify its differing bytes. The current
-`de8c184` repeat matches ffmpeg exactly; ffprobe differs only in 16 UUID bytes
-and 32 code-signature bytes, with every other byte matching. An earlier repeat matched both binaries,
-so that result is not treated as a general guarantee of Apple linker bit identity.
-Bit identity across different toolchains/SDKs, OS patch levels
-checkout paths or signing identities is not promised. Configure provenance
-retains absolute build/install paths even though compiler prefix maps normalize
-source paths. Cache keys distinguish source, toolchain, SDK and runner-image
-changes; checkout paths are not a separate cache key input because the static
-runtime is relocatable. Recorded configure strings can still differ across
-checkout paths. Signing hashes are separate from source-build hashes.
+## Verification and updates
 
-## Discovery and acceptance
+Run `python3 script/test_ffmpeg_build.py`, all Cargo tests, and the normal package
+builder. `script/ffmpeg/qualify.sh` tests the actual packaged engine across all
+modes with PATH empty, real Whisper transcription, media probing, cancellation,
+project compatibility and preservation of outputs. `test_ffmpeg_runtime.py` tests
+relocation, altered Core/target provenance and missing/corrupt tools or manifests
+with usable tools on PATH. This test harness does not build a different application.
 
-The release engine resolves `ffmpeg[.exe]` and `ffprobe[.exe]` beside its own
-executable. Metadata is `Contents/Resources/FFmpeg/runtime.json` on macOS and
-`ffmpeg-runtime/runtime.json` beside the engine in portable packages. It requires the
-expected version/target/schema and SHA-256 of both binaries before any mode can
-use them. Missing/malformed/corrupt pairs fail with a reinstall message. Release
-engines ignore FFmpeg environment overrides and never search PATH. Debug builds
-allow an explicit absolute *pair* for process fixtures; an invalid override fails.
-Optional transcription helper discovery retains its existing behavior.
-
-`script/ffmpeg/qualify.sh <normal packaged engine>` runs real Audio, Transcript
-and Video operations, project save/reopen/recovery, codec/filter inventories,
-actual FFmpeg cancellation, real Whisper inference using the normal Transcript
-backend, and missing/corrupt tool/manifest tests while a working pair is on PATH.
-The engine subprocesses have PATH empty for media tests. The speech fixture comes
-from the pinned whisper.cpp checkout; the Base English test model is hash-checked
-and stored only in the ignored qualification cache, not shipped in the app.
-These tests use the release engine packaged with the ordinary native UI.
-Native app build/model checks remain in the workflow. Signing is ad-hoc only on
-macOS; no Developer ID/notarization credential is needed.
-
-For actual run results and limitations, see [verification results](ffmpeg-runtime-readiness.md).
-
-The manual `runtime-probes` workflow option isolates portrait filtering/encoding
-using fresh synthetic inputs and the same source recipe. It prints each command's
-exit status and fails if any probe fails; it does not read application logs or
-replace normal packaged-engine acceptance. Windows package jobs run these probes
-immediately after source compilation to detect runtime failures early.
+To update: verify the official release/signature, update the dependency record
+and source epoch, review ATIV reference changes, increment the recipe for build
+changes, and run the clean native matrix. Do not carry forward historical matrix
+results as evidence for a new recipe. See [current migration results](normal-runtime-migration.md).

@@ -21,7 +21,7 @@ Every package includes corresponding source archives, license texts, build
 recipe, source verification, configuration and toolchain information in its
 FFmpeg metadata folder (`Contents/Resources/FFmpeg` on macOS, `ffmpeg-runtime` beside
 the engine elsewhere). The versioned dependency record is
-`runtime/ffmpeg/dependencies.json`. See `docs/ffmpeg-source-runtime.md`.
+`runtime/ffmpeg/dependency.json`. See `docs/ffmpeg-source-runtime.md`.
 
 Upstream projects and licensing information:
 https://ffmpeg.org/legal.html
@@ -34,7 +34,7 @@ https://zlib.net/
 
 EnCap Video uses `avid-core` under GPL-3.0-only. Its license is distributed as
 `AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
-Pinned revision: eab97dd043187aa8b7a1cae4eb2c1228fa25a9db (v0.2.1).
+Pinned revision: 3fb68807bc7c350359e1634b32af477ea3042c16 (v0.3.0).
 
 ## whisper.cpp
 

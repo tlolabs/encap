@@ -4,7 +4,7 @@ pub use avid_core::{
     CancellationToken, Capabilities as VideoCapabilities,
     EncoderCapability as VideoEncoderCapability, Preset as VideoPreset, PRESETS,
 };
-use avid_core::{Clip, EventSink, Input, RenderRequest, Renderer, Timeline, ToolDiscovery};
+use avid_core::{Clip, EventSink, Input, RenderRequest, Renderer, Timeline};
 use encap_core::{Chapter, EncapError, ProjectDocument, Result};
 use encap_ffmpeg::MediaTools;
 use std::path::{Path, PathBuf};
@@ -13,18 +13,8 @@ fn renderer(cancellation: &CancellationToken) -> Result<Renderer> {
     if cancellation.is_cancelled() {
         return Err(EncapError::from(avid_core::Error::Cancelled));
     }
-    MediaTools::discover_with_validator(|host| {
-        let tools = avid_core::MediaTools::discover(
-            ToolDiscovery {
-                ffmpeg: Some(host.ffmpeg().to_path_buf()),
-                ffprobe: Some(host.ffprobe().to_path_buf()),
-                ..ToolDiscovery::default()
-            },
-            cancellation,
-        )
-        .map_err(EncapError::from)?;
-        Ok(Renderer::new(tools))
-    })
+    let host = MediaTools::discover_with_cancellation(cancellation)?;
+    Ok(Renderer::new(host.into_core()))
 }
 
 pub fn capabilities(cancellation: &CancellationToken) -> Result<VideoCapabilities> {

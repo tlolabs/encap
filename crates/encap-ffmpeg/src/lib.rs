@@ -5,21 +5,9 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-
-#[derive(Clone, Debug, Default)]
-pub struct CancellationToken(Arc<AtomicBool>);
-
-impl CancellationToken {
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-}
+mod runtime;
+pub use avid_core::CancellationToken;
 
 #[derive(Debug)]
 pub struct ProcessOutput {
@@ -29,50 +17,34 @@ pub struct ProcessOutput {
 }
 
 #[derive(Clone, Debug)]
-pub struct MediaTools {
-    ffmpeg: PathBuf,
-    ffprobe: PathBuf,
-}
+pub struct MediaTools(avid_core::MediaTools);
 
 impl MediaTools {
     pub fn discover() -> Result<Self> {
-        Self::discover_with_validator(|tools| {
-            tools.validate()?;
-            Ok(tools.clone())
-        })
+        Self::discover_with_cancellation(&CancellationToken::default())
     }
 
-    /// The same host resolution policy with caller-owned validation. Video uses
-    /// the shared cancellable validator; unrelated modes retain `discover()`.
-    pub fn discover_with_validator<T>(validate: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
-        let executable = std::env::current_exe()
-            .map_err(|e| EncapError::Message(format!("Cannot locate application: {e}")))?;
-        let directory = executable.parent().ok_or_else(runtime_error)?;
-        // Explicit fixtures are allowed only in debug builds. Packaged release
-        // engines always use their own pair, regardless of environment or PATH.
+    pub fn discover_with_cancellation(token: &CancellationToken) -> Result<Self> {
+        // Production release engines only use the packaged pair. Debug fixture
+        // overrides require both paths; they never fall back to PATH or a bundle.
         #[cfg(debug_assertions)]
-        if std::env::var_os("ENCAP_FFMPEG").is_some() || std::env::var_os("ENCAP_FFPROBE").is_some()
-        {
-            let tools = Self {
-                ffmpeg: explicit_tool("ENCAP_FFMPEG")?,
-                ffprobe: explicit_tool("ENCAP_FFPROBE")?,
-            };
-            return validate(&tools);
-        }
-        let tools = packaged_tools(directory)?;
-        validate(&tools)
+        let paths = (
+            std::env::var_os("ENCAP_FFMPEG").map(PathBuf::from),
+            std::env::var_os("ENCAP_FFPROBE").map(PathBuf::from),
+        );
+        #[cfg(not(debug_assertions))]
+        let paths = (None, None);
+        runtime::resolve(paths.0, paths.1, token).map(Self)
     }
 
     pub fn ffmpeg(&self) -> &Path {
-        &self.ffmpeg
+        self.0.ffmpeg()
     }
     pub fn ffprobe(&self) -> &Path {
-        &self.ffprobe
+        self.0.ffprobe()
     }
-
-    pub fn validate(&self) -> Result<()> {
-        validate_binary(&self.ffmpeg, "ffmpeg")?;
-        validate_binary(&self.ffprobe, "ffprobe")
+    pub fn into_core(self) -> avid_core::MediaTools {
+        self.0
     }
 }
 
@@ -82,6 +54,11 @@ pub fn run(
     cancellation: &CancellationToken,
     operation: &str,
 ) -> Result<ProcessOutput> {
+    if cancellation.is_cancelled() {
+        return Err(EncapError::Message(format!(
+            "{operation} was cancelled safely."
+        )));
+    }
     let stdout_file = tempfile::NamedTempFile::new().map_err(|source| EncapError::Write {
         path: executable.to_path_buf(),
         source,
@@ -113,13 +90,26 @@ pub fn run(
                 "{operation} was cancelled safely."
             )));
         }
-        if let Some(status) = child.try_wait().map_err(|source| {
-            EncapError::Message(format!("{operation} could not be monitored: {source}"))
-        })? {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(source) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(EncapError::Message(format!(
+                    "{operation} could not be monitored: {source}"
+                )));
+            }
+        };
+        if let Some(status) = status {
             break status;
         }
         std::thread::sleep(Duration::from_millis(50));
     };
+    if cancellation.is_cancelled() {
+        return Err(EncapError::Message(format!(
+            "{operation} was cancelled safely."
+        )));
+    }
     let stdout = fs::read(stdout_file.path()).unwrap_or_default();
     let stderr = fs::read(stderr_file.path()).unwrap_or_default();
     if !status.success() {
@@ -170,114 +160,12 @@ fn runtime_error() -> EncapError {
     )
 }
 
-#[cfg(debug_assertions)]
-fn explicit_tool(environment: &str) -> Result<PathBuf> {
-    std::env::var_os(environment)
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute() && p.is_file())
-        .ok_or_else(runtime_error)
-}
-
-#[derive(serde::Deserialize)]
-struct RuntimeManifest {
-    schema: u32,
-    version: String,
-    target: String,
-    binaries: BinaryHashes,
-}
-#[derive(serde::Deserialize)]
-struct BinaryHashes {
-    ffmpeg: String,
-    ffprobe: String,
-}
-
-fn packaged_tools(directory: &Path) -> Result<MediaTools> {
-    let metadata = if cfg!(target_os = "macos")
-        && directory.file_name().is_some_and(|n| n == "MacOS")
-        && directory
-            .parent()
-            .and_then(|p| p.file_name())
-            .is_some_and(|n| n == "Contents")
-    {
-        directory.join("../Resources/FFmpeg")
-    } else {
-        directory.join("ffmpeg-runtime")
-    };
-    let manifest: RuntimeManifest = serde_json::from_slice(
-        &fs::read(metadata.join("runtime.json")).map_err(|_| runtime_error())?,
-    )
-    .map_err(|_| runtime_error())?;
-    let dependencies: serde_json::Value =
-        serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependencies.json"))
-            .expect("checked-in FFmpeg dependency record");
-    let platform = if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(windows) {
-        "windows"
-    } else {
-        "linux"
-    };
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x86_64"
-    };
-    if manifest.schema != 1
-        || manifest.version != dependencies["ffmpeg"]["version"]
-        || manifest.target != format!("{platform}-{arch}")
-    {
-        return Err(runtime_error());
-    }
-    let suffix = if cfg!(windows) { ".exe" } else { "" };
-    let tools = MediaTools {
-        ffmpeg: directory.join(format!("ffmpeg{suffix}")),
-        ffprobe: directory.join(format!("ffprobe{suffix}")),
-    };
-    verify_hash(&tools.ffmpeg, &manifest.binaries.ffmpeg)?;
-    verify_hash(&tools.ffprobe, &manifest.binaries.ffprobe)?;
-    Ok(tools)
-}
-
-fn verify_hash(path: &Path, expected: &str) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut file = fs::File::open(path).map_err(|_| runtime_error())?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let length = file.read(&mut buffer).map_err(|_| runtime_error())?;
-        if length == 0 {
-            break;
-        }
-        hash.update(&buffer[..length]);
-    }
-    if format!("{:x}", hash.finalize()) != expected {
-        return Err(runtime_error());
-    }
-    Ok(())
-}
-
 fn find_on_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|value| {
         std::env::split_paths(&value)
             .map(|directory| directory.join(name))
             .find(|path| path.is_file())
     })
-}
-
-fn validate_binary(path: &Path, name: &str) -> Result<()> {
-    let output = run(
-        path,
-        &[OsString::from("-version")],
-        &CancellationToken::default(),
-        name,
-    )?;
-    if output.stdout.is_empty() && output.stderr.is_empty() {
-        return Err(EncapError::Message(format!(
-            "The bundled {name} tool is incompatible. Reinstall EnCap."
-        )));
-    }
-    Ok(())
 }
 
 pub fn os(value: impl AsRef<OsStr>) -> OsString {
@@ -289,61 +177,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn package_manifest_requires_complete_matching_pair() {
-        use sha2::{Digest, Sha256};
-        let directory = tempfile::tempdir().unwrap();
-        let metadata = directory.path().join("ffmpeg-runtime");
-        fs::create_dir(&metadata).unwrap();
-        let suffix = if cfg!(windows) { ".exe" } else { "" };
-        let ffmpeg = directory.path().join(format!("ffmpeg{suffix}"));
-        let ffprobe = directory.path().join(format!("ffprobe{suffix}"));
-        fs::write(&ffmpeg, b"source-built-ffmpeg").unwrap();
-        fs::write(&ffprobe, b"source-built-ffprobe").unwrap();
-        let deps: serde_json::Value =
-            serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependencies.json"))
-                .unwrap();
-        let platform = if cfg!(target_os = "macos") {
-            "macos"
-        } else if cfg!(windows) {
-            "windows"
-        } else {
-            "linux"
-        };
-        let arch = if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            "x86_64"
-        };
-        let good = serde_json::json!({
-            "schema": 1, "version": deps["ffmpeg"]["version"], "target": format!("{platform}-{arch}"),
-            "binaries": {
-                "ffmpeg": format!("{:x}", Sha256::digest(b"source-built-ffmpeg")),
-                "ffprobe": format!("{:x}", Sha256::digest(b"source-built-ffprobe"))
-            }
-        });
-        let path = metadata.join("runtime.json");
-        fs::write(&path, serde_json::to_vec(&good).unwrap()).unwrap();
-        let pair = packaged_tools(directory.path()).unwrap();
-        assert_eq!(pair.ffmpeg(), ffmpeg);
-        assert_eq!(pair.ffprobe(), ffprobe);
-        for (field, value) in [
-            ("schema", serde_json::json!(2)),
-            ("version", serde_json::json!("0.0.0")),
-            ("target", serde_json::json!("wrong-arch")),
-        ] {
-            let mut bad = good.clone();
-            bad[field] = value;
-            fs::write(&path, serde_json::to_vec(&bad).unwrap()).unwrap();
-            assert!(packaged_tools(directory.path()).is_err());
-        }
-        fs::write(&path, serde_json::to_vec(&good).unwrap()).unwrap();
-        fs::write(&ffprobe, b"different ffprobe").unwrap();
-        assert!(packaged_tools(directory.path()).is_err());
-        fs::remove_file(&ffprobe).unwrap();
-        assert!(packaged_tools(directory.path()).is_err());
-        fs::write(&ffprobe, b"source-built-ffprobe").unwrap();
-        fs::remove_file(&path).unwrap();
-        assert!(packaged_tools(directory.path()).is_err());
+    fn precancelled_operation_does_not_spawn() {
+        let token = CancellationToken::default();
+        token.cancel();
+        let error = run(Path::new("/missing/should-not-spawn"), &[], &token, "Test").unwrap_err();
+        assert!(error.to_string().contains("cancelled safely"));
     }
 
     #[cfg(unix)]

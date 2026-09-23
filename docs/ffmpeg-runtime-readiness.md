@@ -1,3 +1,7 @@
+> Historical evidence for the earlier implementation. Current architecture and
+> acceptance are recorded in [the 0.3.0 migration report](normal-runtime-migration.md).
+> These old results do not qualify the current source recipe.
+
 # EnCAP source-runtime verification
 
 FFmpeg source builds and normal packaged-engine Audio, Transcript and Video
@@ -16,7 +20,7 @@ run is therefore not green. No production release was published.
   pinned fingerprint `FCF986EA15E6E293A5644F10B4322F04D67658D8`. A locally
   corrupted source archive was rejected with a bad signature.
 - Machine-readable pins, external source hashes, configuration and recipe:
-  [`dependencies.json`](../runtime/ffmpeg/dependencies.json).
+  [historical dependency record](https://github.com/tlolabs/encap/blob/de8c184fd69607ec296db43f379a1b58f7a07e67/runtime/ffmpeg/dependencies.json).
 - Complete configuration, licensing, toolchain, cache and upgrade instructions:
   [source runtime](ffmpeg-source-runtime.md).
 - AVID Core remains at its existing Rust API and revision

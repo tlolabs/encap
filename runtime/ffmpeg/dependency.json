@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "recipe": 1,
+  "source": {
+    "version": "9.0.2",
+    "tag": "n9.0.2",
+    "git": "https://git.ffmpeg.org/ffmpeg.git",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "signature_url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz.asc",
+    "release_key_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8"
+  },
+  "source_date_epoch": 1789699562,
+  "external_libraries": {
+    "x264": {
+      "version": "stable-b35605a",
+      "revision": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+      "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9",
+      "license": "GPL-2.0-or-later",
+      "configure": [
+        "--enable-static",
+        "--enable-pic",
+        "--disable-cli",
+        "--disable-opencl",
+        "--disable-asm"
+      ]
+    },
+    "zlib": {
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "license": "Zlib",
+      "configure": [
+        "--static"
+      ]
+    },
+    "x265": {
+      "version": "4.2",
+      "url": "https://download.videolan.org/pub/videolan/x265/x265_4.2.tar.gz",
+      "sha256": "40b1ea0453e0309f0eba934e0ddf533f8f6295966679e8894e8f1c1c8d5e1210",
+      "license": "GPL-2.0-or-later",
+      "configure": [
+        "-DENABLE_SHARED=OFF",
+        "-DENABLE_CLI=OFF",
+        "-DENABLE_LIBNUMA=OFF",
+        "-DENABLE_PIC=ON",
+        "-DENABLE_ASSEMBLY=OFF",
+        "-DENABLE_SVE=OFF",
+        "-DENABLE_SVE2=OFF"
+      ]
+    },
+    "lame": {
+      "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "license": "LGPL-2.0-or-later",
+      "configure": [
+        "--disable-shared",
+        "--enable-static",
+        "--disable-frontend",
+        "--disable-decoder",
+        "--disable-dependency-tracking"
+      ]
+    }
+  },
+  "configure": [
+    "--disable-autodetect",
+    "--disable-shared",
+    "--enable-static",
+    "--disable-debug",
+    "--disable-doc",
+    "--disable-ffplay",
+    "--disable-network",
+    "--disable-devices",
+    "--enable-indev=lavfi",
+    "--disable-protocols",
+    "--enable-protocol=file,pipe",
+    "--disable-asm",
+    "--enable-gpl",
+    "--disable-version3",
+    "--disable-nonfree",
+    "--enable-libx264",
+    "--enable-zlib",
+    "--enable-ffmpeg",
+    "--enable-ffprobe",
+    "--enable-swscale",
+    "--enable-swresample",
+    "--enable-libx265",
+    "--enable-libmp3lame"
+  ],
+  "targets": {
+    "macos-arm64": {
+      "arch": "aarch64",
+      "os": "darwin",
+      "configure": [
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ],
+      "minimum_os": "13.0",
+      "cc": "clang"
+    },
+    "macos-x86_64": {
+      "arch": "x86_64",
+      "os": "darwin",
+      "configure": [
+        "--enable-videotoolbox",
+        "--enable-audiotoolbox"
+      ],
+      "minimum_os": "13.0",
+      "cc": "clang"
+    },
+    "windows-x86_64": {
+      "arch": "x86_64",
+      "os": "mingw32",
+      "configure": [],
+      "minimum_os": "Windows 10 1809",
+      "cc": "gcc"
+    },
+    "windows-arm64": {
+      "arch": "aarch64",
+      "os": "mingw32",
+      "configure": [],
+      "minimum_os": "Windows 10 1809",
+      "cc": "clang"
+    },
+    "linux-x86_64": {
+      "arch": "x86_64",
+      "os": "linux",
+      "configure": [],
+      "minimum_os": "Ubuntu 24.04",
+      "cc": "gcc"
+    },
+    "linux-arm64": {
+      "arch": "aarch64",
+      "os": "linux",
+      "configure": [],
+      "minimum_os": "Ubuntu 24.04",
+      "cc": "gcc"
+    }
+  }
+}
