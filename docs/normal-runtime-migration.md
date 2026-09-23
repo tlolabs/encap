@@ -65,6 +65,10 @@ EnCAP codec profile links glibc's system libmvec in addition to libm. Recipe 2
 allows that system library, retains rejection of dynamic codec dependencies,
 and records the C++ compiler version on every target. No upstream/Core patch
 or change to media behavior is required.
+Intel macOS also reproduced the pre-existing save-latency failure (509 ms after
+reopening versus the unchanged 250 ms limit). Normal package checks run before
+the additional complete Rust suite so this unrelated performance gate does not
+hide media acceptance; both checks remain required and failures still fail CI.
 The six-target native workflow verifies the committed migration. Earlier
 0.2.1 runtime results are historical and do not qualify this recipe. Until the
 new matrix completes, Windows/Linux and macOS Intel package acceptance remain
