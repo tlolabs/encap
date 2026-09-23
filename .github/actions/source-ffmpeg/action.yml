@@ -28,6 +28,7 @@ runs:
         key="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" key)"
         echo "key=$key" >> "$GITHUB_OUTPUT"
     - name: Restore exact source build
+      id: runtime-cache
       if: inputs.clean != 'true'
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
@@ -49,8 +50,13 @@ runs:
         mkdir -p .build-tools
         rm -rf .build-tools/ffmpeg-runtime
         cp -R "$prefix" .build-tools/ffmpeg-runtime
+        # As in ATIV, later packaging selects this verified payload explicitly.
+        # A different application build environment must not trigger a second source build.
+        runtime="$PWD/.build-tools/ffmpeg-runtime"
+        if [[ "$RUNNER_OS" == Windows ]]; then runtime="$(cygpath -w "$runtime")"; fi
+        echo "ENCAP_FFMPEG_RUNTIME=$runtime" >> "$GITHUB_ENV"
     - name: Save verified source build
-      if: inputs.clean != 'true'
+      if: inputs.clean != 'true' && steps.runtime-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: EnCAP/build/ffmpeg/${{ inputs.platform }}-${{ inputs.arch }}
@@ -62,3 +68,12 @@ runs:
         path: EnCAP/.build-tools/ffmpeg-runtime
         include-hidden-files: true
         if-no-files-found: error
+    - name: Preserve source build diagnostics
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: FFmpeg-build-evidence-${{ inputs.platform }}-${{ inputs.arch }}
+        path: |
+          EnCAP/build/ffmpeg-work/${{ inputs.platform }}-${{ inputs.arch }}/build.log
+          EnCAP/build/ffmpeg-work/${{ inputs.platform }}-${{ inputs.arch }}/ffmpeg/*/ffbuild/config.log
+        if-no-files-found: warn
