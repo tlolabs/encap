@@ -97,12 +97,12 @@ disabled.
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Cargo fetches AVID Core `v0.2.1` at immutable commit
-`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. No sibling checkout or Core runtime
+Cargo fetches AVID Core `v0.3.0` at immutable commit
+`3fb68807bc7c350359e1634b32af477ea3042c16`. No sibling checkout or Core runtime
 asset is required. EnCAP builds its own FFmpeg/ffprobe 9.0.2 from authenticated
 official source; see the [source runtime recipe](docs/ffmpeg-source-runtime.md)
 for toolchain prerequisites, licensing, caching and upgrades. The
-[six-target verification record](docs/ffmpeg-runtime-readiness.md) tracks completed
+[migration verification record](docs/normal-runtime-migration.md) tracks completed
 checks and remaining qualification blockers.
 Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
@@ -144,8 +144,9 @@ macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release
 steps and are never stored in the repository.
 
-The native-only policy check rejects tracked and local Python source, packaging
-files, and environments, including ignored leftovers. The macOS build runs it
+The native-only policy check rejects application Python source, packaging files
+and environments, including ignored leftovers. Python 3.12+ is used only for
+build/provisioning tests in `script/`, following ATIV; it is not an application dependency. The macOS build runs it
 before building. Third-party dependency caches are excluded from the local scan.
 Historical Python work remains available from the archive branch.
 

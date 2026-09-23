@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+avid-core.workspace = true
 encap-core = { path = "../encap-core" }
 tempfile.workspace = true
 tracing.workspace = true

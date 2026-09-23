@@ -24,23 +24,10 @@ fi
 cargo test --manifest-path "$ROOT/Cargo.toml" --locked -p encap-engine --test media_contract -- --ignored
 # Production discovery must also ignore poisoned explicit environment inputs.
 ENCAP_FFMPEG=/missing ENCAP_FFPROBE=/missing "$ENGINE" validate-tools
-TEMP="$(mktemp -d)"; trap 'rm -rf "$TEMP"' EXIT
-mkdir -p "$TEMP/ffmpeg-runtime"
-cp "$ENGINE" "$TEMP/encap-engine$SUFFIX"
 META="$BIN/ffmpeg-runtime"; [[ -d "$META" ]] || META="$BIN/../Resources/FFmpeg"
-cp "$META/runtime.json" "$TEMP/ffmpeg-runtime/"
-cp "$BIN/ffmpeg$SUFFIX" "$BIN/ffprobe$SUFFIX" "$TEMP/"
-# Release engine relocation uses the same ordinary portable layout as Windows/Linux.
-for damaged in ffmpeg ffprobe manifest; do
-  case "$damaged" in
-    manifest) victim="$TEMP/ffmpeg-runtime/runtime.json";;
-    *) victim="$TEMP/$damaged$SUFFIX";;
-  esac
-  mv "$victim" "$victim.saved"
-  if PATH="$BIN:$PATH" "$TEMP/encap-engine$SUFFIX" validate-tools; then echo "Accepted missing $damaged" >&2; exit 1; fi
-  printf 'damaged' > "$victim"
-  if PATH="$BIN:$PATH" "$TEMP/encap-engine$SUFFIX" validate-tools; then echo "Accepted corrupt $damaged" >&2; exit 1; fi
-  mv "$victim.saved" "$victim"
-done
-"$TEMP/encap-engine$SUFFIX" validate-tools
+TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$META/build.json")"
+python3 "$ROOT/script/ffmpeg_runtime.py" validate "$TARGET" --binary "$BIN" --metadata "$META"
+# Use the original source payload to test relocated packages and damage rejection.
+RUNTIME="${ENCAP_FFMPEG_RUNTIME:-$ROOT/build/ffmpeg/$TARGET}"
+python3 "$ROOT/script/test_ffmpeg_runtime.py" --engine "$ENGINE" --runtime "$RUNTIME" --target "$TARGET"
 printf 'Packaged discovery, all-mode contracts, and no-fallback rejection passed.\n'

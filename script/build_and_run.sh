@@ -165,7 +165,7 @@ fi
 cp "$RUST_ENGINE" "$ENGINE_BINARY"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/THIRD_PARTY_NOTICES.md"
 cp "$ROOT_DIR/runtime/AVID_CORE_LICENSE.txt" "$APP_RESOURCES/AVID_CORE_LICENSE.txt"
-"$FFMPEG_INSTALL_DIR/bin/ffmpeg" -buildconf > "$APP_RESOURCES/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
+"$FFMPEG_INSTALL_DIR/ffmpeg" -buildconf > "$APP_RESOURCES/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
 ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
 chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/tlolabs/encap/releases/latest/download/appcast-$ENCAP_PLATFORM_NAME.xml" "$INFO_PLIST"

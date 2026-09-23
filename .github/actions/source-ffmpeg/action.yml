@@ -31,7 +31,7 @@ runs:
       if: inputs.clean != 'true'
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
-        path: EnCAP/.build-tools/encap-ffmpeg/${{ steps.fingerprint.outputs.key }}
+        path: EnCAP/build/ffmpeg/${{ inputs.platform }}-${{ inputs.arch }}
         key: encap-source-ffmpeg-${{ steps.fingerprint.outputs.key }}
     - name: Compile or verify cached runtime
       shell: ${{ inputs.shell }}
@@ -52,7 +52,7 @@ runs:
       if: inputs.clean != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
-        path: EnCAP/.build-tools/encap-ffmpeg/${{ steps.fingerprint.outputs.key }}
+        path: EnCAP/build/ffmpeg/${{ inputs.platform }}-${{ inputs.arch }}
         key: encap-source-ffmpeg-${{ steps.fingerprint.outputs.key }}
     - name: Upload source, provenance, and native binaries
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

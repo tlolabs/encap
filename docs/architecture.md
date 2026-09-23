@@ -14,14 +14,17 @@ The three user modes are separate crates and do not depend on one another.
 `encap-ffmpeg` is deliberately narrow: it locates and validates bundled tools,
 passes arguments without a shell, drains output without pipe deadlocks, records
 diagnostics, and terminates child processes on cancellation for Audio/Transcript.
-Video uses its resolution policy through `discover_with_validator`, then passes both
-resolved getters as explicit shared overrides. This avoids uncancellable duplicate
-validation. EnCAP verifies its packaged manifest and both hashes before passing
-explicit paths. Release builds never use environment or PATH FFmpeg. Debug-only
-fixture overrides must name a valid absolute pair. AVID Core owns Video tool
-validation, probing, capabilities and rendering; EnCAP owns runtime acquisition
-and application packaging.
-One signal handler cancels the retained Audio/Transcript token and a shared Video token.
+Every mode verifies the host dependency record, recipe digest, target, Core identity,
+original/post-sign hashes, and FFmpeg version before using the packaged pair.
+Core's explicit `MediaTools::from_paths` validates both tools with the operation's
+cancellation token. Video receives that same validated pair without rediscovery.
+Release builds never use environment or PATH FFmpeg. Debug fixture overrides
+require both absolute paths; invalid, partial or mismatched pairs fail.
+AVID Core owns Video probing, capabilities, graphs and rendering. Audio export,
+Transcript providers, native WAV/AIFF parsing, waveform/editing and project archives
+remain EnCAP responsibilities. One Core cancellation token connects the signal
+handler to all three modes; EnCAP's Audio/Transcript runner still owns and reaps
+its processes. No Core runtime release, helper checkout or qualification app exists.
 
 All three native applications use the `encap-engine` JSON process boundary.
 JSON keys use

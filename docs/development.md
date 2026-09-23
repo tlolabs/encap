@@ -20,10 +20,10 @@ The three mode crates are siblings. Do not add dependencies between them. Video
 media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavior
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
-Cargo consumes AVID Core `v0.2.1` from Git, pinned to immutable revision
-`eab97dd043187aa8b7a1cae4eb2c1228fa25a9db`. No sibling source checkout is
+Cargo consumes AVID Core `v0.3.0` from Git, pinned to immutable revision
+`3fb68807bc7c350359e1634b32af477ea3042c16`. No sibling source checkout is
 required. EnCAP builds, verifies and packages its own FFmpeg/ffprobe runtime.
-The Core API and revision remain unchanged in this migration.
+The exact Core version, revision and Cargo source are available from `encap-engine build-info`.
 
 
 ## Engine protocol
@@ -34,7 +34,7 @@ shell fragments. One JSON value is written to stdout. Success exits zero; failur
 exits nonzero and writes `{ "error": "plain-language message" }` to stdout while
 detailed diagnostics remain in the local rotating log.
 
-Commands are `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
+Commands are `build-info`, `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
 `video-capabilities`, `export-transcript`,
 `transcribe`, `providers`, `models`, `install-model`, `remove-model`, and
 `validate-tools`, plus `save-recovery`, `load-recovery`, and `clear-recovery`
@@ -278,7 +278,7 @@ EnCAP owns the verified source recipe, dependency pins and package metadata.
 See [FFmpeg source runtime](ffmpeg-source-runtime.md) for six-target native builds,
 clean qualification, cache invalidation, provenance, licensing and upgrades.
 There is no dependency on a sibling Core checkout or Core runtime publication.
-The pinned Cargo dependency and its Video API remain unchanged.
+The pinned dependency is the same source-library commit as ATIV; the Video API preserves EnCAP behavior.
 
 Run all media/discovery checks on the normal packaged release engine:
 
