@@ -49,9 +49,8 @@ Video's timing, encoder selection, and composition rules are documented in
 | Linux ARM64 | `EnCap-<version>-linux-arm64.tar.gz` | GTK 4 + libadwaita 1 |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. macOS builds are currently ad-hoc signed while Developer
-ID signing and notarization are being prepared. If macOS blocks a first launch,
-Control-click EnCap, choose **Open**, and confirm once.
+to install media tools. Starting with 2.0.3, release downloads for both Mac
+architectures are Developer ID signed and notarized by Apple.
 
 ## Features
 
@@ -138,8 +137,12 @@ artifacts, and the engine protocol. The project format is specified in
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
 version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64/ARM64 packages. Tagged
-runs additionally publish checksummed release assets and signed update metadata.
+and tests platform packages. Before tagging, upload Developer ID-signed and
+notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.dmg`
+to the draft release, and commit their final checksums in
+`runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
+x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those
+checksums, then publish all six packages and signed update metadata.
 macOS uses Sparkle with architecture-specific appcasts. Developer ID,
 notarization, and the private update-signing key remain credential-gated release
 steps and are never stored in the repository.

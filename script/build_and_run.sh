@@ -9,7 +9,8 @@ SPARKLE_SHA256="52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192
 WHISPER_CPP_VERSION="v1.9.1"
 WHISPER_CPP_COMMIT="f049fff95a089aa9969deb009cdd4892b3e74916"
 
-NATIVE_ARCH="$(uname -m)"
+HOST_ARCH="$(uname -m)"
+NATIVE_ARCH="${ENCAP_BUILD_ARCH:-$HOST_ARCH}"
 case "$NATIVE_ARCH" in
   arm64) DMG_ARCH_LABEL="arm64" ;;
   x86_64) DMG_ARCH_LABEL="intel" ;;
@@ -23,6 +24,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$ROOT_DIR/script/check_no_python.sh"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
+if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
+  APP_BUNDLE="$ROOT_DIR/dist/$DMG_ARCH_LABEL/EnCap.app"
+fi
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
@@ -31,17 +35,23 @@ APP_BINARY="$APP_MACOS/EnCap"
 ENGINE_BINARY="$APP_MACOS/encap-engine"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 XCODE_PROJECT="$ROOT_DIR/macos/EnCap.xcodeproj"
-XCODE_BUILD_DIR="$ROOT_DIR/build/xcode"
+XCODE_BUILD_DIR="$ROOT_DIR/build/xcode-$NATIVE_ARCH"
 XCODE_APP="$XCODE_BUILD_DIR/Build/Products/Release/EnCap.app"
 RUST_ENGINE="$ROOT_DIR/target/release/encap-engine"
+RUST_TARGET_ARGS=()
+if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
+  RUST_TARGET_ARGS=(--target "$NATIVE_ARCH-apple-darwin")
+  RUST_ENGINE="$ROOT_DIR/target/$NATIVE_ARCH-apple-darwin/release/encap-engine"
+fi
 SPARKLE_DIR="$ROOT_DIR/.sparkle"
 SPARKLE_VERSION_DIR="$SPARKLE_DIR/$SPARKLE_VERSION"
 SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle-$SPARKLE_VERSION.tar.xz"
 SPARKLE_FRAMEWORK="$SPARKLE_VERSION_DIR/Sparkle.framework"
 PUBLIC_KEY_FILE="$ROOT_DIR/.encap-update-public-key"
 WHISPER_CPP_DIR="$ROOT_DIR/.whisper-cpp"
-APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/apple-transcriber"
-APPLE_AAC_INFO="$ROOT_DIR/.build-tools/apple-aac-info"
+WHISPER_BUILD_DIR="$WHISPER_CPP_DIR/build-$NATIVE_ARCH"
+APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/$NATIVE_ARCH/apple-transcriber"
+APPLE_AAC_INFO="$ROOT_DIR/.build-tools/$NATIVE_ARCH/apple-aac-info"
 WHISPERKIT_PACKAGE="$ROOT_DIR/helpers/whisperkit_transcriber"
 WHISPERKIT_BUILD_DIR="$ROOT_DIR/.build-tools/whisperkit-transcriber-build"
 WHISPERKIT_TRANSCRIBER="$ROOT_DIR/.build-tools/whisperkit-transcriber"
@@ -78,7 +88,7 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 APP_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)"
 UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
 ENCAP_PLATFORM_NAME="macos-$DMG_ARCH_LABEL"
-FFMPEG_INSTALL_DIR="$("$ROOT_DIR/script/build_ffmpeg.sh" | tail -n 1)"
+FFMPEG_INSTALL_DIR="$("$ROOT_DIR/script/prepare_ffmpeg.sh" macos "$NATIVE_ARCH" | tail -n 1)"
 
 mkdir -p "$SPARKLE_DIR"
 if [[ ! -f "$SPARKLE_ARCHIVE" ]]; then
@@ -111,7 +121,7 @@ test -x "$XCODE_APP/Contents/MacOS/EnCap"
 
 cd "$ROOT_DIR"
 RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-adhoc_codesign" \
-  "$CARGO" build --locked --release --package encap-engine
+  "$CARGO" build --locked --release --package encap-engine ${RUST_TARGET_ARGS[@]+"${RUST_TARGET_ARGS[@]}"}
 test -x "$RUST_ENGINE"
 has_linker_signature "$RUST_ENGINE"
 
@@ -121,22 +131,24 @@ if [[ ! -d "$WHISPER_CPP_DIR/.git" ]]; then
 fi
 test "$(git -C "$WHISPER_CPP_DIR" describe --tags --exact-match)" = "$WHISPER_CPP_VERSION"
 test "$(git -C "$WHISPER_CPP_DIR" rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
-cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_CPP_DIR/build" \
+cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_BUILD_DIR" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES="$NATIVE_ARCH" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
   -DCMAKE_EXE_LINKER_FLAGS="-Wl,-adhoc_codesign" \
   -DBUILD_SHARED_LIBS=OFF \
   -DGGML_NATIVE=OFF \
   -DGGML_OPENMP=OFF \
   -DWHISPER_BUILD_TESTS=OFF \
   -DWHISPER_BUILD_SERVER=OFF
-cmake --build "$WHISPER_CPP_DIR/build" --config Release --target whisper-cli
-has_linker_signature "$WHISPER_CPP_DIR/build/bin/whisper-cli"
+cmake --build "$WHISPER_BUILD_DIR" --config Release --target whisper-cli
+has_linker_signature "$WHISPER_BUILD_DIR/bin/whisper-cli"
 
 mkdir -p "$(dirname "$APPLE_TRANSCRIBER")"
-DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O -target "$NATIVE_ARCH-apple-macosx13.0" \
   "$ROOT_DIR/helpers/apple_transcriber.swift" -Xlinker -adhoc_codesign \
   -o "$APPLE_TRANSCRIBER"
-DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O \
+DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O -target "$NATIVE_ARCH-apple-macosx13.0" \
   "$ROOT_DIR/helpers/apple_aac_info.swift" -Xlinker -adhoc_codesign \
   -o "$APPLE_AAC_INFO"
 has_linker_signature "$APPLE_TRANSCRIBER"
@@ -157,6 +169,7 @@ if [[ "$NATIVE_ARCH" == "arm64" ]]; then
 fi
 
 rm -rf "$APP_BUNDLE"
+mkdir -p "$(dirname "$APP_BUNDLE")"
 ditto "$XCODE_APP" "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 if [[ ! -s "$APP_RESOURCES/AppIcon.icns" ]]; then
@@ -174,7 +187,7 @@ chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$INFO_PLIST"
 
 bash "$ROOT_DIR/script/ffmpeg/stage.sh" "$FFMPEG_INSTALL_DIR" "$APP_MACOS" "$APP_RESOURCES/FFmpeg"
-cp "$WHISPER_CPP_DIR/build/bin/whisper-cli" "$APP_MACOS/whisper-cli"
+cp "$WHISPER_BUILD_DIR/bin/whisper-cli" "$APP_MACOS/whisper-cli"
 cp "$APPLE_TRANSCRIBER" "$APP_MACOS/apple-transcriber"
 cp "$APPLE_AAC_INFO" "$APP_MACOS/apple-aac-info"
 chmod +x "$APP_MACOS/whisper-cli" "$APP_MACOS/apple-transcriber" "$APP_MACOS/apple-aac-info"
@@ -206,7 +219,14 @@ file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 bash "$ROOT_DIR/script/ffmpeg/qualify.sh" "$ENGINE_BINARY"
 ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_REQUIRE_CLONING=1 \
   "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
-DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift"
+if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
+  # This Xcode's SwiftPM launcher may be host-only; XCTest itself is universal.
+  DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build --build-tests --arch "$NATIVE_ARCH" --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH"
+  TEST_BIN_DIR="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build --show-bin-path --arch "$NATIVE_ARCH" --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH")"
+  arch -"$NATIVE_ARCH" "$XCODE_DEVELOPER_DIR/usr/bin/xctest" "$TEST_BIN_DIR/EnCapNativePackageTests.xctest"
+else
+  DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH"
+fi
 ! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
 
 open_app() {

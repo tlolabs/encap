@@ -69,6 +69,34 @@ The deployment target is macOS 13. The CI matrix builds both Intel and Apple
 silicon artifacts. Packaging uses `--package` to create an architecture-labeled
 DMG.
 
+To cross-build Intel on Apple silicon, install the `x86_64-apple-darwin`
+Rust target and Rosetta, and provide an EnCAP Intel FFmpeg source artifact
+matching the current recipe. The build verifies its provenance and checksums:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+ENCAP_BUILD_ARCH=x86_64 \
+ENCAP_FFMPEG_RUNTIME="$PWD/build/intel-ffmpeg-runtime" \
+./script/build_and_run.sh --package
+```
+
+The cross-built app is staged at `dist/intel/EnCap.app`; its tests run under
+Rosetta. Physical Intel hardware testing remains a separate validation step.
+WhisperKit is Apple-silicon-only; Intel packages retain whisper.cpp and the
+Apple Speech helper.
+
+Sign the tested Intel bundle and notarize using a saved Keychain profile:
+
+```bash
+ENCAP_APP_BUNDLE="$PWD/dist/intel/EnCap.app" \
+ENCAP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+ENCAP_NOTARY_PROFILE=EnCAP \
+./script/sign_macos_release.sh
+```
+
+The signing script derives the disk-image architecture from the app executable,
+signs nested helpers, refreshes media hashes, and verifies the notarized DMG.
+
 ## Windows
 
 The WinUI 3 application is under `windows/EnCap`. CI publishes self-contained
