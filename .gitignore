@@ -11,6 +11,7 @@ build/
 dist/
 target/
 .DS_Store
+signpath-readiness.local.md
 
 # Native .NET build outputs.
 windows/**/bin/

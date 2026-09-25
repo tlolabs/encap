@@ -1,0 +1,16 @@
+name: Security report
+description: Redirect a vulnerability report to private reporting
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not post vulnerability details in a public issue.
+        Use [private vulnerability reporting](https://github.com/tlolabs/encap/security/advisories/new).
+        If it is unavailable, open a non-sensitive issue requesting private contact.
+  - type: checkboxes
+    id: redirect
+    attributes:
+      label: Private reporting
+      options:
+        - label: I understand that vulnerability details belong in private reporting.
+          required: true

@@ -18,6 +18,8 @@
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>EnCap</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © Thomas Lothian.</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -16,6 +16,8 @@ edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-only"
 repository = "https://github.com/tlolabs/encap"
+homepage = "https://github.com/tlolabs/encap"
+authors = ["Thomas Lothian"]
 
 [workspace.dependencies]
 # Same approved source-library commit as ATIV.

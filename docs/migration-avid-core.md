@@ -18,8 +18,8 @@ cross-repository audit.
 - `c23cc25`: preserve unknown Transcript word extensions through native round trips.
 - `0b33613`: mixed WAV/AIFF format and sample-rate verification.
 - Packaging, CI, notices, and this report are committed separately after those changes.
-- Exact shared revision: **`0cce6ba838827d0bed540efc98731e74a1014456`** at
-  `/Users/tlothian/Documents/Projects/AVID Core`.
+- Exact shared revision: **`0cce6ba838827d0bed540efc98731e74a1014456`**
+  in the local AVID Core checkout used for that migration.
 - The standalone app's migration report and workspace dependency resolve to that
   same revision. Its HEAD is `17dc43c72509e455d3d5a71b9a2eb086a28f4121`.
   Its source and pre-existing untracked `assets/` were not changed. AVID Core is
