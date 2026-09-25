@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "targets": {
+    "macos": {
+      "architectures": ["arm64", "x64"],
+      "minimum_os": "13.0",
+      "personally_tested": ["arm64"],
+      "ci_validated": ["arm64", "x64"]
+    },
+    "windows": {
+      "architectures": ["x64", "arm64"],
+      "minimum_os": "Windows 10 1809",
+      "minimum_build": "10.0.17763.0",
+      "personally_tested": [],
+      "ci_validated": ["x64", "arm64"]
+    },
+    "linux": {
+      "architectures": ["x64", "arm64"],
+      "validated_baseline": "Ubuntu 24.04",
+      "gtk_minimum": "4.10",
+      "libadwaita_minimum": "1.4",
+      "personally_tested": [],
+      "ci_validated": ["x64", "arm64"]
+    }
+  }
+}

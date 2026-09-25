@@ -11,6 +11,8 @@ pre-2.0 Python implementation is preserved on the
 [`archive/python-legacy`](https://github.com/tlolabs/encap/tree/archive/python-legacy)
 branch and is not part of current development or releases.
 
+A TLO Labs open-source project. Maintained by Thomas Lothian.
+
 ## Architecture
 
 EnCap has three peer application modes over one shared project format:
@@ -31,7 +33,7 @@ and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess executio
 Video delegates media work to the pinned `avid-core` crate. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
 GTK 4/libadwaita applications thin and crash-isolated. See
-[`docs/architecture.md`](docs/architecture.md).
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 Video's timing, encoder selection, and composition rules are documented in
 [`docs/video-mode.md`](docs/video-mode.md).
 
@@ -41,16 +43,27 @@ Video's timing, encoder selection, and composition rules are documented in
 
 | Platform | Release file | Baseline |
 | --- | --- | --- |
-| Apple silicon Mac | `EnCap-<version>-macos-arm64.dmg` | macOS 13 |
-| Intel Mac | `EnCap-<version>-macos-intel.dmg` | macOS 13 |
-| Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
-| Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
-| Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
-| Linux ARM64 | `EnCap-<version>-linux-arm64.tar.gz` | GTK 4 + libadwaita 1 |
+| macOS (ARM64) | `EnCap-<version>-macos-arm64.dmg` | macOS 13; primarily personally tested; CI build/test validated |
+| macOS (x64) | `EnCap-<version>-macos-intel.dmg` | macOS 13; CI build/test validated |
+| Windows (x64) | `EnCap-<version>-windows-x64.zip` | Windows 10 1809; CI build/test validated |
+| Windows (ARM64) | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809; CI build/test validated |
+| Linux (x64) | `EnCap-<version>-linux-x64.tar.gz` | Ubuntu 24.04 build baseline; CI build/test validated |
+| Linux (ARM64) | `EnCap-<version>-linux-arm64.tar.gz` | Ubuntu 24.04 build baseline; CI build/test validated |
 
-Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. Starting with 2.0.3, release downloads for both Mac
-architectures are Developer ID signed and notarized by Apple.
+These are the current release filename formats; future releases are planned
+as lowercase macOS ZIPs, Windows ZIPs, and Linux AppImages. Every package
+contains its own tested `ffmpeg` and `ffprobe`; users do not need to install
+media tools. Starting with 2.0.3, release downloads for both macOS targets
+are Developer ID signed and notarized by Apple.
+
+Open the macOS DMG and copy EnCap to Applications; remove the app and its
+optional local models/logs to uninstall. On Windows, extract the portable ZIP
+and run EnCap; delete the extracted folder to uninstall. On Linux, extract the
+tarball and run the included application; delete the extracted folder to
+uninstall. Remove projects and exports separately only if you no longer need
+them. Check [GitHub Releases](https://github.com/tlolabs/encap/releases)
+for downloads and updates. The macOS app can check GitHub for updates through
+Sparkle; accepting an installation requires user action.
 
 ## Features
 
@@ -86,7 +99,7 @@ network fallback.
 The model manager currently offers Base English, Small, and Large v3 Turbo.
 Removing a model deletes only EnCap's catalog-owned file. On supported Macs,
 EnCap first reuses a compatible Superwhisper model after size and full SHA-256
-verification. Apple-silicon Macs running macOS 14 or newer can also reuse a
+verification. macOS (ARM64) systems running macOS 14 or newer can also reuse a
 structurally validated local WhisperKit package installed by Whisper
 Transcription (MacWhisper); the helper is forced into offline mode and copies
 only small tokenizer metadata into a private temporary directory. While a
@@ -129,23 +142,19 @@ cargo test --workspace --locked
 ./script/check_no_python.sh
 ```
 
-See [`docs/development.md`](docs/development.md) for platform builds, release
-artifacts, and the engine protocol. The project format is specified in
+See [`docs/BUILDING.md`](docs/BUILDING.md) and
+[`docs/TESTING.md`](docs/TESTING.md) for platform builds and checks.
+[`docs/development.md`](docs/development.md) retains detailed commands and the
+engine protocol. The project format is specified in
 [`docs/project-format.md`](docs/project-format.md).
 
 ## Release process
 
-Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests platform packages. Before tagging, upload Developer ID-signed and
-notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.dmg`
-to the draft release, and commit their final checksums in
-`runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
-x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those
-checksums, then publish all six packages and signed update metadata.
-macOS uses Sparkle with architecture-specific appcasts. Developer ID,
-notarization, and the private update-signing key remain credential-gated release
-steps and are never stored in the repository.
+GitHub Releases are the direct download and macOS update source. The current
+release workflow has signing and packaging gaps against the intended stable
+release policy. See [Releasing](docs/RELEASING.md) and the
+[code signing policy](CODE_SIGNING_POLICY.md) before preparing a new tag.
+macOS uses Sparkle with architecture-specific GitHub Release appcasts.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for
@@ -159,4 +168,13 @@ EnCap supports practical student media workflows. It is shared publicly for
 transparency, reciprocity, and educational use, without warranty or guaranteed
 support. Bug reports and pull requests are welcome.
 
-GNU General Public License v3.0. See [`LICENSE`](LICENSE).
+Copyright © Thomas Lothian.
+
+The current project declaration is GNU General Public License v3.0 only.
+See [`LICENSE`](LICENSE) and the
+[licensing audit](docs/LICENSING_AUDIT.md) before changing it.
+
+Read [Privacy](PRIVACY.md), [Security](SECURITY.md),
+[Support](SUPPORT.md), [Contributing](CONTRIBUTING.md), the
+[Code of Conduct](CODE_OF_CONDUCT.md), and
+[Third-Party Notices](THIRD_PARTY_NOTICES.md).

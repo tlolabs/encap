@@ -15,6 +15,12 @@
     <Version>2.0.3</Version>
     <AssemblyVersion>2.0.3.0</AssemblyVersion>
     <FileVersion>2.0.3.0</FileVersion>
+    <Authors>Thomas Lothian</Authors>
+    <Company>TLO Labs</Company>
+    <Copyright>Copyright © Thomas Lothian.</Copyright>
+    <PackageProjectUrl>https://github.com/tlolabs/encap</PackageProjectUrl>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>A TLO Labs open-source project.</Description>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>

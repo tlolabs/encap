@@ -1,0 +1,61 @@
+name: Development macOS ARM64
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  development:
+    name: Development macOS arm64
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: EnCAP
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: EnCAP
+      - name: Install source build prerequisites
+        run: |
+          brew install nasm cmake pkg-config gnupg jq
+          python3 -c 'import sys; assert sys.version_info >= (3, 12)'
+      - name: Build pinned source FFmpeg
+        uses: ./EnCAP/.github/actions/source-ffmpeg
+        with:
+          platform: macos
+          arch: arm64
+          clean: 'false'
+      - name: Configure development update key
+        run: printf '%s\n' 'development-build-no-update-key' > .encap-update-public-key
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Build and test development app
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: |
+          ./script/build_and_run.sh --package
+          cargo test --workspace --locked --all-features
+          codesign --verify --deep --strict dist/EnCap.app
+      - name: Package unsupported development build
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          mkdir -p dist/development
+          ditto dist/EnCap.app dist/development/EnCap.app
+          printf '%s\n' 'Unsupported EnCap development build from main.' \
+            'This build is not production signed and receives no support guarantee.' \
+            "Commit: $GITHUB_SHA" > dist/development/DEVELOPMENT_BUILD.txt
+          ditto -c -k --sequesterRsrc --keepParent dist/development "dist/encap-$version-macos-arm64.zip"
+      - name: Retain development package for 30 days
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-development-macos-arm64-${{ github.run_number }}
+          path: EnCAP/dist/encap-*-macos-arm64.zip
+          retention-days: 30
+          if-no-files-found: error

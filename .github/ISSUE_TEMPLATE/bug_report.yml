@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible EnCap problem
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: For vulnerabilities, use the private reporting link in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: EnCap version
+      placeholder: 2.0.3
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (ARM64)
+        - macOS (x64)
+        - Windows (x64)
+        - Windows (ARM64)
+        - Linux (x64)
+        - Linux (ARM64)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include expected and actual behavior. Remove private paths or content from logs.
+    validations:
+      required: true
