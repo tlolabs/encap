@@ -13,6 +13,9 @@ python3 script/check_project_metadata.py
 ./script/check_no_python.sh
 ```
 
+Pull requests from forks also check each contributed commit for a DCO
+`Signed-off-by:` trailer.
+
 The native CI workflow also builds and tests macOS (ARM64/x64),
 Windows (x64/ARM64), and Linux (x64/ARM64), including platform UI and
 packaged media checks where its jobs run. A passing CI build is distinct from
