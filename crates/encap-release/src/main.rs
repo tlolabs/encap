@@ -102,13 +102,13 @@ fn main() -> Result<()> {
         ),
         (
             "macos-arm64",
-            format!("EnCap-{}-macos-arm64.dmg", args.version),
-            "dmg",
+            format!("EnCap-{}-macos-arm64.zip", args.version),
+            "zip",
         ),
         (
             "macos-intel",
-            format!("EnCap-{}-macos-intel.dmg", args.version),
-            "dmg",
+            format!("EnCap-{}-macos-intel.zip", args.version),
+            "zip",
         ),
         (
             "windows-arm64",

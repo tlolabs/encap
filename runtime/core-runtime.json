@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "repository": "tlolabs/avid-core",
+  "revision": "25d19098a22936638b0e2a70616083d929fe409c",
+  "run_id": 36681249099,
+  "targets": {
+    "linux-arm64": {
+      "artifact": "core-runtime-candidate-linux-arm64",
+      "archive": "avid-ffmpeg-9.0.1-r7-linux-arm64.tar.gz",
+      "sha256": "e82a07489af1f3849ea11afb60d4f26a4e614fe6b7db060bc8ebee1a3ef712b7",
+      "checksums_sha256": "55a9aa7a8930c792e7b4fb27c4db69a10b281d4979e8a33185e8b89bc455abb4",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-linux-arm64-sources.tar.gz",
+      "source_sha256": "c503062553835dd72733cfa928fd17b46ba8ec680ed71937e1e207fbdcf5c880"
+    },
+    "linux-x86_64": {
+      "artifact": "core-runtime-candidate-linux-x86_64",
+      "archive": "avid-ffmpeg-9.0.1-r7-linux-x86_64.tar.gz",
+      "sha256": "b340eafb68bc36dd77564eeb55c444a1ca5ee257d8d21b36a01f43042211d5dd",
+      "checksums_sha256": "0c307a756397c218e595eb87ab4eb41faa332af1010c82016a15e54628333c52",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-linux-x86_64-sources.tar.gz",
+      "source_sha256": "c503062553835dd72733cfa928fd17b46ba8ec680ed71937e1e207fbdcf5c880"
+    },
+    "macos-arm64": {
+      "artifact": "core-runtime-candidate-macos-arm64",
+      "archive": "avid-ffmpeg-9.0.1-r7-macos-arm64.tar.gz",
+      "sha256": "aa0d10d2cc6b2f352e6f8448baadc6d03fd96f012d578cf37e331da5bfc70a39",
+      "checksums_sha256": "465ea3596c4678dc91e52c9cce25660e26dcceb997e9f80af02dc9be6aad3a8d",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-macos-arm64-sources.tar.gz",
+      "source_sha256": "c503062553835dd72733cfa928fd17b46ba8ec680ed71937e1e207fbdcf5c880"
+    },
+    "macos-x86_64": {
+      "artifact": "core-runtime-candidate-macos-x86_64",
+      "archive": "avid-ffmpeg-9.0.1-r7-macos-x86_64.tar.gz",
+      "sha256": "cad5247e34590c58458b767cf62cdf21e96ed9a3ece71f037aafb19142993da8",
+      "checksums_sha256": "38961c0ad63540067a388d9823815e895979396603c23c2fa594fdb0b9c9d3f8",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-macos-x86_64-sources.tar.gz",
+      "source_sha256": "c503062553835dd72733cfa928fd17b46ba8ec680ed71937e1e207fbdcf5c880"
+    },
+    "windows-arm64": {
+      "artifact": "core-runtime-candidate-windows-arm64",
+      "archive": "avid-ffmpeg-9.0.1-r7-windows-arm64.tar.gz",
+      "sha256": "076aa6ea97ae2c9ae985788ecc70edaaba8f50dfca5fcc9c533e1ef00063ab23",
+      "checksums_sha256": "845f97e7154753ff579ce0c147c250f9b44643431400adbf0571534bdaf00e6e",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-windows-arm64-sources.tar.gz",
+      "source_sha256": "35447f236aa33a4b680840b18207c734be0542ed58cc515bbf0e8d4e4f111d91"
+    },
+    "windows-x86_64": {
+      "artifact": "core-runtime-candidate-windows-x86_64",
+      "archive": "avid-ffmpeg-9.0.1-r7-windows-x86_64.tar.gz",
+      "sha256": "98ef0465f7ed15c723b6ddda6b10dac0587a1b21404598cee64c7011fbc2cecd",
+      "checksums_sha256": "90f348961c5037fba72123dd65a3eb451643f0c8ab893455041c336640d79bca",
+      "source_archive": "avid-ffmpeg-9.0.1-r7-windows-x86_64-sources.tar.gz",
+      "source_sha256": "35447f236aa33a4b680840b18207c734be0542ed58cc515bbf0e8d4e4f111d91"
+    }
+  }
+}

@@ -107,7 +107,7 @@ fn release_pair_has_complete_audio_transcript_video_capabilities() {
     let version = String::from_utf8(h.ff(&[s("-version")])).unwrap();
     let identifier = version.split_whitespace().nth(2).unwrap();
     let dependencies: Value =
-        serde_json::from_str(include_str!("../../../runtime/ffmpeg/dependency.json")).unwrap();
+        serde_json::from_str(avid_core::FFMPEG_RUNTIME_SPECIFICATION).unwrap();
     assert_eq!(
         identifier,
         dependencies["source"]["version"].as_str().unwrap()

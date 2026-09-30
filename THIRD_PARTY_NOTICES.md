@@ -6,22 +6,18 @@ downloaded only at the user's request.
 
 ## FFmpeg, ffprobe, and codec libraries
 
-EnCAP builds FFmpeg and ffprobe 9.0.2 from the official signed source release:
-https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz (tag n9.0.2).
-The enabled GPL components make these programs GPL v2 or later; nonfree
-components are disabled. EnCAP invokes them as separate processes.
+EnCAP packages the matched FFmpeg and ffprobe 9.0.1 runtime built from verified
+sources by AVID Core, recipe 7. GPL components are enabled and nonfree components
+are disabled. EnCAP invokes these programs as separate processes.
 
-Static external libraries: x264 at b35605ace3ddf7c1a5d67a2eb553f034aef41d55
-(GPL-2.0-or-later), x265 4.2 (GPL-2.0-or-later), LAME 3.100
-(LGPL-2.0-or-later), and zlib 1.3.1 (Zlib license). macOS also uses system
-AudioToolbox and VideoToolbox frameworks. No third-party prebuilt FFmpeg
-or AVID Core runtime artifact is required.
-
-Every package includes corresponding source archives, license texts, build
-recipe, source verification, configuration and toolchain information in its
-FFmpeg metadata folder (`Contents/Resources/FFmpeg` on macOS, `ffmpeg-runtime` beside
-the engine elsewhere). The versioned dependency record is
-`runtime/ffmpeg/dependency.json`. See `docs/ffmpeg-source-runtime.md`.
+The exact Core specification, build configuration, toolchain, upstream provenance,
+repeat-build and native-validation evidence, license texts and corresponding
+source archive are included in the FFmpeg metadata folder
+(`Contents/Resources/FFmpeg` on macOS, `ffmpeg-runtime` beside the engine elsewhere).
+Runtime and source archive checksums are pinned in `runtime/core-runtime.json`.
+Static codec dependencies include x264, x265, LAME and zlib at the versions in the
+bundled Core `spec.json`. macOS uses system AudioToolbox and VideoToolbox frameworks.
+See `docs/ffmpeg-source-runtime.md` for acquisition and packaging.
 
 Upstream projects and licensing information:
 https://ffmpeg.org/legal.html
@@ -32,9 +28,9 @@ https://zlib.net/
 
 ## AVID Core
 
-EnCap Video uses `avid-core` under GPL-3.0-only. Its license is distributed as
+EnCap Video uses `avid-core` under GPL-3.0-or-later. Its license is distributed as
 `AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
-Pinned revision: 3fb68807bc7c350359e1634b32af477ea3042c16 (v0.3.0).
+Pinned revision: 25d19098a22936638b0e2a70616083d929fe409c (v0.3.0).
 
 ## whisper.cpp
 

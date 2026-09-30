@@ -41,8 +41,8 @@ Video's timing, encoder selection, and composition rules are documented in
 
 | Platform | Release file | Baseline |
 | --- | --- | --- |
-| Apple silicon Mac | `EnCap-<version>-macos-arm64.dmg` | macOS 13 |
-| Intel Mac | `EnCap-<version>-macos-intel.dmg` | macOS 13 |
+| Apple silicon Mac | `EnCap-<version>-macos-arm64.zip` | macOS 13 |
+| Intel Mac | `EnCap-<version>-macos-intel.zip` | macOS 13 |
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
 | Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
@@ -97,12 +97,10 @@ disabled.
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
 Cargo fetches AVID Core `v0.3.0` at immutable commit
-`3fb68807bc7c350359e1634b32af477ea3042c16`. No sibling checkout or Core runtime
-asset is required. EnCAP builds its own FFmpeg/ffprobe 9.0.2 from authenticated
-official source; see the [source runtime recipe](docs/ffmpeg-source-runtime.md)
-for toolchain prerequisites, licensing, caching and upgrades. The
-[migration verification record](docs/normal-runtime-migration.md) tracks completed
-checks and remaining qualification blockers.
+`25d19098a22936638b0e2a70616083d929fe409c`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
+AVID Core. Its six runtime and corresponding-source archives are checksum-pinned
+in `runtime/core-runtime.json`; EnCAP no longer compiles FFmpeg or owns its recipe.
+See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
 Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
@@ -116,7 +114,7 @@ On macOS, the project run action and the shell use the same entrypoint:
 
 Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
 `--package`. The script builds the release Rust engine, native SwiftUI app and
-local transcription helpers, then bundles the source-built FFmpeg/ffprobe pair
+local transcription helpers, then bundles the Core-built FFmpeg/ffprobe pair
 at `dist/EnCap.app`. All modes use this verified pair with no production PATH
 fallback. Clean qualification uses the same normal application and packaging path.
 
@@ -138,7 +136,7 @@ artifacts, and the engine protocol. The project format is specified in
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
 version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
 and tests platform packages. Before tagging, upload Developer ID-signed and
-notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.dmg`
+notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.zip`
 to the draft release, and commit their final checksums in
 `runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
 x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those

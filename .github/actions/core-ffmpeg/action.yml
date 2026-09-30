@@ -1,0 +1,33 @@
+name: AVID Core FFmpeg runtime
+description: Acquire the matched runtime and corresponding source from a pinned Core build
+inputs:
+  platform:
+    required: true
+    description: macos, windows or linux
+  arch:
+    required: true
+    description: arm64 or x86_64
+  shell:
+    default: bash
+    description: Native packaging shell
+runs:
+  using: composite
+  steps:
+    - name: Acquire and verify the Core artifact
+      shell: ${{ inputs.shell }}
+      working-directory: EnCAP
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BUILD_PLATFORM: ${{ inputs.platform }}
+        BUILD_ARCH: ${{ inputs.arch }}
+      run: |
+        set -euo pipefail
+        runtime="$(bash script/prepare_ffmpeg.sh "$BUILD_PLATFORM" "$BUILD_ARCH" | tail -n 1)"
+        if [[ "$RUNNER_OS" == Windows ]]; then runtime="$(cygpath -w "$runtime")"; fi
+        echo "ENCAP_FFMPEG_RUNTIME=$runtime" >> "$GITHUB_ENV"
+    - name: Preserve the exact runtime and source archives
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: FFmpeg-core-${{ inputs.platform }}-${{ inputs.arch }}
+        path: EnCAP/build/core-artifacts
+        if-no-files-found: error

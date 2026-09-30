@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ENCAP-owned source-runtime tests: real media, manifest rejection and no PATH fallback."""
+"""Core runtime packaging tests: real media, manifest rejection and no PATH fallback."""
 import argparse
 import json
 import os
@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from ffmpeg_build import ROOT
+from ffmpeg_runtime import ROOT
 from ffmpeg_runtime import stage, finish, validate
 
 
@@ -23,7 +23,7 @@ def test(engine,runtime,target):
         env=dict(os.environ,PATH=str(runtime)+os.pathsep+os.environ.get('PATH',''))
         # These edits must fail before any media invocation. Provenance cannot merely be present.
         for name, mutate in [
-            ('encap-runtime.json', lambda data: data.replace(b'"architecture": "', b'"architecture": "wrong-')),
+            ('encap-runtime.json', lambda data: data.replace(b'"owner": "', b'"owner": "wrong-')),
             ('encap-runtime.json', lambda data: data.replace(b'"encap_version": "', b'"encap_version": "wrong-')),
             ('encap-runtime.json', lambda data: data.replace(b'"revision": "', b'"revision": "wrong-')),
             ('build.json', lambda data: data + b' '),
@@ -35,7 +35,7 @@ def test(engine,runtime,target):
                 path.write_bytes(mutate(original))
                 try:
                     validate(target, staged, staged / 'ffmpeg-runtime', runtime)
-                except ValueError:
+                except (ValueError, OSError, KeyError):
                     pass
                 else:
                     raise AssertionError('Accepted changed provenance: ' + name)
@@ -44,7 +44,7 @@ def test(engine,runtime,target):
             finally:
                 path.write_bytes(original)
         # A usable fallback pair exists on PATH throughout every negative check.
-        for name in ['dependency.json','build.json','payload.json','signed-payload.json','encap-runtime.json','ffmpeg'+suffix,'ffprobe'+suffix]:
+        for name in ['spec.json','build.json','SHA256SUMS','signed-payload.json','encap-runtime.json','corresponding-source.tar.gz','ffmpeg'+suffix,'ffprobe'+suffix]:
             path=(staged/name if name in ['ffmpeg'+suffix, 'ffprobe'+suffix] else staged/'ffmpeg-runtime'/name);original=path.read_bytes();mode=path.stat().st_mode
             path.unlink()
             p=subprocess.run([str(executable),'validate-tools'],env=env,capture_output=True,timeout=60)

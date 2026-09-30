@@ -1,3 +1,6 @@
+> Historical verification of the EnCAP-owned runtime through 2.0.3. Version 2.0.4
+> consumes Core runtimes; see [the current packaging guide](ffmpeg-source-runtime.md).
+
 # EnCAP migration to the simplified AVID Core architecture
 
 ## Scope and reference

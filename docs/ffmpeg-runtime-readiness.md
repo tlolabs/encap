@@ -1,3 +1,6 @@
+> Historical verification of the EnCAP-owned runtime through 2.0.3. Version 2.0.4
+> consumes Core runtimes; see [the current packaging guide](ffmpeg-source-runtime.md).
+
 > Historical evidence for the earlier implementation. Current architecture and
 > acceptance are recorded in [the 0.3.0 migration report](normal-runtime-migration.md).
 > These old results do not qualify the current source recipe.

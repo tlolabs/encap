@@ -17,3 +17,7 @@ windows/**/bin/
 windows/**/obj/
 
 __pycache__/
+
+# Xcode user preferences and transient UI state.
+xcuserdata/
+*.xcuserstate

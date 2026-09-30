@@ -12,10 +12,6 @@ on:
         type: choice
         options: [all, macos, windows, linux, checks, runtime-probes]
         default: all
-      clean_ffmpeg:
-        description: Rebuild FFmpeg from source without the artifact cache
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -50,7 +46,6 @@ jobs:
       - name: Test Rust workspace
         run: |
           cargo test --workspace --locked --all-features
-          python3 script/test_ffmpeg_build.py
           python3 script/test_runtime_ownership.py
       - name: Check portable chapter timestamp rules
         run: |
@@ -82,16 +77,15 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Install source-build prerequisites
+      - name: Install application build prerequisites
         run: |
-          brew install nasm cmake pkg-config gnupg jq
+          brew install cmake jq
           python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python 3.12+ required"'
-      - name: Build EnCAP source FFmpeg
-        uses: ./EnCAP/.github/actions/source-ffmpeg
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: macos
           arch: ${{ matrix.arch }}
-          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Configure update verification key
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
@@ -122,7 +116,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-macos-${{ matrix.label }}
-          path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.dmg
+          path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
           if-no-files-found: error
 
   windows:
@@ -169,30 +163,27 @@ jobs:
       - name: Install Rust target
         shell: pwsh
         run: rustup target add '${{ matrix.rust_target }}'
-      - name: Install native FFmpeg source toolchain
+      - name: Install native packaging and Whisper build tools
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            make diffutils perl curl tar xz gnupg git python
+            make curl tar xz git python
             ${{ matrix.package_prefix }}-${{ matrix.compiler }}
             ${{ matrix.package_prefix }}-cmake
-            ${{ matrix.package_prefix }}-nasm
-            ${{ matrix.package_prefix }}-pkgconf
             ${{ matrix.package_prefix }}-jq
             ${{ matrix.package_prefix }}-binutils
             ${{ matrix.package_prefix }}-llvm
-      - name: Build EnCAP source FFmpeg
-        uses: ./EnCAP/.github/actions/source-ffmpeg
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: windows
           arch: ${{ matrix.arch }}
           shell: msys2 {0}
-          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
-        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/ffmpeg.exe
+        run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
       - name: Build local Whisper runtime
         shell: pwsh
         run: |
@@ -224,8 +215,8 @@ jobs:
         run: |
           $stage = Resolve-Path dist/staging/EnCap
           Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          msys2 -c 'bash script/ffmpeg/stage.sh .build-tools/ffmpeg-runtime dist/staging/EnCap'
-          if ($LASTEXITCODE -ne 0) { throw 'Source FFmpeg staging failed' }
+          msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" dist/staging/EnCap'
+          if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
           $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
           if (!$whisper) { throw 'whisper-cli build is missing' }
           Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
@@ -298,15 +289,14 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes autoconf automake btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libtool meson nasm ninja-build xz-utils pkg-config gnupg jq
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson ninja-build xz-utils pkg-config jq
       - name: Install pinned Rust toolchain
         run: rustup show
-      - name: Build EnCAP source FFmpeg
-        uses: ./EnCAP/.github/actions/source-ffmpeg
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: linux
           arch: ${{ matrix.arch }}
-          clean: ${{ inputs.clean_ffmpeg || 'false' }}
       - name: Build shared engine and bundled media tools
         run: |
           cargo test --workspace --locked --all-features
@@ -324,7 +314,7 @@ jobs:
           meson compile -C build/linux-native
           meson test -C build/linux-native --print-errorlogs
           meson install -C build/linux-native
-          ffmpeg_prefix="$PWD/.build-tools/ffmpeg-runtime"
+          ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
           bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
           cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
@@ -375,18 +365,17 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            make diffutils perl curl tar xz gnupg git python
+            make curl tar xz git python
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-jq mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-llvm
-      - uses: ./EnCAP/.github/actions/source-ffmpeg
+      - uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: windows
           arch: x86_64
           shell: msys2 {0}
       - name: Isolate synthetic filtering and encoding paths
         shell: msys2 {0}
-        run: bash script/ffmpeg/probe-portrait.sh .build-tools/ffmpeg-runtime/ffmpeg.exe
+        run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
 
   release:
     defaults:
@@ -421,13 +410,13 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
           # Release Mac builds are pre-signed and notarized on the release Mac.
           # Refuse substituted or ad-hoc CI builds by checking the committed hashes.
-          gh release download "$GITHUB_REF_NAME" --pattern '*-signed.dmg' --dir release-assets
+          gh release download "$GITHUB_REF_NAME" --pattern '*-signed.zip' --dir release-assets
           (cd release-assets && sha256sum --check "../runtime/releases/$version-macos.sha256")
           for arch in arm64 intel; do
-            mv "release-assets/EnCap-$version-macos-$arch-signed.dmg" "release-assets/EnCap-$version-macos-$arch.dmg"
+            mv "release-assets/EnCap-$version-macos-$arch-signed.zip" "release-assets/EnCap-$version-macos-$arch.zip"
           done
           gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
           cargo run --locked --package encap-release -- --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
-          (cd release-assets && sha256sum *.dmg *.zip *.tar.gz > SHA256SUMS)
+          (cd release-assets && sha256sum *.zip *.tar.gz > SHA256SUMS)
           gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false

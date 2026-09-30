@@ -12,8 +12,8 @@ WHISPER_CPP_COMMIT="f049fff95a089aa9969deb009cdd4892b3e74916"
 HOST_ARCH="$(uname -m)"
 NATIVE_ARCH="${ENCAP_BUILD_ARCH:-$HOST_ARCH}"
 case "$NATIVE_ARCH" in
-  arm64) DMG_ARCH_LABEL="arm64" ;;
-  x86_64) DMG_ARCH_LABEL="intel" ;;
+  arm64) ARCH_LABEL="arm64" ;;
+  x86_64) ARCH_LABEL="intel" ;;
   *)
     echo "Unsupported macOS architecture: $NATIVE_ARCH" >&2
     exit 1
@@ -25,7 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
-  APP_BUNDLE="$ROOT_DIR/dist/$DMG_ARCH_LABEL/EnCap.app"
+  APP_BUNDLE="$ROOT_DIR/dist/$ARCH_LABEL/EnCap.app"
 fi
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -87,7 +87,7 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 APP_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)"
 UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
-ENCAP_PLATFORM_NAME="macos-$DMG_ARCH_LABEL"
+ENCAP_PLATFORM_NAME="macos-$ARCH_LABEL"
 FFMPEG_INSTALL_DIR="$("$ROOT_DIR/script/prepare_ffmpeg.sh" macos "$NATIVE_ARCH" | tail -n 1)"
 
 mkdir -p "$SPARKLE_DIR"
@@ -235,15 +235,10 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
-package_dmg() {
-  local dmg_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-${DMG_ARCH_LABEL}.dmg"
-  hdiutil create \
-    -volname EnCap \
-    -srcfolder "$APP_BUNDLE" \
-    -ov \
-    -format UDZO \
-    "$dmg_path"
-  echo "$dmg_path"
+package_zip() {
+  local zip_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-${ARCH_LABEL}.zip"
+  ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$zip_path"
+  echo "$zip_path"
 }
 
 case "$MODE" in
@@ -262,7 +257,7 @@ case "$MODE" in
     sleep 2
     pgrep -x "$APP_NAME" >/dev/null
     ;;
-  --package|package) package_dmg ;;
+  --package|package) package_zip ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package]" >&2
     exit 2

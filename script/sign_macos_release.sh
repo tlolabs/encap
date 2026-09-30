@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign a built, tested EnCap bundle; optionally notarize the distribution DMG.
+# Sign a built, tested EnCap bundle; optionally notarize the app for ZIP distribution.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
@@ -8,11 +8,14 @@ APP="${ENCAP_APP_BUNDLE:-$ROOT/dist/EnCap.app}"
 FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 case "$(lipo -archs "$APP/Contents/MacOS/EnCap")" in arm64) ARCH=arm64;; x86_64) ARCH=intel;; *) exit 1;; esac
-DMG="$ROOT/dist/EnCap-${VERSION}-macos-${ARCH}-signed.dmg"
+ZIP="$ROOT/dist/EnCap-${VERSION}-macos-${ARCH}-signed.zip"
 if ! security find-identity -v -p codesigning | grep 'Developer ID Application:' | grep -F -- "$IDENTITY" >/dev/null; then
   echo 'A valid Developer ID Application identity is required.' >&2
   exit 1
 fi
+# Verify the tested payload before signing can change or bless executable hashes.
+TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$APP/Contents/Resources/FFmpeg/build.json")"
+python3 "$ROOT/script/ffmpeg_runtime.py" validate "$TARGET" --binary "$APP/Contents/MacOS" --metadata "$APP/Contents/Resources/FFmpeg"
 sign() { codesign --force --sign "$IDENTITY" --options runtime --timestamp "$@"; }
 for binary in "$APP/Contents/MacOS/"*; do
   if [[ -f "$binary" ]] && file -b "$binary" | grep -q 'Mach-O'; then sign "$binary"; fi
@@ -22,27 +25,29 @@ sign --preserve-metadata=entitlements "$FRAMEWORK/Versions/B/XPCServices/Downloa
 sign "$FRAMEWORK/Versions/B/Autoupdate"
 sign "$FRAMEWORK/Versions/B/Updater.app"
 sign "$FRAMEWORK"
-# Signing changes the FFmpeg bytes; refresh the manifest before sealing the app.
-python3 - "$APP" <<'PY'
-import hashlib, json, pathlib, sys
-app = pathlib.Path(sys.argv[1])
-manifest = app / 'Contents/Resources/FFmpeg/signed-payload.json'
-data = json.loads(manifest.read_text())
-data['signed_binary_sha256'] = {name: hashlib.sha256((app / 'Contents/MacOS' / name).read_bytes()).hexdigest() for name in ('ffmpeg', 'ffprobe')}
-manifest.write_text(json.dumps(data, indent=2) + '\n')
-PY
+# Preserve Core's original manifest and bind the newly signed executable hashes.
+python3 "$ROOT/script/ffmpeg_runtime.py" finish "$TARGET" --binary "$APP/Contents/MacOS" --metadata "$APP/Contents/Resources/FFmpeg"
 sign "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 "$APP/Contents/MacOS/encap-engine" validate-tools
-hdiutil create -volname EnCap -srcfolder "$APP" -ov -format UDZO "$DMG"
-codesign --force --sign "$IDENTITY" --timestamp "$DMG"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 if [[ -n "${ENCAP_NOTARY_PROFILE:-}" ]]; then
-  xcrun notarytool submit "$DMG" --keychain-profile "$ENCAP_NOTARY_PROFILE" --wait
-  xcrun stapler staple "$DMG"
-  xcrun stapler validate "$DMG"
-  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+  REPORT="$ZIP.notary.json"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$ENCAP_NOTARY_PROFILE" --wait --output-format json > "$REPORT"
+  python3 - "$REPORT" <<'PY_STATUS'
+import json, sys
+report = json.load(open(sys.argv[1]))
+print('Notarization:', report.get('status'), report.get('id'))
+if report.get('status') != 'Accepted':
+    raise SystemExit('Notarization was not accepted; inspect the submission log.')
+PY_STATUS
+  xcrun stapler staple "$APP"
+  xcrun stapler validate "$APP"
+  spctl --assess --type execute --verbose=2 "$APP"
+  # A ZIP cannot be stapled. Recreate it with the ticket stapled to the app.
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 else
   echo 'Signed only: notarization is still required before public distribution.' >&2
 fi
-(cd "$(dirname "$DMG")" && shasum -a 256 "$(basename "$DMG")") > "$DMG.sha256"
-printf '%s\n' "$DMG"
+(cd "$(dirname "$ZIP")" && shasum -a 256 "$(basename "$ZIP")") > "$ZIP.sha256"
+printf '%s\n' "$ZIP"

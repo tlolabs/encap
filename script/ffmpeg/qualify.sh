@@ -28,6 +28,6 @@ META="$BIN/ffmpeg-runtime"; [[ -d "$META" ]] || META="$BIN/../Resources/FFmpeg"
 TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$META/build.json")"
 python3 "$ROOT/script/ffmpeg_runtime.py" validate "$TARGET" --binary "$BIN" --metadata "$META"
 # Use the original source payload to test relocated packages and damage rejection.
-RUNTIME="${ENCAP_FFMPEG_RUNTIME:-$ROOT/build/ffmpeg/$TARGET}"
+RUNTIME="${ENCAP_FFMPEG_RUNTIME:-$(python3 "$ROOT/script/ffmpeg_runtime.py" provision "$TARGET")}"
 python3 "$ROOT/script/test_ffmpeg_runtime.py" --engine "$ENGINE" --runtime "$RUNTIME" --target "$TARGET"
 printf 'Packaged discovery, all-mode contracts, and no-fallback rejection passed.\n'

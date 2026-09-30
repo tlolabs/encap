@@ -86,6 +86,10 @@ enum Commands {
     LoadRecovery,
     ClearRecovery,
     ValidateTools,
+    /// Validate the original matched pair through Core before platform signing.
+    ValidateCoreRuntime {
+        directory: PathBuf,
+    },
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -145,6 +149,13 @@ fn run(
             "avid_core": { "version": encap_core::CORE_VERSION,
                 "revision": encap_core::CORE_REVISION, "source": encap_core::CORE_SOURCE }
         })),
+        Commands::ValidateCoreRuntime { directory } => {
+            let tools = avid_core::MediaTools::from_core_directory(&directory, cancellation)
+                .map_err(|error| EncapError::Message(error.to_string()))?;
+            Ok(
+                serde_json::json!({"ffmpeg": tools.ffmpeg_version(), "ffprobe": tools.ffprobe_version()}),
+            )
+        }
         Commands::Inspect { folder } => json(encap_audio::inspect(&folder)?),
         Commands::Waveform { file } => json(encap_core::waveform_preview(&file)?),
         Commands::InspectFiles { files } => json(encap_core::inspect_files(&files)?),

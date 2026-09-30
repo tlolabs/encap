@@ -21,8 +21,8 @@ media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavi
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
 Cargo consumes AVID Core `v0.3.0` from Git, pinned to immutable revision
-`3fb68807bc7c350359e1634b32af477ea3042c16`. No sibling source checkout is
-required. EnCAP builds, verifies and packages its own FFmpeg/ffprobe runtime.
+`25d19098a22936638b0e2a70616083d929fe409c`. No sibling source checkout is
+required. EnCAP acquires and packages the matched, checksum-pinned Core runtime.
 The exact Core version, revision and Cargo source are available from `encap-engine build-info`.
 
 
@@ -57,7 +57,7 @@ record for manual recovery, and never overwrites a known-good project file.
 
 This is the canonical build-and-launch path used by the Codex Run action. It
 builds the Xcode SwiftUI target for the host architecture, the release Rust
-engine, the source-built FFmpeg/ffprobe 9.0.2 pair, whisper.cpp, Apple
+engine, the Core-built FFmpeg/ffprobe 9.0.1 pair, whisper.cpp, Apple
 helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 
@@ -67,16 +67,14 @@ repository root (ignored by Git). CI writes the same file from
 
 The deployment target is macOS 13. The CI matrix builds both Intel and Apple
 silicon artifacts. Packaging uses `--package` to create an architecture-labeled
-DMG.
+ZIP.
 
 To cross-build Intel on Apple silicon, install the `x86_64-apple-darwin`
-Rust target and Rosetta, and provide an EnCAP Intel FFmpeg source artifact
-matching the current recipe. The build verifies its provenance and checksums:
+Rust target and Rosetta, and provide the pinned Core Intel runtime artifact. The build verifies its provenance and checksums:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ENCAP_BUILD_ARCH=x86_64 \
-ENCAP_FFMPEG_RUNTIME="$PWD/build/intel-ffmpeg-runtime" \
 ./script/build_and_run.sh --package
 ```
 
@@ -94,14 +92,15 @@ ENCAP_NOTARY_PROFILE=EnCAP \
 ./script/sign_macos_release.sh
 ```
 
-The signing script derives the disk-image architecture from the app executable,
-signs nested helpers, refreshes media hashes, and verifies the notarized DMG.
+The signing script derives the architecture from the app executable, signs nested
+helpers, refreshes the signed-copy hashes, notarizes and staples the app, verifies
+Gatekeeper acceptance, and recreates the ZIP containing the stapled app.
 
 ## Windows
 
 The WinUI 3 application is under `windows/EnCap`. CI publishes self-contained
 Windows App SDK builds for `win-x64` and `win-arm64`, copies the matching Rust
-engine, hash-pinned static FFmpeg/ffprobe, whisper.cpp runtime, licenses, and
+engine, the pinned Core FFmpeg/ffprobe runtime, whisper.cpp runtime, licenses, and
 notices into the bundle, validates the packaged tools, then creates a ZIP.
 
 The minimum target is Windows 10 version 1809. Platform compilation requires a
