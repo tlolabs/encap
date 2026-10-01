@@ -21,6 +21,7 @@ permissions:
   contents: read
 
 env:
+  GH_TOKEN: ${{ github.token }}
   AVID_CORE_QUALIFICATION: ${{ github.event_name == 'workflow_dispatch' && inputs.qualify_core_candidate && '1' || '0' }}
   CARGO_TERM_COLOR: always
   MACOSX_DEPLOYMENT_TARGET: "13.0"
