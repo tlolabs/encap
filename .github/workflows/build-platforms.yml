@@ -193,7 +193,7 @@ jobs:
         with:
           platform: windows
           arch: ${{ matrix.arch }}
-          shell: msys2 {0}
+          shell: bash
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
