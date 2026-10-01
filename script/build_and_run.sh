@@ -215,6 +215,8 @@ if [[ -s "$APP_RESOURCES/Assets.car" ]]; then
 fi
 file "$APP_BINARY" | grep "$NATIVE_ARCH" >/dev/null
 
+# The owner may build first and perform acceptance in the complete application.
+if [[ "${ENCAP_BUILD_ONLY:-0}" != 1 ]]; then
 # Exercise the actual bundled pair through all modes before launch or packaging.
 bash "$ROOT_DIR/script/ffmpeg/qualify.sh" "$ENGINE_BINARY"
 ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_REQUIRE_CLONING=1 \
@@ -226,6 +228,7 @@ if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
   arch -"$NATIVE_ARCH" "$XCODE_DEVELOPER_DIR/usr/bin/xctest" "$TEST_BIN_DIR/EnCapNativePackageTests.xctest"
 else
   DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH"
+fi
 fi
 ! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
 

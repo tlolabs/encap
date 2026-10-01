@@ -670,8 +670,8 @@
   },
   "revision": "25d19098a22936638b0e2a70616083d929fe409c",
   "run_id": 36681249099,
-  "release_revision": null,
-  "manifest_sha256": null,
+  "release_revision": "2e137df692aa612e0dd62ebd93b5fff26c61663a",
+  "manifest_sha256": "ef7eb4e2b62f656aa3cb6808dc2d227eb035be2050367d596e1f79a6d6d45779",
   "acquisition": "release",
-  "qualification_only": true
+  "qualification_only": false
 }
