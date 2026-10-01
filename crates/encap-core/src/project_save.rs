@@ -255,9 +255,13 @@ pub(super) fn write_archive(
             Some(offset)
         });
     let mut writer = if let Some(offset) = metadata_tail {
-        let method = crate::stage_archive_copy(&previous.unwrap().archive, staged).map_err(write_error)?;
+        let method =
+            crate::stage_archive_copy(&previous.unwrap().archive, staged).map_err(write_error)?;
         if diagnostics {
-            eprintln!("save phase=staged_metadata_copy method={method:?} elapsed={:?}", timing_start.elapsed());
+            eprintln!(
+                "save phase=staged_metadata_copy method={method:?} elapsed={:?}",
+                timing_start.elapsed()
+            );
         }
         // Save As also works when the source archive is read-only. Only the
         // private staged copy needs to become writable.
@@ -288,7 +292,11 @@ pub(super) fn write_archive(
         writer
     } else {
         if diagnostics {
-            eprintln!("save phase=rewrite_media cached={} elapsed={:?}", previous.is_some(), timing_start.elapsed());
+            eprintln!(
+                "save phase=rewrite_media cached={} elapsed={:?}",
+                previous.is_some(),
+                timing_start.elapsed()
+            );
         }
         let mut create = OpenOptions::new();
         create.write(true).create_new(true);
@@ -332,11 +340,17 @@ pub(super) fn write_archive(
     let end = file.stream_position().map_err(write_error)?;
     file.set_len(end).map_err(write_error)?;
     if diagnostics {
-        eprintln!("save phase=archive_written elapsed={:?}", timing_start.elapsed());
+        eprintln!(
+            "save phase=archive_written elapsed={:?}",
+            timing_start.elapsed()
+        );
     }
     file.sync_all().map_err(write_error)?;
     if diagnostics {
-        eprintln!("save phase=archive_synced elapsed={:?}", timing_start.elapsed());
+        eprintln!(
+            "save phase=archive_synced elapsed={:?}",
+            timing_start.elapsed()
+        );
     }
     plan.verify_unchanged()?;
     if previous
