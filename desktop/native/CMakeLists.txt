@@ -12,7 +12,7 @@ endif()
 
 if(WIN32)
   add_library(encap-media SHARED media_windows.cpp)
-  target_compile_features(encap-media PRIVATE cxx_std_17)
+  target_compile_features(encap-media PRIVATE cxx_std_20)
   target_link_libraries(encap-media PRIVATE windowsapp)
 elseif(UNIX AND NOT APPLE)
   find_package(PkgConfig REQUIRED)
