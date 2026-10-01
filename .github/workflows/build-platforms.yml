@@ -185,6 +185,7 @@ jobs:
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: ${{ matrix.msystem }}
+          path-type: inherit # Core acquisition invokes the runner-provided GitHub CLI.
           update: true
           install: >-
             make curl tar xz git python
@@ -411,6 +412,7 @@ jobs:
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
         with:
           msystem: UCRT64
+          path-type: inherit
           update: true
           install: >-
             make curl tar xz git python
