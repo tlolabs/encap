@@ -2,7 +2,7 @@
 # The same normal package assembly is used for portable and macOS builds.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUNTIME="${1:?source payload}"; BIN="${2:?executable directory}"; META="${3:-$BIN/ffmpeg-runtime}"
+RUNTIME="$(cd "${1:?source payload}" && pwd)"; BIN="${2:?executable directory}"; META="${3:-$BIN/ffmpeg-runtime}"
 TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$RUNTIME/build.json")"
 python3 "$ROOT/script/ffmpeg_runtime.py" stage "$TARGET" --runtime "$RUNTIME" --binary "$BIN"
 if [[ "$TARGET" == macos-* ]]; then
