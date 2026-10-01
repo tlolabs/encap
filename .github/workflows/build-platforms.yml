@@ -6,13 +6,33 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Native platform group to qualify
+        type: choice
+        options: [all, macos, windows, linux, checks, runtime-probes]
+        default: all
+      diagnose_save_latency:
+        description: Run the unchanged save contract with phase diagnostics on native Macs
+        type: boolean
+        default: false
+      owner_testing:
+        description: Build packages for owner testing without application acceptance prerequisites
+        type: boolean
+        default: true
+      qualify_core_candidate:
+        description: Unpublished host qualification with authenticated exact Core candidate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 env:
+  ENCAP_BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_testing && '1' || '0' }}
+  GH_TOKEN: ${{ github.token }}
+  AVID_CORE_QUALIFICATION: ${{ github.event_name == 'workflow_dispatch' && inputs.qualify_core_candidate && '1' || '0' }}
   CARGO_TERM_COLOR: always
-  FFMPEG_VERSION: "9.0.1"
   MACOSX_DEPLOYMENT_TARGET: "13.0"
   WHISPER_CPP_VERSION: "v1.9.1"
   WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
@@ -30,13 +50,6 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
-          path: AVID Core
-          persist-credentials: false
       - name: Enforce native-only source policy
         run: ./script/check_no_python.sh
       - name: Install pinned Rust toolchain
@@ -45,14 +58,11 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Verify canonical media core
-        run: |
-          cargo fmt --manifest-path '../AVID Core/Cargo.toml' --all -- --check
-          cargo check --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets
-          cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets
-          cargo clippy --manifest-path '../AVID Core/Cargo.toml' --locked --all-targets -- -D warnings
       - name: Test Rust workspace
-        run: cargo test --workspace --locked
+        run: |
+          cargo test --workspace --locked --all-features
+          python3 script/test_runtime_ownership.py
+          python3 -m unittest discover -s script -p test_application_release.py -v
       - name: Check portable chapter timestamp rules
         run: |
           cc -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c -o /tmp/encap-chapter-names-test
@@ -61,6 +71,7 @@ jobs:
         run: cargo build --package encap-engine --locked
 
   macos:
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'macos')
     defaults:
       run:
         working-directory: EnCAP
@@ -71,8 +82,10 @@ jobs:
         include:
           - runner: macos-15
             label: arm64
+            arch: arm64
           - runner: macos-15-intel
             label: intel
+            arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
@@ -80,13 +93,15 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install application build prerequisites
+        run: |
+          brew install cmake jq
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python 3.12+ required"'
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
-          repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
-          path: AVID Core
-          persist-credentials: false
+          platform: macos
+          arch: ${{ matrix.arch }}
       - name: Configure update verification key
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
@@ -102,22 +117,34 @@ jobs:
         env:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
         run: ./script/build_and_run.sh --package
+      - name: Test complete native Rust workspace
+        if: ${{ !inputs.owner_testing && !cancelled() }}
+        run: cargo test --workspace --locked --all-features --no-fail-fast
       - name: Test native models
+        if: ${{ !inputs.owner_testing }}
         run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path macos --scratch-path build/native-swift
       - name: Verify packaged media tools
         run: |
           dist/EnCap.app/Contents/MacOS/encap-engine validate-tools
-          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
           ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
           codesign --verify --deep --strict dist/EnCap.app
+      - name: Native application launch smoke and exact host evidence
+        if: ${{ !inputs.owner_testing }}
+        run: |
+          python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
+          python3 script/host_evidence.py --application encap --target "macos-${{ matrix.arch }}" --pin runtime/core-runtime.json --binary dist/EnCap.app/Contents/MacOS --metadata dist/EnCap.app/Contents/Resources/FFmpeg --packages dist/EnCap-*-macos-*.zip --output "dist/host-macos-${{ matrix.arch }}.json"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-macos-${{ matrix.label }}
-          path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.dmg
+          path: |
+            EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
+            EnCAP/dist/host-macos-*.json
           if-no-files-found: error
 
   windows:
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'windows')
     defaults:
       run:
         working-directory: EnCAP
@@ -127,48 +154,63 @@ jobs:
       matrix:
         include:
           - label: x64
+            ffmpeg_target: windows-x86_64
+            runner: windows-2025
+            arch: x86_64
+            msystem: UCRT64
+            compiler: gcc
+            package_prefix: mingw-w64-ucrt-x86_64
             rust_target: x86_64-pc-windows-msvc
             runtime: win-x64
             platform: x64
             cmake_arch: x64
             cmake_toolset: ""
             pe_machine: "8664"
-            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-9.0.zip
-            ffmpeg_sha256: af971817c209439bb0374b5e623aca894042aa435426217d0dd5cfd15fb69d1b
           - label: arm64
+            ffmpeg_target: windows-arm64
+            runner: windows-11-arm
+            arch: arm64
+            msystem: CLANGARM64
+            compiler: clang
+            package_prefix: mingw-w64-clang-aarch64
             rust_target: aarch64-pc-windows-msvc
             runtime: win-arm64
             platform: ARM64
             cmake_arch: ARM64
             cmake_toolset: ClangCL
             pe_machine: "AA64"
-            ffmpeg_archive: ffmpeg-n9.0.1-29-gad500d59cb-winarm64-gpl-9.0.zip
-            ffmpeg_sha256: 8961216fe1fea620fefe893ae8b00f215b3351c3baa7705f7855d61c968296b1
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
-          path: AVID Core
-          persist-credentials: false
       - name: Install Rust target
         shell: pwsh
         run: rustup target add '${{ matrix.rust_target }}'
-      - name: Download checksum-pinned FFmpeg 9.0.1 tools
-        shell: pwsh
-        run: |
-          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-11-13-20/${{ matrix.ffmpeg_archive }}'
-          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
-          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne '${{ matrix.ffmpeg_sha256 }}') { throw "FFmpeg archive SHA-256 mismatch: $actual" }
-          Expand-Archive ffmpeg.zip -DestinationPath .build-tools/ffmpeg
+      - name: Install native packaging and Whisper build tools
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            make curl tar xz git python
+            ${{ matrix.package_prefix }}-${{ matrix.compiler }}
+            ${{ matrix.package_prefix }}-cmake
+            ${{ matrix.package_prefix }}-jq
+            ${{ matrix.package_prefix }}-binutils
+            ${{ matrix.package_prefix }}-llvm
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
+        with:
+          platform: windows
+          arch: ${{ matrix.arch }}
+          shell: bash
+      - name: Verify synthetic portrait pipeline
+        if: ${{ !inputs.owner_testing }}
+        shell: msys2 {0}
+        run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
       - name: Build local Whisper runtime
         shell: pwsh
         run: |
@@ -181,11 +223,19 @@ jobs:
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
-        run: cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+        run: |
+          if ($env:ENCAP_BUILD_ONLY -ne '1') {
+            cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
+            if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
+          }
+          cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
+        if: ${{ !inputs.owner_testing }}
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
       - name: Test Windows chapter naming
+        if: ${{ !inputs.owner_testing }}
         shell: pwsh
         run: dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
       - name: Publish native WinUI 3 app
@@ -196,16 +246,18 @@ jobs:
         run: |
           $stage = Resolve-Path dist/staging/EnCap
           Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          $ffmpeg = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          $ffprobe = Get-ChildItem .build-tools/ffmpeg -Recurse -Filter ffprobe.exe | Select-Object -First 1
-          if (!$ffmpeg -or !$ffprobe) { throw 'FFmpeg archive is incomplete' }
-          Copy-Item $ffmpeg.FullName "$stage/ffmpeg.exe"
-          Copy-Item $ffprobe.FullName "$stage/ffprobe.exe"
+          # Use native Python for native Windows paths and the authenticated receipt.
+          python script/ffmpeg_runtime.py stage '${{ matrix.ffmpeg_target }}' --runtime "$env:ENCAP_FFMPEG_RUNTIME" --binary "$stage"
+          if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
+          python script/ffmpeg_runtime.py finish '${{ matrix.ffmpeg_target }}' --binary "$stage" --metadata "$stage/ffmpeg-runtime"
+          if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg derivative recording failed' }
+          python script/ffmpeg_runtime.py validate '${{ matrix.ffmpeg_target }}' --runtime "$env:ENCAP_FFMPEG_RUNTIME" --binary "$stage" --metadata "$stage/ffmpeg-runtime"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Core runtime validation failed' }
           $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
           if (!$whisper) { throw 'whisper-cli build is missing' }
           Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
-          Copy-Item '../AVID Core/LICENSE' "$stage/AVID_CORE_LICENSE.txt"
+          Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
           function Assert-PeMachine([string] $path, [uint16] $expected) {
             $bytes = [IO.File]::ReadAllBytes($path)
@@ -219,61 +271,80 @@ jobs:
           foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
-          if ('${{ matrix.label }}' -eq 'x64') {
+          if ($env:ENCAP_BUILD_ONLY -ne '1') {
+            $env:ENCAP_TEST_PACKAGED = "1"
             $env:ENCAP_TEST_ENGINE = "$stage/encap-engine.exe"
             $env:ENCAP_FFMPEG = "$stage/ffmpeg.exe"
             $env:ENCAP_FFPROBE = "$stage/ffprobe.exe"
             $env:PATH = "$stage;" + $env:PATH
-            cargo test --locked -p encap-engine --test media_contract -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged media tests failed' }
             cargo test --locked -p encap-core
             if ($LASTEXITCODE -ne 0) { throw 'EnCAP persistence tests failed' }
             cargo test --locked -p encap-engine --test save_protocol -- --nocapture
             if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged save tests failed' }
-            cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
-            if ($LASTEXITCODE -ne 0) { throw 'Shared packaged media tests failed' }
+            cargo test --locked -p encap-ffmpeg
+            if ($LASTEXITCODE -ne 0) { throw 'Media lifecycle tests failed' }
             & "$stage/encap-engine.exe" validate-tools
-            & "$stage/ffmpeg.exe" -hide_banner -version | Select-String "ffmpeg version $env:FFMPEG_VERSION"
+            & "$stage/ffmpeg.exe" -hide_banner -version
           }
           New-Item -ItemType Directory -Force dist/release | Out-Null
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
+      - name: Verify packaged runtime discovery and rejection
+        if: ${{ !inputs.owner_testing }}
+        shell: bash
+        run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
+      - name: Native application launch smoke and exact host evidence
+        if: ${{ !inputs.owner_testing }}
+        shell: pwsh
+        run: |
+          python script/test_native_startup.py dist/staging/EnCap/EnCap.exe
+          $packages = (Get-ChildItem dist/release -Filter '*.zip').FullName
+          python script/host_evidence.py --application encap --target 'windows-${{ matrix.label == 'arm64' && 'arm64' || 'x86_64' }}' --pin runtime/core-runtime.json --binary dist/staging/EnCap --metadata dist/staging/EnCap/ffmpeg-runtime --packages $packages --output 'dist/release/host-windows-${{ matrix.label == 'arm64' && 'arm64' || 'x86_64' }}.json'
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-windows-${{ matrix.label }}
-          path: EnCAP/dist/release/*.zip
+          path: EnCAP/dist/release/*
           if-no-files-found: error
 
   linux:
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'linux')
     defaults:
       run:
         working-directory: EnCAP
-    name: Linux x64
-    runs-on: ubuntu-latest
+    name: Linux ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            label: x64
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            label: arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
-          path: AVID Core
-          persist-credentials: false
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes autoconf automake btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libtool meson nasm ninja-build xz-utils zlib1g-dev
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson ninja-build xz-utils pkg-config jq patchelf file desktop-file-utils libgdk-pixbuf2.0-bin librsvg2-common xvfb dbus-x11 squashfs-tools libfuse2t64
       - name: Install pinned Rust toolchain
         run: rustup show
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
+        with:
+          platform: linux
+          arch: ${{ matrix.arch }}
       - name: Build shared engine and bundled media tools
         run: |
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then cargo test --workspace --locked --all-features; fi
           cargo build --package encap-engine --release --locked
-          ./script/build_ffmpeg_linux.sh
       - name: Build local Whisper runtime
         run: |
           git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
@@ -285,25 +356,27 @@ jobs:
           prefix="$PWD/dist/staging/EnCap"
           meson setup build/linux-native linux/EnCap --prefix="$prefix"
           meson compile -C build/linux-native
-          meson test -C build/linux-native --print-errorlogs
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then meson test -C build/linux-native --print-errorlogs; fi
           meson install -C build/linux-native
-          ffmpeg_prefix="$(./script/build_ffmpeg_linux.sh | tail -n 1)"
+          ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
-          cp "$ffmpeg_prefix/bin/ffmpeg" "$prefix/bin/ffmpeg"
-          cp "$ffmpeg_prefix/bin/ffprobe" "$prefix/bin/ffprobe"
+          bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
           cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
-          cp '../AVID Core/LICENSE' "$prefix/AVID_CORE_LICENSE.txt"
+          cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
-          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" ENCAP_FFMPEG="$prefix/bin/ffmpeg" ENCAP_FFPROBE="$prefix/bin/ffprobe" cargo test --locked -p encap-engine --test media_contract -- --ignored
-          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
-          PATH="$prefix/bin:$PATH" cargo test --manifest-path '../AVID Core/Cargo.toml' --locked --test ffmpeg -- --ignored
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then
+            ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+            bash script/ffmpeg/qualify.sh "$prefix/bin/encap-engine"
+            cargo test --locked -p encap-ffmpeg
+          fi
           "$prefix/bin/encap-engine" validate-tools
-          "$prefix/bin/ffmpeg" -hide_banner -version | grep "ffmpeg version $FFMPEG_VERSION"
+          "$prefix/bin/ffmpeg" -hide_banner -version
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-x64.tar.gz" EnCap
+          bash script/package_appimage.sh "${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}" "$prefix" "$version"
       - name: Verify Linux cloning and mode-switch latency on Btrfs
+        if: ${{ !inputs.owner_testing }}
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
           mount_dir="$RUNNER_TEMP/encap-save-volume"
@@ -315,51 +388,75 @@ jobs:
           sudo chown "$(id -u):$(id -g)" "$mount_dir"
           TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/dist/staging/EnCap/bin/encap-engine" \
             cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+      - name: Extracted AppImage native launch and exact host evidence
+        if: ${{ !inputs.owner_testing }}
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py dist/release/EnCap-*-linux-*.AppImage
+          python3 script/host_evidence.py --application encap --target "linux-${{ matrix.arch }}" --pin runtime/core-runtime.json --binary "build/EnCap-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppDir/usr/bin" --metadata "build/EnCap-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppDir/usr/bin/ffmpeg-runtime" --packages dist/release/*.AppImage --output "dist/release/host-linux-${{ matrix.arch }}.json"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-linux-x64
-          path: EnCAP/dist/release/*.tar.gz
+          name: EnCap-linux-${{ matrix.label }}
+          path: EnCAP/dist/release/*
           if-no-files-found: error
 
-  release:
+  windows_runtime_probes:
+    if: inputs.platform == 'runtime-probes'
+    name: Windows x64 synthetic runtime probes
+    runs-on: windows-2025
     defaults:
       run:
         working-directory: EnCAP
-    name: Publish GitHub release
-    needs: [quality, macos, windows, linux]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Check out the tested canonical media core
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
         with:
-          repository: tlolabs/avid-core
-          ref: 0cce6ba838827d0bed540efc98731e74a1014456
-          path: AVID Core
+          msystem: UCRT64
+          update: true
+          install: >-
+            make curl tar xz git python
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-jq mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-llvm
+      - uses: ./EnCAP/.github/actions/core-ffmpeg
+        with:
+          platform: windows
+          arch: x86_64
+          shell: msys2 {0}
+      - name: Isolate synthetic filtering and encoding paths
+        shell: msys2 {0}
+        run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
+
+  native-save:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose_save_latency
+
+    name: Save latency ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
           persist-credentials: false
-      - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
-        with:
-          path: EnCAP/release-assets
-          merge-multiple: true
-      - name: Prepare draft release and signed update metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+      - name: Report real host and filesystem
         run: |
-          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          test "$GITHUB_REF_NAME" = "v$version"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
-          gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
-          cargo run --locked --package encap-release -- --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          sw_vers
+          uname -m
+          df -h "$RUNNER_TEMP"
+      - name: Build the actual release engine
+        run: cargo build --locked --release -p encap-engine
+      - name: Diagnose unchanged strict save contract
+        env:
+          ENCAP_TEST_ENGINE: ${{ github.workspace }}/target/release/encap-engine
+          ENCAP_REQUIRE_CLONING: '1'
+          ENCAP_SAVE_TIMINGS: '1'
+        run: cargo test --locked -p encap-engine --test save_protocol -- --nocapture

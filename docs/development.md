@@ -20,9 +20,11 @@ The three mode crates are siblings. Do not add dependencies between them. Video
 media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavior
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
-Check out `tlolabs/avid-core` beside EnCAP as `AVID Core`. The workspace path dependency
-and CI use shared revision `0cce6ba838827d0bed540efc98731e74a1014456`. Update it only
-after rerunning shared tests and EnCAP compatibility tests; never copy media implementation.
+Cargo consumes AVID Core `v0.3.0` from Git, pinned to immutable revision
+`25d19098a22936638b0e2a70616083d929fe409c`. No sibling source checkout is
+required. EnCAP acquires and packages the matched, checksum-pinned Core runtime.
+The exact Core version, revision and Cargo source are available from `encap-engine build-info`.
+
 
 ## Engine protocol
 
@@ -32,7 +34,7 @@ shell fragments. One JSON value is written to stdout. Success exits zero; failur
 exits nonzero and writes `{ "error": "plain-language message" }` to stdout while
 detailed diagnostics remain in the local rotating log.
 
-Commands are `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
+Commands are `build-info`, `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
 `video-capabilities`, `export-transcript`,
 `transcribe`, `providers`, `models`, `install-model`, `remove-model`, and
 `validate-tools`, plus `save-recovery`, `load-recovery`, and `clear-recovery`
@@ -55,7 +57,7 @@ record for manual recovery, and never overwrites a known-good project file.
 
 This is the canonical build-and-launch path used by the Codex Run action. It
 builds the Xcode SwiftUI target for the host architecture, the release Rust
-engine, the approved common FFmpeg/ffprobe 9.0.1 artifact, whisper.cpp, Apple
+engine, the Core-built FFmpeg/ffprobe 9.0.1 pair, whisper.cpp, Apple
 helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 
@@ -65,13 +67,40 @@ repository root (ignored by Git). CI writes the same file from
 
 The deployment target is macOS 13. The CI matrix builds both Intel and Apple
 silicon artifacts. Packaging uses `--package` to create an architecture-labeled
-DMG.
+ZIP.
+
+To cross-build Intel on Apple silicon, install the `x86_64-apple-darwin`
+Rust target and Rosetta, and provide the pinned Core Intel runtime artifact. The build verifies its provenance and checksums:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+ENCAP_BUILD_ARCH=x86_64 \
+./script/build_and_run.sh --package
+```
+
+The cross-built app is staged at `dist/intel/EnCap.app`; its tests run under
+Rosetta. Physical Intel hardware testing remains a separate validation step.
+WhisperKit is Apple-silicon-only; Intel packages retain whisper.cpp and the
+Apple Speech helper.
+
+Sign the tested Intel bundle and notarize using a saved Keychain profile:
+
+```bash
+ENCAP_APP_BUNDLE="$PWD/dist/intel/EnCap.app" \
+ENCAP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+ENCAP_NOTARY_PROFILE=EnCAP \
+./script/sign_macos_release.sh
+```
+
+The signing script derives the architecture from the app executable, signs nested
+helpers, refreshes the signed-copy hashes, notarizes and staples the app, verifies
+Gatekeeper acceptance, and recreates the ZIP containing the stapled app.
 
 ## Windows
 
 The WinUI 3 application is under `windows/EnCap`. CI publishes self-contained
 Windows App SDK builds for `win-x64` and `win-arm64`, copies the matching Rust
-engine, hash-pinned static FFmpeg/ffprobe, whisper.cpp runtime, licenses, and
+engine, the pinned Core FFmpeg/ffprobe runtime, whisper.cpp runtime, licenses, and
 notices into the bundle, validates the packaged tools, then creates a ZIP.
 
 The minimum target is Windows 10 version 1809. Platform compilation requires a
@@ -81,9 +110,9 @@ workload.
 ## Linux
 
 The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
-CI builds the Rust engine, fetches the pinned common Linux FFmpeg artifact,
+CI builds the Rust engine and the pinned official FFmpeg source runtime,
 builds whisper.cpp, stages the application layout, runs
-tool validation, and creates an x64 tarball. A development host needs Meson,
+tool validation, and creates x64/ARM64 tarballs. A development host needs Meson,
 Ninja, GTK 4, libadwaita 1, json-glib, and GStreamer 1.20+ headers. Recording
 previews use GStreamer playbin directly for forward/reverse playback rates.
 Install its playback and WAV/AIFF plugins (on Ubuntu,
@@ -272,26 +301,19 @@ an uncredentialed local build.
 
 ## Common media distribution gate
 
-`script/fetch_ffmpeg.sh` records the same immutable upstream platform artifacts as ATIV.
-The existing `build_ffmpeg.sh` and `build_ffmpeg_linux.sh` entrypoints now prepare that
-one pair in the existing install directory, replacing the previous recipe. The shared
-crate bundles nothing. No Video-specific binary directory or runtime fallback exists.
-Cache reuse checks both the recipe hash and executable hashes.
+EnCAP owns the verified source recipe, dependency pins and package metadata.
+See [FFmpeg source runtime](ffmpeg-source-runtime.md) for six-target native builds,
+clean qualification, cache invalidation, provenance, licensing and upgrades.
+There is no dependency on a sibling Core checkout or Core runtime publication.
+The pinned dependency is the same source-library commit as ATIV; the Video API preserves EnCAP behavior.
 
-Before launch/package, macOS runs the three `encap-engine` media contract tests and
-three shared real-media tests against the staged pair. Windows x64 and Linux CI use
-the same gates; Windows ARM64 still needs native execution. The tests cover codec/filter
-requirements plus MP3/AAC/AudioToolbox, Transcript PCM conversion, and Video rendering.
-Platform capability advertisement alone is not approval for a release artifact.
-
-Run the explicit tests with the actual distribution paths:
+Run all media/discovery checks on the normal packaged release engine:
 
 ```sh
-ENCAP_FFMPEG="$PWD/dist/EnCap.app/Contents/MacOS/ffmpeg" \
-ENCAP_FFPROBE="$PWD/dist/EnCap.app/Contents/MacOS/ffprobe" \
-ENCAP_TEST_ENGINE="$PWD/dist/EnCap.app/Contents/MacOS/encap-engine" \
-cargo test --locked -p encap-engine --test media_contract -- --ignored
+bash script/ffmpeg/qualify.sh "$PWD/dist/EnCap.app/Contents/MacOS/encap-engine"
 ```
 
-`ENCAP_TEST_ENGINE` and optional `ENCAP_REFERENCE_ENGINE` are test-harness inputs only.
-See [migration evidence and remaining gates](migration-avid-core.md).
+This requires the normal packaged Whisper helper and pinned whisper.cpp checkout
+for its speech fixture; the harness fetches and verifies a test model separately.
+Release discovery ignores FFmpeg overrides and PATH; debug fixture overrides must
+specify both absolute tool paths. Application project and file formats are unchanged.

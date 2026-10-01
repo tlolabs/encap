@@ -1,3 +1,7 @@
+> Historical evidence for the earlier implementation. Current architecture and
+> acceptance are recorded in [the 0.3.0 migration report](normal-runtime-migration.md).
+> These old results do not qualify the current source recipe.
+
 # EnCAP Video migration to AVID Core
 
 EnCAP Video now delegates media behavior to the canonical `avid-core` crate.

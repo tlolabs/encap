@@ -217,6 +217,8 @@ pub(super) fn write_archive(
     plan: &MediaPlan<'_>,
     previous: Option<&SaveCache>,
 ) -> Result<()> {
+    let timing_start = std::time::Instant::now();
+    let diagnostics = std::env::var_os("ENCAP_SAVE_TIMINGS").is_some();
     let write_error = |source| EncapError::Write {
         path: staged.into(),
         source,
@@ -253,7 +255,14 @@ pub(super) fn write_archive(
             Some(offset)
         });
     let mut writer = if let Some(offset) = metadata_tail {
-        crate::stage_archive_copy(&previous.unwrap().archive, staged).map_err(write_error)?;
+        let method =
+            crate::stage_archive_copy(&previous.unwrap().archive, staged).map_err(write_error)?;
+        if diagnostics {
+            eprintln!(
+                "save phase=staged_metadata_copy method={method:?} elapsed={:?}",
+                timing_start.elapsed()
+            );
+        }
         // Save As also works when the source archive is read-only. Only the
         // private staged copy needs to become writable.
         let mut permissions = fs::metadata(staged).map_err(write_error)?.permissions();
@@ -282,6 +291,13 @@ pub(super) fn write_archive(
         cursor.seek(SeekFrom::Start(offset)).map_err(write_error)?;
         writer
     } else {
+        if diagnostics {
+            eprintln!(
+                "save phase=rewrite_media cached={} elapsed={:?}",
+                previous.is_some(),
+                timing_start.elapsed()
+            );
+        }
         let mut create = OpenOptions::new();
         create.write(true).create_new(true);
         #[cfg(unix)]
@@ -323,7 +339,19 @@ pub(super) fn write_archive(
     // behind, or ZIP readers can reopen the stale manifest.
     let end = file.stream_position().map_err(write_error)?;
     file.set_len(end).map_err(write_error)?;
+    if diagnostics {
+        eprintln!(
+            "save phase=archive_written elapsed={:?}",
+            timing_start.elapsed()
+        );
+    }
     file.sync_all().map_err(write_error)?;
+    if diagnostics {
+        eprintln!(
+            "save phase=archive_synced elapsed={:?}",
+            timing_start.elapsed()
+        );
+    }
     plan.verify_unchanged()?;
     if previous
         .is_some_and(|cache| FileStamp::read(&cache.archive).ok().as_ref() != Some(&cache.stamp))
@@ -547,7 +575,18 @@ mod tests {
             "audio/source.wav".into(),
         )
         .unwrap();
-        fs::write(&project.audio_sources[0].source_path, b"modified audio").unwrap();
+        let source = &project.audio_sources[0].source_path;
+        let changed_at =
+            fs::metadata(source).unwrap().modified().unwrap() + std::time::Duration::from_secs(2);
+        fs::write(source, b"modified audio").unwrap();
+        // Same-size writes can share a timestamp tick on NTFS. Keep the size
+        // unchanged and make this fixture's metadata mutation observable.
+        fs::File::options()
+            .write(true)
+            .open(source)
+            .unwrap()
+            .set_modified(changed_at)
+            .unwrap();
         assert!(write_archive(&root.path().join("staged"), b"{}", &plan, None).is_err());
     }
 

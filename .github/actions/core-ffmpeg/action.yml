@@ -1,0 +1,36 @@
+name: Acquire verified AVID Core runtime
+description: Acquire the pinned complete Core runtime without independent source selection or compilation
+inputs:
+  target:
+    description: Exact Core target
+    required: false
+  platform:
+    description: Native platform
+    required: false
+  arch:
+    description: Native architecture
+    required: false
+  clean:
+    description: Acquire into a fresh destination (never rebuild FFmpeg)
+    default: 'false'
+  shell:
+    description: Native shell
+    default: bash
+runs:
+  using: composite
+  steps:
+    - name: Acquire and verify authenticated Core identity
+      shell: ${{ inputs.shell }}
+      working-directory: EnCAP
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BUILD_TARGET: ${{ inputs.target }}
+        BUILD_PLATFORM: ${{ inputs.platform }}
+        BUILD_ARCH: ${{ inputs.arch }}
+      run: |
+        set -euo pipefail
+        target="$BUILD_TARGET"
+        if [[ -z "$target" ]]; then target="$BUILD_PLATFORM-$BUILD_ARCH"; fi
+        runtime="$(python3 script/ffmpeg_runtime.py provision "$target" | tail -n 1)"
+        if [[ "$RUNNER_OS" == Windows ]]; then runtime="$(cygpath -w "$runtime")"; fi
+        echo "ENCAP_FFMPEG_RUNTIME=$runtime" >> "$GITHUB_ENV"
