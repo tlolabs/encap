@@ -10,6 +10,9 @@ fn save(payload: &Path, destination: &Path) {
         .arg(destination)
         .output()
         .unwrap();
+    if std::env::var_os("ENCAP_SAVE_TIMINGS").is_some() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
     assert!(
         output.status.success(),
         "{}",
