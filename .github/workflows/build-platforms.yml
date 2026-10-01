@@ -143,6 +143,7 @@ jobs:
       matrix:
         include:
           - label: x64
+            ffmpeg_target: windows-x86_64
             runner: windows-2025
             arch: x86_64
             msystem: UCRT64
@@ -155,6 +156,7 @@ jobs:
             cmake_toolset: ""
             pe_machine: "8664"
           - label: arm64
+            ffmpeg_target: windows-arm64
             runner: windows-11-arm
             arch: arm64
             msystem: CLANGARM64
@@ -228,8 +230,13 @@ jobs:
         run: |
           $stage = Resolve-Path dist/staging/EnCap
           Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" dist/staging/EnCap'
+          # Use native Python for native Windows paths and the authenticated receipt.
+          python script/ffmpeg_runtime.py stage '${{ matrix.ffmpeg_target }}' --runtime "$env:ENCAP_FFMPEG_RUNTIME" --binary "$stage"
           if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
+          python script/ffmpeg_runtime.py finish '${{ matrix.ffmpeg_target }}' --binary "$stage" --metadata "$stage/ffmpeg-runtime"
+          if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg derivative recording failed' }
+          python script/ffmpeg_runtime.py validate '${{ matrix.ffmpeg_target }}' --runtime "$env:ENCAP_FFMPEG_RUNTIME" --binary "$stage" --metadata "$stage/ffmpeg-runtime"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Core runtime validation failed' }
           $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
           if (!$whisper) { throw 'whisper-cli build is missing' }
           Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
