@@ -3,8 +3,8 @@
 Validation date: 2026-10-01. This report distinguishes implementation/build
 verification from production release qualification. No release or tag is created
 by this migration. The existing six-target application/update qualification
-ledgers remain unapproved until their native signing, upgrade and acceptance
-requirements are actually satisfied.
+ledgers remain unapproved until their platform-specific verification, upgrade
+and acceptance requirements are actually satisfied.
 
 ## Architecture and files
 
@@ -186,8 +186,9 @@ or a compatible distribution), with X11/XWayland and system GLib/GIO. Model
 downloads/removal need real native acceptance in addition to the existing
 catalog/hash tests. No feature was removed because GUI automation was difficult.
 
-Production release remains BLOCKED by the existing unapproved native signing,
-authenticated A-to-B update and manual acceptance ledgers. Native Intel CI
+Production release remains BLOCKED by the existing unapproved Windows/macOS
+signing, Linux provenance, authenticated A-to-B update and manual acceptance
+ledgers. Native Intel CI
 save-latency qualification is also BLOCKED by the measurements
 above; controlled native Intel profiling/acceptance remains necessary. The Windows
 power-loss journal/rollback path and full installer lifecycle must be exercised

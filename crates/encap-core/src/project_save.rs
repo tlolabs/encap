@@ -564,17 +564,30 @@ mod tests {
 
     #[test]
     fn save_cache_respects_env_override() {
+        const CHILD: &str = "ENCAP_TEST_SAVE_CACHE_OVERRIDE_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let temp = tempfile::tempdir().unwrap();
+            let custom_cache = temp.path().join("custom-cache");
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("save_cache_respects_env_override")
+                .env(CHILD, "1")
+                .env("ENCAP_SAVE_CACHE_DIR", &custom_cache)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated cache test failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
         let temp = tempfile::tempdir().unwrap();
         let archive = temp.path().join("test.encap");
         fs::write(&archive, b"dummy").unwrap();
-
-        let custom_cache = temp.path().join("custom-cache");
-        std::env::set_var("ENCAP_SAVE_CACHE_DIR", &custom_cache);
-
+        let custom_cache = PathBuf::from(std::env::var_os("ENCAP_SAVE_CACHE_DIR").unwrap());
         let cache_path = SaveCache::path(&archive).unwrap();
         assert!(cache_path.starts_with(&custom_cache));
-
-        std::env::remove_var("ENCAP_SAVE_CACHE_DIR");
     }
 
     #[test]
