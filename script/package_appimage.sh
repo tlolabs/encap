@@ -29,7 +29,12 @@ TRACE_PROVIDER=libcoreclrtraceptprovider.so
 if [[ -f "$APPDIR/usr/bin/$TRACE_PROVIDER" ]]; then rm "$APPDIR/usr/bin/$TRACE_PROVIDER"; fi
 # GLib/GIO remains a system dependency, as documented, rather than copying the
 # runner's desktop-integration stack into the self-contained application.
-linuxdeploy --exclude-library 'libgio-2.0.so*' --exclude-library 'libgobject-2.0.so*' --exclude-library 'libglib-2.0.so*' --exclude-library 'libgmodule-2.0.so*' --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
+SYSTEM_INTEGRATION=()
+# linuxdeploy flattens ldd output, so exclude GLib's transitive OS libraries too.
+for pattern in 'libgio-2.0.so*' 'libgobject-2.0.so*' 'libglib-2.0.so*' 'libgmodule-2.0.so*' 'libmount.so*' 'libblkid.so*' 'libselinux.so*' 'libffi.so*' 'libpcre2-*.so*'; do
+  SYSTEM_INTEGRATION+=(--exclude-library "$pattern")
+done
+linuxdeploy "${SYSTEM_INTEGRATION[@]}" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
 cp -p "$STAGE/bin/ffmpeg" "$STAGE/bin/ffprobe" "$APPDIR/usr/bin/"
 if [[ -f "$STAGE/bin/$TRACE_PROVIDER" ]]; then cp -p "$STAGE/bin/$TRACE_PROVIDER" "$APPDIR/usr/bin/"; fi
 # Retain distro license texts referenced by copied dependency copyright files.
