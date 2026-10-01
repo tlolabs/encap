@@ -139,7 +139,7 @@ workload.
 ## Linux
 
 The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
-CI builds the Rust engine and the pinned official FFmpeg source runtime,
+CI builds the Rust engine, acquires the pinned published Core FFmpeg/ffprobe runtime,
 builds whisper.cpp, stages the application layout, runs
 tool validation, and creates x64/ARM64 tarballs. A development host needs Meson,
 Ninja, GTK 4, libadwaita 1, json-glib, and GStreamer 1.20+ headers. Recording
@@ -330,11 +330,15 @@ an uncredentialed local build.
 
 ## Common media distribution gate
 
-EnCAP owns the verified source recipe, dependency pins and package metadata.
-See [FFmpeg source runtime](ffmpeg-source-runtime.md) for six-target native builds,
-clean qualification, cache invalidation, provenance, licensing and upgrades.
-There is no dependency on a sibling Core checkout or Core runtime publication.
-The pinned dependency is the same source-library commit as ATIV; the Video API preserves EnCAP behavior.
+AVID Core owns FFmpeg/ffprobe source selection, codec dependencies, compilation,
+validation and runtime releases. EnCAP pins the published Core runtime, verifies
+it with Core's shared acquisition script, and packages the same matched pair for
+Audio, Transcript and Video. EnCAP owns its application package metadata and
+application-level tests.
+See [Core runtime packaging](ffmpeg-source-runtime.md) for the six-target release
+pin, authenticated downloads, cache verification, provenance and licensing.
+A sibling Core source checkout is not required. The Video API preserves EnCAP
+behavior.
 
 Run all media/discovery checks on the normal packaged release engine:
 

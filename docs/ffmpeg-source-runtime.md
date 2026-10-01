@@ -1,25 +1,34 @@
 # AVID Core runtime packaging
 
-EnCAP 2.0.4 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
+EnCAP 2.0.5 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
 Core owns source acquisition, signature verification, codec configuration, native
 compilation, media validation, repeat-build checks, runtime packaging and licenses.
 EnCAP's former FFmpeg source builder and dependency recipe have been removed.
 
 Cargo pins Core 0.3.0 at `25d19098a22936638b0e2a70616083d929fe409c`.
-`runtime/core-runtime.json` pins the six candidate artifacts from successful Core
-workflow run `36681249099`, their archive SHA-256 values, original checksum manifests,
-and corresponding-source archive hashes. These are validated Core candidates;
-EnCAP packaging additionally runs its application contracts. No qualification of
-an EnCAP platform is inferred solely from Core's native build result.
+`runtime/core-runtime.json` pins the published Core release
+[`ffmpeg-9.0.1-r7.1`](https://github.com/tlolabs/avid-core/releases/tag/ffmpeg-9.0.1-r7.1),
+its promotion revision `2e137df692aa612e0dd62ebd93b5fff26c61663a`, authenticated
+manifest digest, and six runtime and corresponding-source archive hashes.
+The binaries come from Core run `36681249099`; EnCAP downloads the durable release
+assets rather than that run's expiring candidate artifacts.
 
-`script/prepare_ffmpeg.sh <platform> <architecture>` downloads the exact target's
-artifact using GitHub CLI, verifies it, and extracts it under `build/core-runtime`.
-Python 3.12+ and GitHub CLI are build tools only. `ENCAP_FFMPEG_RUNTIME` can select
-an already extracted **identical pinned Core artifact**; its corresponding-source
-archive must remain next to that directory. It cannot select arbitrary tools.
-Artifact retention is controlled by GitHub. If an artifact expires, archive the
-same checked bytes in a durable Core release and update acquisition deliberately;
-never silently build or choose a different runtime.
+`script/prepare_ffmpeg.sh <platform> <architecture>` delegates acquisition to
+Core's unchanged verifier in `script/core_runtime.py`, pinned by
+`runtime/core-acquirer.json`. It authenticates the release manifest with GitHub
+attestations, checks archive hashes, architecture and Core evidence, then extracts
+the pair under `build/core-acquisition/ffmpeg-9.0.1-r7.1/<target>`.
+Python 3.12+ and authenticated GitHub CLI are build tools only.
+`ENCAP_FFMPEG_RUNTIME` may select an identical extracted release with its original
+archives, manifest and verification receipt alongside it. Cached acquisitions
+are reverified. Candidate-only caches from older builds cannot substitute for a
+release; leave the override unset to acquire the published runtime automatically.
+There is no application-owned source build or system-tool fallback.
+
+EnCAP packages and tests the runtime in the actual application. Core's native
+build results alone do not establish EnCAP's platform acceptance. Build-time
+release authentication needs network access; the packaged application uses its
+embedded tools offline.
 
 Before staging, `encap-engine validate-core-runtime <directory>` delegates the
 original complete directory to `avid_core::MediaTools::from_core_directory`.

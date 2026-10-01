@@ -1,5 +1,5 @@
 name: AVID Core FFmpeg runtime
-description: Acquire the matched runtime and corresponding source from a pinned Core build
+description: Acquire the matched runtime and corresponding source from the pinned published Core release
 inputs:
   platform:
     required: true
@@ -13,7 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Acquire and verify the Core artifact
+    - name: Acquire and authenticate the Core release
       shell: ${{ inputs.shell }}
       working-directory: EnCAP
       env:
@@ -29,5 +29,5 @@ runs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: FFmpeg-core-${{ inputs.platform }}-${{ inputs.arch }}
-        path: EnCAP/build/core-artifacts
+        path: EnCAP/build/core-acquisition
         if-no-files-found: error

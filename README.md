@@ -99,7 +99,11 @@ The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
 Cargo fetches AVID Core `v0.3.0` at immutable commit
 `25d19098a22936638b0e2a70616083d929fe409c`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
 AVID Core. Its six runtime and corresponding-source archives are checksum-pinned
-in `runtime/core-runtime.json`; EnCAP no longer compiles FFmpeg or owns its recipe.
+in `runtime/core-runtime.json`. Version 2.0.5 acquires the published Core release
+`ffmpeg-9.0.1-r7.1` using Core's shared verifier and authenticated manifest.
+EnCAP no longer compiles FFmpeg or owns its recipe. Build-time acquisition needs
+Python 3.12+, authenticated GitHub CLI, and network access; packaged tools run
+offline.
 See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
 Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
