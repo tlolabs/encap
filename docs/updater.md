@@ -24,14 +24,14 @@ Keep [Sparkle](https://sparkle-project.org/documentation/) for native macOS UI, 
 
 ## GitHub contract and trust chain
 
-Use `https://github.com/OWNER/REPO/releases/latest/download/update-manifest.json`. This is a static release asset, not the rate-limited unauthenticated REST API. GitHub latest excludes drafts/prereleases; the signed payload independently rejects either flag, any nonstable channel, noncanonical versions, mismatched tag and cross-application identity. Artifact URLs must exactly match the pinned repository, signed `vMAJOR.MINOR.PATCH` tag and safe filename. Only GitHub and its explicit release CDN hosts may receive HTTPS redirects. There are no telemetry fields, installation IDs, API tokens, profile uploads or new services. GitHub necessarily receives ordinary HTTP requests.
+Use `https://github.com/OWNER/REPO/releases/latest/download/update-manifest.json`. This is a static release asset, not the rate-limited unauthenticated REST API. GitHub latest excludes drafts/prereleases; the signed payload independently rejects either flag, any nonstable channel, noncanonical versions, mismatched tag and cross-application identity. Artifact URLs must exactly match the pinned repository, annotated `vMAJOR.MINOR.PATCH` tag and safe filename. Only GitHub and its explicit release CDN hosts may receive HTTPS redirects. There are no telemetry fields, installation IDs, API tokens, profile uploads or new services. GitHub necessarily receives ordinary HTTP requests.
 
 Each stable release contains:
 
 * `update-manifest.json`: schema-2 Ed25519 envelope for new helpers.
 * `latest.json`: original schema-1 format for the applicable app, signed using its existing key.
 * `appcast-macos-arm64.xml` and `appcast-macos-intel.xml`: existing Sparkle feed names with Ed25519 archive signatures.
-* Versioned macOS ZIPs, Windows portable ZIPs and Linux AppImages, plus detached Linux `.asc` signatures, `SHA256SUMS` and GitHub attestations.
+* Versioned macOS ZIPs, Windows portable ZIPs and Linux AppImages, plus `SHA256SUMS` and GitHub attestations.
 
 Envelope: `{"payload":"BASE64_EXACT_UTF8_JSON_BYTES","signature":"BASE64_ED25519_SIGNATURE"}`. The signature is checked over decoded exact bytes before parsing or using URLs. No verifier reserialization/canonicalization ambiguity. Algorithm is fixed Ed25519; trust keys come from the native-signed installed package, never the network payload.
 
@@ -39,7 +39,7 @@ Payload fields: `schema=2`, `application_id`, `repository`, canonical `version`,
 
 Accepted targets are macos-{arm64,intel}, windows-{arm64,x64}, linux-{arm64,x64}-appimage. Minimums currently match packaging: macOS 13, Windows 10 build 17763, Linux kernel 4.18 and glibc 2.39. Adjust only after native compatibility testing. Metadata is bounded to 1 MiB; artifacts to 2 GiB and their exact signed size. A checksum alone is never trusted.
 
-Trust chain: reviewed code + embedded app/repository/version/key → signed manifest → bound target/OS/version/URL/size/hash → authenticated artifact → native adapter. Windows additionally verifies timestamped Authenticode on all executable payloads against the installed publisher before executing the staged engine or app; signed package identity/version/target/key must match. macOS relies on Sparkle's archive signature and native bundle identity, Developer ID, hardened runtime and notarization/stapling. Linux retains the release gate's detached GPG identity and GitHub artifact attestation policy; the desktop client authenticates the whole image through Ed25519/SHA-256 and does not invoke `gh` or obtain user tokens.
+Trust chain: reviewed code + embedded app/repository/version/key → signed manifest → bound target/OS/version/URL/size/hash → authenticated artifact → native adapter. Windows additionally verifies timestamped Authenticode on all executable payloads against the installed publisher before executing the staged engine or app; signed package identity/version/target/key must match. macOS relies on Sparkle's archive signature and native bundle identity, Developer ID, hardened runtime and notarization/stapling. Linux release staging verifies the exact workflow artifact and its GitHub attestation; the desktop client authenticates the whole image through Ed25519/SHA-256 and does not invoke `gh` or obtain user tokens.
 
 EnCAP also requires signed XML feeds. The existing promotion job runs on macOS so `sign_sparkle_feeds.py` can use upstream Sparkle `sign_update` from the same checksum-pinned distribution as the app. It signs and verifies each appcast, recomputes checksums, and verifies downloaded feeds before and after publication. Seed material is passed on stdin, never command arguments or logs. `SURequireSignedFeed` and verify-before-extraction are enabled together. Old Sparkle readers continue receiving the same feed names and archive signatures. GitHub release notes use the signed item link; richer notes are optional. ATIV retains its concurrently maintained Sparkle policy.
 
@@ -49,7 +49,7 @@ Existing owners are TLO Labs release maintainers. Reuse `ENCAP_UPDATE_PRIVATE_KE
 
 The single pinned key cannot be replaced in place. Issue a bridge signed with the old key, embedding the new trust configuration, and prove the complete old→bridge→new sequence. The portable adapter currently refuses key changes, so that bridge requires a separately authenticated installer/manual transition. Retain old feed filenames and signed legacy manifests until supported installations migrate. If the old key is lost/compromised, do not bypass verification: suspend promotion and distribute a newly native-signed installer through a separately authenticated manual recovery procedure. Keep offline escrow, two-maintainer approval and a record of key ownership outside the repository. Sparkle has specific [rotation rules](https://sparkle-project.org/documentation/); with verify-before-extraction enabled, its Developer-ID-signed DMG requirement must be planned before rotation. Never change Apple identity and update key together without a proven bridge.
 
-Windows Azure signing and Linux GPG signing remain separate keys/policies. Missing signing credentials block production promotion, not local app use or ordinary development builds. Native-signed executables are not replaced with ad-hoc/unsigned substitutes to pass checks.
+Windows Azure signing and macOS Developer ID signing retain their separate credentials and policies. Linux AppImages are verified through workflow provenance and the signed update manifest. Missing required credentials block production promotion, not local app use or ordinary development builds. Native-signed executables are not replaced with ad-hoc/unsigned substitutes to pass checks.
 
 ## Conservative operation and failure behavior
 
@@ -65,8 +65,8 @@ Linux stages in the same filesystem, verifies the complete download, fsyncs the 
 
 1. Change the workspace Cargo version once. Tag must equal `v` plus that stable SemVer. `script/update_config.py` writes package identity, macOS bundle versions and generated Windows properties. Linux Meson reads that version. No development/nightly source enters stable promotion.
 2. Build native packages using `build-platforms.yml`; test the shared protocol using `updater-contract.yml`. The macOS packaging script supplies authoritative Xcode version overrides; direct Xcode builds must set ENCAP_VERSION from Cargo. Local Windows builds first run `python script/update_config.py --props build/version.props`.
-3. Run existing manual `sign-windows.yml`, `sign-linux.yml`, and `verify-macos.yml` gates (reused from the release-integration worktree). Developer ID/notary execution remains on the release Mac. Record final artifact identities, signed derivative runtime hashes and native evidence.
-4. Populate `runtime/application-qualification.json` only with real evidence. `application_release.py` requires the entire six-target EnCAP matrix, authenticates workflow/artifact origins and rejects missing native launch, media, lifecycle, signing, authenticated upgrade and manual acceptance evidence.
+3. Run manual `sign-windows.yml`, `verify-linux.yml`, and `verify-macos.yml` gates. Developer ID/notary execution remains on the release Mac. Record final artifact identities, authenticated derivative runtime hashes and native evidence.
+4. Populate `runtime/application-qualification.json` only with real evidence. `application_release.py` requires the entire six-target EnCAP matrix, authenticates workflow/artifact origins and rejects missing native launch, media, lifecycle, Windows/macOS signing or Linux provenance, authenticated upgrade and manual acceptance evidence.
 5. Populate `runtime/updater-qualification.json` using actual older-build reports under `docs/updates`, including old package hash/trust configuration, final new package hash, host/time/reviewer and every native upgrade/failure case. Every entry is intentionally `not_run` now. Do not invent evidence or use the new manifest's key as an independent baseline.
 6. The existing release job runs on macOS for upstream Sparkle signing and stages those exact qualified artifacts. The shared generator checks packaged identity/version/key and artifact bytes, creates both modern and bridge metadata, and signs it. `tlo-qualify` exercises older trust configurations before publication.
 7. Attest final packages/metadata. Refuse existing release identities and asset clobber. Upload to a draft, re-download, verify signatures/hashes/identity/attestations, then mark stable/latest. Re-download after publication and probe the actual latest static endpoint. Publication is not reversible; a failed postpublication probe requires investigation and stopping further rollout. Do not mark qualification passed automatically from this probe.
@@ -93,10 +93,10 @@ For each app and each architecture: start a real older native-signed build with 
 | --- | --- |
 | EnCAP macOS arm64 / Intel | Not run; local Developer ID identity exists, but no signed/notarized old/new upgrade evidence is supplied |
 | EnCAP Windows x64 / arm64 | Not run; native host/GUI bootstrapper tests and Azure signing configuration absent |
-| EnCAP Linux x64 / arm64 | Not run; native AppImage tests and repository Linux signing configuration absent |
+| EnCAP Linux x64 / arm64 | Not run; final AppImage provenance and native authenticated upgrade acceptance absent |
 | ATIV macOS / Windows / Linux, both architectures | Not qualified by this chat; overlapping implementation work left untouched |
 
-Repository secret/variable name inspection confirmed EnCAP's update signing secret/public key and release-tag verification variables exist. Azure and Linux GPG configuration names were absent. macOS Developer ID Application identity for team VR64M92P2M is available; notarization was not invoked or claimed. No Windows SDK/dotnet compiler or native Windows/Linux host is available in this execution environment. GTK C and Objective-C bridge syntax checks are possible on this Mac; they are not native platform qualification.
+Repository secret/variable name inspection confirmed EnCAP's update signing secret/public key exist. Windows Azure signing configuration was absent. macOS Developer ID Application identity for team VR64M92P2M is available; notarization was not invoked or claimed. No Windows SDK/dotnet compiler or native Windows/Linux host was available during this earlier implementation. GTK C and Objective-C bridge syntax checks were possible on that Mac; they were not native platform qualification. Later native CI results are recorded in `avalonia-migration.md`.
 
 ## Adoption and troubleshooting
 

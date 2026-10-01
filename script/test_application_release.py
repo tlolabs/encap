@@ -5,6 +5,16 @@ import application_release as release
 from core_runtime import obj
 
 class ApplicationReleaseControls(unittest.TestCase):
+    def test_linux_provenance_replaces_gpg_without_weakening_other_targets(self):
+        linux=release.required_checks('linux-x86_64')
+        mac=release.required_checks('macos-arm64')
+        windows=release.required_checks('windows-arm64')
+        self.assertIn('provenance',linux)
+        self.assertNotIn('signing',linux)
+        self.assertIn('signing',mac)
+        self.assertIn('signing',windows)
+        self.assertIn('authenticated_upgrade',linux)
+
     def test_evidence_revision_cannot_change_application_inputs(self):
         self.assertTrue(release.qualification_only_path('runtime/updater-qualification.json'))
         for path in ('desktop/EnCap.Desktop/App.axaml', 'global.json', 'runtime/core-runtime.json', '.github/workflows/build-platforms.yml'):

@@ -464,15 +464,12 @@ jobs:
           path: EnCAP
       - name: Install update metadata tools
         run: |
-          brew install squashfs gnupg
+          brew install squashfs
           python3 -m venv build/release-tools
           build/release-tools/bin/pip install -r script/update-tool-dependencies.txt
-      - name: Verify approved signed stable release tag
-        env:
-          ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
-          ENCAP_RELEASE_SIGNING_FINGERPRINT: ${{ vars.ENCAP_RELEASE_SIGNING_FINGERPRINT }}
+      - name: Verify matching annotated stable release tag
         run: bash script/verify_release_tag.sh
-      - name: Require exact signed and qualified final packages
+      - name: Require exact authenticated and qualified final packages
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 script/application_release.py --output release-assets

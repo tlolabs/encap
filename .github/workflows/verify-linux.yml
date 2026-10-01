@@ -1,4 +1,4 @@
-name: Sign and verify native Linux AppImages
+name: Verify and attest native Linux AppImages
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,8 @@ on:
 permissions:
   contents: read
 jobs:
-  sign:
+  prepare:
+    name: Prepare Linux AppImages
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -25,31 +26,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ inputs.native_run }}
         run: python3 script/acquire_app_artifact.py --run "$SOURCE_RUN" --workflow .github/workflows/build-platforms.yml --platform linux --output unsigned
-      - name: Sign final AppImage bytes with approved maintainer key
-        env:
-          LINUX_GPG_PRIVATE_KEY_B64: ${{ secrets.LINUX_GPG_PRIVATE_KEY_B64 }}
-          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
-          LINUX_GPG_FINGERPRINT: ${{ vars.LINUX_GPG_FINGERPRINT }}
+      - name: Preserve authenticated final AppImage bytes
         run: |
           set -euo pipefail
-          mkdir signed-packages
+          mkdir verified-packages
           mapfile -d '' images < <(find unsigned -type f -name '*.AppImage' -print0)
           test "${#images[@]}" = 2
           for image in "${images[@]}"; do
-            cp "$image" signed-packages/
-            python3 script/sign_linux.py "signed-packages/$(basename "$image")"
+            cp "$image" verified-packages/
+            cmp "$image" "verified-packages/$(basename "$image")"
           done
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          subject-path: signed-packages/*
+          subject-path: verified-packages/*
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: signed-linux-appimages
-          path: signed-packages/*
+          name: verified-linux-appimages
+          path: verified-packages/*
           if-no-files-found: error
   verify-native:
-    name: Verify signed Linux ${{ matrix.target }}
-    needs: sign
+    name: Verify Linux ${{ matrix.target }}
+    needs: prepare
+    permissions:
+      contents: read
+      attestations: read
     strategy:
       fail-fast: false
       matrix:
@@ -67,23 +67,16 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: signed-linux-appimages
-          path: signed-packages
-      - name: Verify final signature before native execution
+          name: verified-linux-appimages
+          path: verified-packages
+      - name: Validate final AppImage on its native architecture
         env:
-          LINUX_GPG_PUBLIC_KEY_B64: ${{ vars.LINUX_GPG_PUBLIC_KEY_B64 }}
-          LINUX_GPG_FINGERPRINT: ${{ vars.LINUX_GPG_FINGERPRINT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$LINUX_GPG_FINGERPRINT" = F7E74ED98DB485D03F2565B96B68B73FE752FD16
-          GNUPGHOME="$(mktemp -d)"
-          export GNUPGHOME
-          trap 'rm -rf "$GNUPGHOME"' EXIT
-          printf '%s' "$LINUX_GPG_PUBLIC_KEY_B64" | base64 --decode | gpg --batch --import
-          images=(signed-packages/*-linux-${{ matrix.label }}.AppImage)
+          images=(verified-packages/*-linux-${{ matrix.label }}.AppImage)
           test "${#images[@]}" = 1
-          status="$(gpg --batch --status-fd 1 --verify "${images[0]}.asc" "${images[0]}" 2>/dev/null)"
-          test "$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" {print $3}' <<< "$status")" = "$LINUX_GPG_FINGERPRINT"
+          gh attestation verify "${images[0]}" --repo '${{ github.repository }}' --signer-workflow '${{ github.repository }}/.github/workflows/verify-linux.yml' --source-digest '${{ github.sha }}' --deny-self-hosted-runners
           chmod +x "${images[0]}"
           mkdir final-native
           image="$(realpath "${images[0]}")"

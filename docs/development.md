@@ -7,6 +7,7 @@ for maintainers or contributors. Disable automatic commit signing for each clone
 
 ```sh
 git config --local commit.gpgsign false
+git config --local tag.gpgsign false
 ```
 
 Do not pass `git commit -S`. A DCO `Signed-off-by:` trailer added with
@@ -21,13 +22,17 @@ an old-to-new commit map are retained locally under
 `.git/unsigned-history-backups/` in a verified Git bundle and JSON files.
 The backup is local and is not included in a clone.
 
-When publishing rewritten history, coordinate updates to remote branches and
-tags. After publication, existing clones must realign with the new commit IDs;
-avoid merging the old signed history back into the rewritten branches.
+If a published branch still contains signed commits, first preserve a verified
+backup and old-to-new commit map. Recreate those commits without signatures while
+preserving their messages, DCO trailers, authors, dates, file trees and topology;
+then update that branch using `git push --force-with-lease`. Update affected tags
+only after checking their targets. Existing clones must realign with the new
+commit IDs; avoid merging the old signed history back into rewritten branches.
 
-Release-tag authentication, application code signing, notarization, signed update
-metadata, and upstream source-signature verification retain their existing
-requirements.
+Release tags are annotated and must match the Cargo version and checked-out
+commit; they do not need a Git signature. Application code signing,
+notarization, authenticated update metadata, and upstream source verification
+retain their separate requirements.
 
 ## Workspace ownership
 
@@ -316,7 +321,7 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Tagged CI requires the approved six-target qualification ledgers and signed
+Do not commit signing credentials. Tagged CI requires the approved six-target qualification ledgers and verified
 packages, then generates authenticated update metadata using the build scripts
 and update private key from repository secrets. macOS notarization and
 Developer ID signing require external credentials and are intentionally outside

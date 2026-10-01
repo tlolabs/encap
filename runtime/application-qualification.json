@@ -157,7 +157,7 @@
           "status": "not_run",
           "evidence": []
         },
-        "signing": {
+        "provenance": {
           "status": "not_run",
           "evidence": []
         },
@@ -190,7 +190,7 @@
           "status": "not_run",
           "evidence": []
         },
-        "signing": {
+        "provenance": {
           "status": "not_run",
           "evidence": []
         },
