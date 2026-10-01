@@ -7,8 +7,8 @@
 #include <winrt/Windows.Media.Playback.h>
 #include <atomic>
 using namespace winrt;
-using namespace Windows::Media;
-using namespace Windows::Foundation;
+using namespace winrt::Windows::Media;
+using namespace winrt::Windows::Foundation;
 using callback_t=void(__cdecl*)(int,double);
 static SystemMediaTransportControls controls{nullptr};
 static std::atomic<callback_t> callback{nullptr};

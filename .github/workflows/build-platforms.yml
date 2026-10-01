@@ -183,6 +183,13 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
+      - name: Compile native desktop adapters
+        shell: pwsh
+        run: |
+          cmake -S desktop/native -B 'build/desktop-native-${{ matrix.runtime }}' -A '${{ matrix.platform }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native adapter configuration failed' }
+          cmake --build 'build/desktop-native-${{ matrix.runtime }}' --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native adapter compilation failed' }
       - name: Install Rust target
         shell: pwsh
         run: rustup target add '${{ matrix.rust_target }}'
