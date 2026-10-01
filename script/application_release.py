@@ -19,7 +19,7 @@ REPOSITORY = 'tlolabs/'+APPLICATION
 PREFIX = 'ATIV' if APPLICATION == 'ativ' else 'EnCap'
 REQUIRED = {'native_packaging', 'native_launch', 'media', 'lifecycle', 'signing', 'authenticated_upgrade', 'manual_acceptance'}
 PRODUCERS = {'.github/workflows/native-release.yml', '.github/workflows/build-platforms.yml',
-             '.github/workflows/sign-windows.yml', '.github/workflows/sign-linux.yml'}
+             '.github/workflows/sign-windows.yml', '.github/workflows/sign-linux.yml', '.github/workflows/verify-macos.yml'}
 
 
 def validate(plan, pin, revision):
@@ -52,7 +52,7 @@ def validate(plan, pin, revision):
                     require(all(report['results'].get(name)=='passed' for name in ('previous_version_upgrade','invalid_signature','tampered_bytes','wrong_target','settings_preserved','user_files_preserved','updated_launch','intended_core_runtime')), 'Real upgrade evidence incomplete')
         require(entry['acquisition']['mode']=='published_release' and entry['acquisition']['manifest_sha256']==pin['manifest_sha256'] and entry['acquisition']['clean_environment'] is True, 'Clean production runtime acquisition evidence missing')
         origin=entry['origin']
-        expected_workflow='.github/workflows/sign-windows.yml' if system=='windows' else '.github/workflows/sign-linux.yml' if system=='linux' else '.github/workflows/native-release.yml' if APPLICATION=='ativ' else '.github/workflows/build-platforms.yml'
+        expected_workflow='.github/workflows/sign-windows.yml' if system=='windows' else '.github/workflows/sign-linux.yml' if system=='linux' else '.github/workflows/verify-macos.yml'
         require(origin['workflow']==expected_workflow, 'Production platform signing workflow required')
         require(origin['workflow'] in PRODUCERS and re.fullmatch('[0-9a-f]{64}',origin['artifact_zip_sha256']), 'Untrusted application producer')
     return passed
@@ -83,6 +83,8 @@ def stage(plan, pin, output):
         system=target.split('-')[0]
         if system in ('windows','linux'):
             require({'sign','Verify signed '+system.title()+' '+target} <= {j['name'] for j in jobs}, 'Exact platform signing/native verification jobs required')
+        if system=='macos':
+            require({'Verify signed macOS '+target} <= {j['name'] for j in jobs}, 'Exact native notarized ZIP verification job required')
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);archive=root/'artifact.zip'
             with archive.open('wb') as stream:

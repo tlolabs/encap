@@ -1,0 +1,93 @@
+name: Verify locally notarized Mac qualification packages
+on:
+  workflow_dispatch:
+    inputs:
+      native_run:
+        description: Exact same-commit native Mac qualification run
+        type: string
+        required: true
+      qualification_tag:
+        description: Same-commit draft qualification release tag
+        type: string
+        required: true
+      arm64_sha256:
+        description: Final stapled arm64 ZIP SHA-256
+        type: string
+        required: true
+      intel_sha256:
+        description: Final stapled Intel ZIP SHA-256
+        type: string
+        required: true
+      qualify_core_candidate:
+        description: Unpublished candidate verification only
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  verify-native:
+    name: Verify signed macOS ${{ matrix.target }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: macos-arm64
+            label: arm64
+            artifact_label: arm64
+          - runner: macos-15-intel
+            target: macos-x86_64
+            label: intel
+            artifact_label: intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AVID_CORE_QUALIFICATION: ${{ inputs.qualify_core_candidate && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ggerganov/whisper.cpp
+          ref: f049fff95a089aa9969deb009cdd4892b3e74916
+          path: .whisper-cpp
+          persist-credentials: false
+      - name: Authenticate exact native original packages
+        env:
+          SOURCE_RUN: ${{ inputs.native_run }}
+        run: python3 script/acquire_app_artifact.py --run "$SOURCE_RUN" --workflow .github/workflows/build-platforms.yml --platform macos --output original-native 
+      - name: Verify signed archive against original code and Apple identity
+        env:
+          QUALIFICATION_TAG: ${{ inputs.qualification_tag }}
+          FINAL_SHA: ${{ matrix.label == 'arm64' && inputs.arm64_sha256 || inputs.intel_sha256 }}
+        run: |
+          set -euo pipefail
+          originals=(original-native/EnCap-macos-${{ matrix.artifact_label }}/EnCap-*-macos-${{ matrix.label }}.zip)
+          test "${#originals[@]}" = 1
+          python3 script/verify_macos_qualification.py --application encap --target '${{ matrix.target }}' --tag "$QUALIFICATION_TAG" --sha256 "$FINAL_SHA" --original-zip "${originals[0]}" --output final-native > signing.json
+      - name: Final native package, launch, media and lifecycle checks
+        run: |
+          set -euo pipefail
+          python3 script/ffmpeg_runtime.py validate '${{ matrix.target }}' --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg
+          bash script/ffmpeg/qualify.sh final-native/extracted/EnCap.app/Contents/MacOS/encap-engine
+          ENCAP_TEST_ENGINE="$PWD/final-native/extracted/EnCap.app/Contents/MacOS/encap-engine" ENCAP_REQUIRE_CLONING=1 cargo test --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
+          python3 script/test_native_startup.py final-native/extracted/EnCap.app/Contents/MacOS/EnCap
+          python3 script/host_evidence.py --application encap --target '${{ matrix.target }}' --pin runtime/core-runtime.json --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg --packages final-native/*.zip --output final-native/host-${{ matrix.target }}.json
+          python3 -c 'import json,pathlib; p=pathlib.Path("final-native/host-${{ matrix.target }}.json"); d=json.loads(p.read_text()); d["checks"]["signing"]={"status":"passed","evidence":["signing.json; native strict Developer ID, stapled-ticket, Gatekeeper and original-code comparison"]}; p.write_text(json.dumps(d,indent=2)+"\n")'
+          cp signing.json final-native/signing-${{ matrix.target }}.json
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: final-native/*.zip
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: notarized-${{ matrix.target }}
+          path: |
+            final-native/*.zip
+            final-native/*.json
+          if-no-files-found: error
