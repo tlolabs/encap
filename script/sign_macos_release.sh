@@ -8,7 +8,8 @@ APP="${ENCAP_APP_BUNDLE:-$ROOT/dist/EnCap.app}"
 FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 case "$(lipo -archs "$APP/Contents/MacOS/EnCap")" in arm64) ARCH=arm64;; x86_64) ARCH=intel;; *) exit 1;; esac
-ZIP="$ROOT/dist/EnCap-${VERSION}-macos-${ARCH}-signed.zip"
+ZIP="${ENCAP_OUTPUT_ZIP:-$ROOT/dist/EnCap-${VERSION}-macos-${ARCH}-signed.zip}"
+[[ ! -e "$ZIP" ]] || { echo "Final package output already exists; refusing replacement." >&2; exit 1; }
 if ! security find-identity -v -p codesigning | grep 'Developer ID Application:' | grep -F -- "$IDENTITY" >/dev/null; then
   echo 'A valid Developer ID Application identity is required.' >&2
   exit 1
@@ -48,6 +49,15 @@ PY_STATUS
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 else
   echo 'Signed only: notarization is still required before public distribution.' >&2
+fi
+VERIFY="$(mktemp -d)"
+trap 'rm -rf "$VERIFY"' EXIT
+ditto -x -k "$ZIP" "$VERIFY"
+codesign --verify --deep --strict "$VERIFY/EnCap.app"
+python3 "$ROOT/script/ffmpeg_runtime.py" validate "$TARGET" --binary "$VERIFY/EnCap.app/Contents/MacOS" --metadata "$VERIFY/EnCap.app/Contents/Resources/FFmpeg"
+if [[ -n "${ENCAP_NOTARY_PROFILE:-}" ]]; then
+  xcrun stapler validate "$VERIFY/EnCap.app"
+  spctl --assess --type execute --verbose=2 "$VERIFY/EnCap.app"
 fi
 (cd "$(dirname "$ZIP")" && shasum -a 256 "$(basename "$ZIP")") > "$ZIP.sha256"
 printf '%s\n' "$ZIP"
