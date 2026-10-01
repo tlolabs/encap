@@ -8,6 +8,8 @@ requirements are actually satisfied.
 
 ## Architecture and files
 
+Baseline reviewed: `9cb3ffdfaec0a00a57d7c3074395ba5afc8cf83b`.
+
 Before: Windows WinUI 3/C#, Linux GTK 4/libadwaita/C, and native macOS
 SwiftUI/AppKit each owned presentation and coordination around the same Rust
 `encap-engine` JSON protocol.
@@ -60,7 +62,7 @@ on every operating system.
 | Add/remove multiple recordings | Existing atomic `edit-audio` operation, confirmation and original-file retention; shared commands and engine tests |
 | Source list, waveform, resize, multi-selection | Shared list, core waveform sampler, splitter; headless binding/first-selected-row checks; visible reference UI inspected |
 | Playback and J/K/L | Pause/resume, seek, reverse, doubled rates to 32x, half-speed chord; held-key tracking prevents repeat acceleration; native device tests and shared shuttle fixture |
-| OS media controls | SMTC and MPRIS adapters; real MPRIS metadata/transport/seek/busy/shutdown tests on a private bus on macOS; native Windows/Linux routing still requires platform verification |
+| OS media controls | SMTC and MPRIS adapters; real MPRIS metadata/transport/seek/busy/shutdown tests on a private bus on macOS; native Linux CI protocol tests also pass; real desktop media-key routing still requires manual acceptance |
 | Episode metadata/artwork | Two-way podcast/title/summary bindings and native pickers; keyboard editing and saved-title round-trip tested; artwork observed |
 | Chapters | Add/remove, title/link/duration/artwork, timeline recomputation; Original/Numbered/Time/Custom naming; 23 timestamp cases and preserved naming/source-metadata checks |
 | Preferences | Windows naming file and Linux `encap/chapter-naming.ini` retained; automatic-update preference retained; reference preferences/recovery isolated |
@@ -144,9 +146,34 @@ names; promotion accepts only the established six production target filenames,
 identities and evidence. Merely renaming a reference ZIP cannot supply its missing
 production update identity.
 
-Native Windows/Linux CI results will be recorded after the pushed branch run.
-Until then those native package results are NOT VERIFIED. Platform absence on the
-local Mac is a local execution blocker, not evidence of success.
+Native CI results (each run identifies its exact source commit; later Windows/Linux fixes do not change the shared presentation or native macOS source):
+
+| Target | Native CI evidence |
+|---|---|
+| Linux x64 and ARM64 | VERIFIED in [run 36884828806](https://github.com/tlolabs/encap/actions/runs/36884828806): 39 presentation/headless checks per target (the extra Mac-only update guard makes 40 locally), retained fixtures, native adapters, MPRIS protocol, staged startup, AppImage assembly and finished-AppImage startup, media suite and Btrfs persistence. Both artifacts uploaded. |
+| Native macOS ARM64 and internal reference | VERIFIED in [run 36876431008](https://github.com/tlolabs/encap/actions/runs/36876431008): native package/tests and separate internal shared UI artifact uploaded. |
+| Windows x64 and ARM64 | VERIFIED in [run 36883090923](https://github.com/tlolabs/encap/actions/runs/36883090923): native playback/SMTC adapters, 39 shared presentation/headless checks plus retained fixtures per architecture, portable updater, assembled application startup, PE architecture checks, core/save/media tests, provenance/rejection checks and portable ZIP uploads. |
+| Native macOS Intel | Local cross-build/package VERIFIED. Native CI builds the application but package qualification is BLOCKED by the existing 250 ms save budget: post-reopen saves measured 456.8 ms and 705.7 ms on separate runs; another metadata save measured 410.1 ms. One intervening workspace run passed. The core save implementation and timing test are unchanged from the starting revision. |
+
+Downloadable artifacts: [Windows x64](https://github.com/tlolabs/encap/actions/runs/36883090923/artifacts/11173952686),
+[Windows ARM64](https://github.com/tlolabs/encap/actions/runs/36883090923/artifacts/11174446541),
+[Linux x64](https://github.com/tlolabs/encap/actions/runs/36884828806/artifacts/11173778462),
+[Linux ARM64](https://github.com/tlolabs/encap/actions/runs/36884828806/artifacts/11173723479),
+and [INTERNAL macOS ARM64 reference](https://github.com/tlolabs/encap/actions/runs/36876431008/artifacts/11170288056).
+These are workflow artifacts subject to GitHub retention, not production releases.
+
+CI exposed and corrected missing GitHub CLI visibility under MSYS2, missing token
+scope for repeat Mac provenance verification, a PPM test fixture unsupported by
+the pinned runtime, Windows-to-POSIX runtime path handling, and mutable AppImage
+tool downloads. The Windows SMTC adapter now uses explicit WinRT namespaces,
+standard C++20 coroutines and balanced WinRT initialization; CI compiles native
+adapters early. AppImage tools now use versioned releases with reviewed hashes.
+GLib/GIO and their OS-level transitive libraries remain system dependencies,
+with notices included for the remaining bundled distribution libraries.
+The optional .NET LTTng provider is retained unchanged outside linuxdeploy's
+mandatory dependency resolution; opt-in LTTng tracing still needs the host's
+compatible tracing prerequisites, as described by [Microsoft](https://learn.microsoft.com/dotnet/core/diagnostics/trace-perfcollect-lttng).
+No application feature or verification check was removed to make packaging pass.
 
 Before production acceptance, verify Windows SMTC/media routing, Linux desktop
 MPRIS routing (including Wayland/XWayland), native file dialogs, audio devices,
@@ -154,11 +181,15 @@ scaling/multiple displays, NVDA/Orca keyboard and screen-reader behavior, drag/d
 long source lists and long AIFF recordings. AIFF preview uses a cancellable
 conversion to temporary PCM through the authenticated bundled FFmpeg before
 playback, so first-play latency and temporary disk use scale with recording size.
-Model downloads/removal need real native acceptance in addition to the existing
+Linux packages use the existing updater/runtime glibc 2.39 minimum (Ubuntu 24.04
+or a compatible distribution), with X11/XWayland and system GLib/GIO. Model
+downloads/removal need real native acceptance in addition to the existing
 catalog/hash tests. No feature was removed because GUI automation was difficult.
 
 Production release remains BLOCKED by the existing unapproved native signing,
-authenticated A-to-B update and manual acceptance ledgers. The Windows
+authenticated A-to-B update and manual acceptance ledgers. Native Intel CI
+save-latency qualification is also BLOCKED by the measurements
+above; controlled native Intel profiling/acceptance remains necessary. The Windows
 power-loss journal/rollback path and full installer lifecycle must be exercised
 on native hosts. This report does not mark those gates passed, and no tag,
 release, Developer ID signing, notarization or paid service provisioning is
