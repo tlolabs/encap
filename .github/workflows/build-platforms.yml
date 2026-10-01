@@ -16,6 +16,10 @@ on:
         description: Run the unchanged save contract with phase diagnostics on native Macs
         type: boolean
         default: false
+      owner_testing:
+        description: Build packages for owner testing without application acceptance prerequisites
+        type: boolean
+        default: true
       qualify_core_candidate:
         description: Unpublished host qualification with authenticated exact Core candidate
         type: boolean
@@ -25,6 +29,7 @@ permissions:
   contents: read
 
 env:
+  ENCAP_BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_testing && '1' || '0' }}
   GH_TOKEN: ${{ github.token }}
   AVID_CORE_QUALIFICATION: ${{ github.event_name == 'workflow_dispatch' && inputs.qualify_core_candidate && '1' || '0' }}
   CARGO_TERM_COLOR: always
@@ -113,9 +118,10 @@ jobs:
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
         run: ./script/build_and_run.sh --package
       - name: Test complete native Rust workspace
-        if: ${{ !cancelled() }}
+        if: ${{ !inputs.owner_testing && !cancelled() }}
         run: cargo test --workspace --locked --all-features --no-fail-fast
       - name: Test native models
+        if: ${{ !inputs.owner_testing }}
         run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path macos --scratch-path build/native-swift
       - name: Verify packaged media tools
         run: |
@@ -124,6 +130,7 @@ jobs:
           ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
           codesign --verify --deep --strict dist/EnCap.app
       - name: Native application launch smoke and exact host evidence
+        if: ${{ !inputs.owner_testing }}
         run: |
           python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
           python3 script/host_evidence.py --application encap --target "macos-${{ matrix.arch }}" --pin runtime/core-runtime.json --binary dist/EnCap.app/Contents/MacOS --metadata dist/EnCap.app/Contents/Resources/FFmpeg --packages dist/EnCap-*-macos-*.zip --output "dist/host-macos-${{ matrix.arch }}.json"
@@ -201,6 +208,7 @@ jobs:
           arch: ${{ matrix.arch }}
           shell: bash
       - name: Verify synthetic portrait pipeline
+        if: ${{ !inputs.owner_testing }}
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
       - name: Build local Whisper runtime
@@ -216,14 +224,18 @@ jobs:
       - name: Build shared Rust engine
         shell: pwsh
         run: |
-          cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
-          if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
+          if ($env:ENCAP_BUILD_ONLY -ne '1') {
+            cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
+            if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
+          }
           cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
+        if: ${{ !inputs.owner_testing }}
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
       - name: Test Windows chapter naming
+        if: ${{ !inputs.owner_testing }}
         shell: pwsh
         run: dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
       - name: Publish native WinUI 3 app
@@ -259,7 +271,7 @@ jobs:
           foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
-          & {
+          if ($env:ENCAP_BUILD_ONLY -ne '1') {
             $env:ENCAP_TEST_PACKAGED = "1"
             $env:ENCAP_TEST_ENGINE = "$stage/encap-engine.exe"
             $env:ENCAP_FFMPEG = "$stage/ffmpeg.exe"
@@ -278,9 +290,11 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
       - name: Verify packaged runtime discovery and rejection
+        if: ${{ !inputs.owner_testing }}
         shell: bash
         run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
       - name: Native application launch smoke and exact host evidence
+        if: ${{ !inputs.owner_testing }}
         shell: pwsh
         run: |
           python script/test_native_startup.py dist/staging/EnCap/EnCap.exe
@@ -329,7 +343,7 @@ jobs:
           arch: ${{ matrix.arch }}
       - name: Build shared engine and bundled media tools
         run: |
-          cargo test --workspace --locked --all-features
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then cargo test --workspace --locked --all-features; fi
           cargo build --package encap-engine --release --locked
       - name: Build local Whisper runtime
         run: |
@@ -342,7 +356,7 @@ jobs:
           prefix="$PWD/dist/staging/EnCap"
           meson setup build/linux-native linux/EnCap --prefix="$prefix"
           meson compile -C build/linux-native
-          meson test -C build/linux-native --print-errorlogs
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then meson test -C build/linux-native --print-errorlogs; fi
           meson install -C build/linux-native
           ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
@@ -351,15 +365,18 @@ jobs:
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
           cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
-          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
-          bash script/ffmpeg/qualify.sh "$prefix/bin/encap-engine"
-          cargo test --locked -p encap-ffmpeg
+          if [[ "$ENCAP_BUILD_ONLY" != 1 ]]; then
+            ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+            bash script/ffmpeg/qualify.sh "$prefix/bin/encap-engine"
+            cargo test --locked -p encap-ffmpeg
+          fi
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           bash script/package_appimage.sh "${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}" "$prefix" "$version"
       - name: Verify Linux cloning and mode-switch latency on Btrfs
+        if: ${{ !inputs.owner_testing }}
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
           mount_dir="$RUNNER_TEMP/encap-save-volume"
@@ -372,6 +389,7 @@ jobs:
           TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/dist/staging/EnCap/bin/encap-engine" \
             cargo test --locked -p encap-engine --test save_protocol -- --nocapture
       - name: Extracted AppImage native launch and exact host evidence
+        if: ${{ !inputs.owner_testing }}
         run: |
           export APPIMAGE_EXTRACT_AND_RUN=1
           xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py dist/release/EnCap-*-linux-*.AppImage
