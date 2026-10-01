@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=EnCap
+Comment=Encoder with Chapter Assembly Protocol
+Exec=EnCap %f
+Icon=com.tlolabs.encap
+Categories=AudioVideo;Audio;Video;
+MimeType=application/x-encap;
+Terminal=false
+StartupWMClass=EnCap

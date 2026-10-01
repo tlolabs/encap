@@ -329,3 +329,37 @@ SOFTWARE.
 
 Source and additional component notices:
 https://github.com/sparkle-project/Sparkle
+
+## Desktop updater
+
+The independent vendored `tlo-updater` component is GPL-3.0-or-later and has no AVID Core dependency. Its reviewed source digest is recorded in `runtime/updater-source.json`. It uses ring (ISC/MIT/OpenSSL), reqwest (MIT OR Apache-2.0), semver (MIT OR Apache-2.0), fs2 (MIT OR Apache-2.0), serde/serde_json (MIT OR Apache-2.0), base64 (MIT OR Apache-2.0), sha2 (MIT OR Apache-2.0), and tempfile (MIT OR Apache-2.0), with resolved versions in Cargo.lock. Sparkle retains its existing license and distribution notices. Python cryptography is build/release tooling, not a desktop runtime dependency.
+
+
+## Shared Avalonia desktop frontend
+
+Windows/Linux and the internal Apple Silicon reference use Avalonia **12.1.3**
+(MIT), the self-contained .NET **10** runtime (MIT and its bundled third-party
+notices), SkiaSharp **3.119.4** (MIT, with Skia/dependency notices), HarfBuzzSharp
+**8.3.1.3** (MIT, with HarfBuzz notices), MicroCom.Runtime **0.11.6** (MIT), and
+Tmds.DBus.Protocol **0.94.1** (MIT). Avalonia's Windows ANGLE native package
+**2.1.27548.20260419** carries BSD-style and bundled third-party terms. These
+permissive notices are retained alongside this GPL-3.0-only application.
+
+`desktop/licenses/inventory.json` lists all 27 direct/transitive/test NuGet
+packages with exact versions, registry content hashes and included notice files.
+`script/check_desktop_dependencies.py` rejects unreviewed changes. Those notices
+are copied into every shared desktop package; .NET's own runtime notices remain
+in the self-contained publish output. Avalonia.Headless is a test dependency.
+No commercial Avalonia components, subscription service or paid media player is
+used. Official framework license: <https://github.com/AvaloniaUI/Avalonia/blob/12.1.3/licence.md>.
+
+The preview device adapter vendors miniaudio **0.11.23** from the upstream tag:
+<https://github.com/mackron/miniaudio/tree/0.11.23>. We select its MIT-0 option
+(the upstream file calls it “MIT No Attribution”); the complete dual-license text
+is retained in `desktop/vendor/miniaudio.LICENSE` and distributed with the app.
+The unmodified header SHA-256 is
+`7e4f3f13c8fe66df2080ac3dd12a89193e3c2463cb7f067c798abd7331cd8ee6`.
+
+Linux media-session integration dynamically links the system GLib/GIO libraries
+under LGPL-2.1-or-later. No GTK, libadwaita, GStreamer or WinUI runtime remains.
+Windows media-session integration uses the operating system Windows SDK APIs.

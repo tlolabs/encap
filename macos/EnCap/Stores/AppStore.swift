@@ -28,7 +28,7 @@ final class AppStore: ObservableObject {
     @Published var transcriptSearch = ""
     @Published var transcriptShowsSpeakers = true
     @Published var isModelManagerPresented = false
-    @Published var isWorking = false
+    @Published var isWorking = false { didSet { EnCapSetUpdateWorkInProgress(isWorking) } }
     @Published var status = "Import an audio folder to begin."
     @Published var errorMessage: String?
     @Published var fileImportKind: FileImportKind?

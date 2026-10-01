@@ -21,6 +21,9 @@ case "$NATIVE_ARCH" in
 esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "$MODE" == "--avalonia-reference" ]]; then
+  exec python3 "$ROOT_DIR/script/build_desktop.py" --rid osx-arm64 --tools "$ROOT_DIR/dist/EnCap.app/Contents/MacOS" --dotnet "${DOTNET:-$ROOT_DIR/.build-tools/dotnet10/dotnet}" --run
+fi
 "$ROOT_DIR/script/check_no_python.sh"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
@@ -83,7 +86,10 @@ if [[ ! -d "$ICON_DOCUMENT" ]]; then
   exit 1
 fi
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+if pgrep -f "^$APP_BINARY( |$)" >/dev/null; then
+  echo "Close the running app after saving your work before replacing its development bundle." >&2
+  exit 1
+fi
 
 APP_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)"
 UPDATE_PUBLIC_KEY="$(tr -d '\r\n' < "$PUBLIC_KEY_FILE")"
@@ -184,7 +190,13 @@ chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/tlolabs/encap/releases/latest/download/appcast-$ENCAP_PLATFORM_NAME.xml" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $UPDATE_PUBLIC_KEY" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c 'Add :SUEnableAutomaticChecks bool true' "$INFO_PLIST"
-/usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool true' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUAutomaticallyUpdate bool false' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUScheduledCheckInterval real 86400' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUVerifyUpdateBeforeExtraction bool true' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SURequireSignedFeed bool true' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUEnableSystemProfiling bool false' "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c 'Add :SUSendProfileInfo bool false' "$INFO_PLIST"
+ENCAP_UPDATE_PUBLIC_KEY="$UPDATE_PUBLIC_KEY" python3 "$ROOT_DIR/script/update_config.py" "$APP_RESOURCES" "$ENCAP_PLATFORM_NAME"
 
 bash "$ROOT_DIR/script/ffmpeg/stage.sh" "$FFMPEG_INSTALL_DIR" "$APP_MACOS" "$APP_RESOURCES/FFmpeg"
 cp "$WHISPER_BUILD_DIR/bin/whisper-cli" "$APP_MACOS/whisper-cli"

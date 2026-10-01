@@ -1,7 +1,8 @@
 # Native application architecture
 
 ```text
-SwiftUI / WinUI / GTK -> encap-engine (one JSON response)
+SwiftUI (production macOS) ----------------> encap-engine (one JSON response)
+Avalonia AXAML -> EnCap.Application --------> |
                         |-- encap-core: project model and ZIP persistence
                         |-- encap-audio / encap-transcript -> encap-ffmpeg
                         `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
@@ -27,11 +28,11 @@ remain EnCAP responsibilities. One Core cancellation token connects the signal
 handler to all three modes; EnCAP's Audio/Transcript runner still owns and reaps
 its processes. Acquisition uses the pinned Core CI artifacts; a sibling checkout is unnecessary.
 
-All three native applications use the `encap-engine` JSON process boundary.
+Both presentation implementations use the `encap-engine` JSON process boundary.
 JSON keys use
 snake case, every invocation returns one JSON value on stdout, and failures
 return `{ "error": "plain-language explanation" }` with a nonzero status.
-Keeping the boundary identical makes the GTK, WinUI, and SwiftUI clients thin
+Keeping the boundary identical makes the Avalonia and SwiftUI clients thin
 and independently crash-isolated while the mode crates remain reusable.
 
 No UI layer owns persistence, media command construction, schema migration, or
@@ -48,3 +49,24 @@ appearance, drag/drop, playback, and lifecycle integration.
 - Raw tool diagnostics stay in local logs; the UI receives concise errors.
 - Unsupported future project schemas are never partially loaded or rewritten.
 - No telemetry, analytics, or automatic diagnostic upload exists.
+
+## Shared desktop presentation
+
+`desktop/EnCap.Application` owns observable presentation models, commands, dirty
+state, recovery coordination and the existing Rust JSON client. It has no UI
+framework dependency. `desktop/EnCap.Desktop` contains one AXAML tree, theme and
+input routing implementation for Windows x64/ARM64, Linux x64/ARM64 and the
+internal Apple Silicon reference. `desktop/EnCap.Tests` consumes the same shared
+chapter/shuttle fixtures and exercises headless input, bindings and lifecycle.
+
+`IEngineClient`, `IUserDialogs`, `IPlayback` and `IMediaSession` separate services
+from presentation. Native miniaudio supplies recording preview; authenticated
+bundled FFmpeg decodes PCM formats unsupported by that decoder. Narrow C/C++
+adapters supply Linux MPRIS and Windows SMTC. GLib remains a Linux integration
+dependency; GTK, libadwaita, GStreamer and WinUI are removed.
+
+The reference bundle ID is `com.tlolabs.encap.avalonia-reference`. Avalonia running
+on any Mac disables production update operations, even outside the app bundle.
+Its updater executable/configuration and Sparkle are excluded from packaging.
+Production update identity generation rejects that bundle ID. CI uploads its ZIP
+only under an INTERNAL artifact name and never includes it in release inputs.

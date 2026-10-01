@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TLO stable update manifest authenticated payload",
+  "type": "object",
+  "required": [
+    "schema",
+    "application_id",
+    "repository",
+    "version",
+    "tag",
+    "channel",
+    "draft",
+    "prerelease",
+    "published_at",
+    "release_notes_url",
+    "restart_required",
+    "migration",
+    "assets"
+  ],
+  "properties": {
+    "schema": {
+      "const": 2
+    },
+    "application_id": {
+      "type": "string"
+    },
+    "repository": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "tag": {
+      "type": "string"
+    },
+    "channel": {
+      "const": "stable"
+    },
+    "draft": {
+      "const": false
+    },
+    "prerelease": {
+      "const": false
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "release_notes_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "restart_required": {
+      "const": true
+    },
+    "migration": {
+      "enum": [
+        "none",
+        "manual"
+      ]
+    },
+    "assets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "url",
+          "filename",
+          "size",
+          "sha256",
+          "platform",
+          "architecture",
+          "minimum_os",
+          "minimum_glibc",
+          "format"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "filename": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483648
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "platform": {
+            "enum": [
+              "macos",
+              "windows",
+              "linux"
+            ]
+          },
+          "architecture": {
+            "enum": [
+              "x86_64",
+              "aarch64"
+            ]
+          },
+          "minimum_os": {
+            "type": "string"
+          },
+          "minimum_glibc": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "enum": [
+              "zip",
+              "AppImage"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,8 +5,8 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 EnCap 2.0 turns a naturally ordered folder of recordings into audio, transcript,
-and social-video deliverables in one portable project. Its Rust engine has native
-interfaces for macOS, Windows, and Linux. EnCap 2.0 is the current build. The frozen
+and social-video deliverables in one portable project. Its Rust engine has
+desktop interfaces for macOS, Windows, and Linux. EnCap 2.0 is the current build. The frozen
 pre-2.0 Python implementation is preserved on the
 [`archive/python-legacy`](https://github.com/tlolabs/encap/tree/archive/python-legacy)
 branch and is not part of current development or releases.
@@ -29,8 +29,7 @@ The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
 and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
 Video delegates media work to the pinned `avid-core` crate. A small
-JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
-GTK 4/libadwaita applications thin and crash-isolated. See
+JSON process boundary in `encap-engine` keeps the native SwiftUI application and shared Avalonia Windows/Linux application thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
 Video's timing, encoder selection, and composition rules are documented in
 [`docs/video-mode.md`](docs/video-mode.md).
@@ -45,8 +44,8 @@ Video's timing, encoder selection, and composition rules are documented in
 | Intel Mac | `EnCap-<version>-macos-intel.zip` | macOS 13 |
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
-| Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
-| Linux ARM64 | `EnCap-<version>-linux-arm64.tar.gz` | GTK 4 + libadwaita 1 |
+| Linux x64 | `EnCap-<version>-linux-x64.AppImage` | X11/XWayland, glibc 2.35+ |
+| Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, glibc 2.35+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
 to install media tools. Starting with 2.0.3, release downloads for both Mac
@@ -105,9 +104,7 @@ EnCAP no longer compiles FFmpeg or owns its recipe. Build-time acquisition needs
 Python 3.12+, authenticated GitHub CLI, and network access; packaged tools run
 offline.
 See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
-Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
-Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
-packages plus Meson on Linux. First-time packaging also needs network access to
+Platform prerequisites are Xcode 26 on macOS, the pinned .NET 10 SDK and Visual Studio C++/Windows SDK on Windows, or .NET 10, CMake, X11/fontconfig and GLib development packages on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
 
 On macOS, the project run action and the shell use the same entrypoint:
@@ -121,6 +118,13 @@ Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
 local transcription helpers, then bundles the Core-built FFmpeg/ffprobe pair
 at `dist/EnCap.app`. All modes use this verified pair with no production PATH
 fallback. Clean qualification uses the same normal application and packaging path.
+
+Windows/Linux use the single presentation implementation in `desktop/EnCap.Desktop`.
+The same UI is available on Apple Silicon as an **internal reference only**, via
+`./script/build_and_run.sh --avalonia-reference` after staging the normal native
+engine/media tools. It has a separate identity and recovery data, no production
+updater, and a separate CI artifact. The production macOS download remains SwiftUI.
+See [migration verification and parity](docs/avalonia-migration.md).
 
 Shared checks:
 
@@ -162,3 +166,5 @@ transparency, reciprocity, and educational use, without warranty or guaranteed
 support. Bug reports and pull requests are welcome.
 
 GNU General Public License v3.0. See [`LICENSE`](LICENSE).
+
+Application update architecture, release contracts, migration and unqualified platform status are documented in [docs/updater.md](docs/updater.md).

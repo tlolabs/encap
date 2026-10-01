@@ -4,6 +4,7 @@ import SwiftUI
 struct EnCapApp: App {
     @NSApplicationDelegateAdaptor(EnCapApplicationDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
+    @AppStorage("SUEnableAutomaticChecks") private var automaticUpdates = true
 
     var body: some Scene {
         WindowGroup("EnCap", id: "main") {
@@ -39,9 +40,10 @@ struct EnCapApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                     .help("Arrange chapters and artwork for video export")
             }
-            CommandGroup(replacing: .help) {
+            CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { store.checkForUpdates() }
                     .help("Check for a newer version of EnCap")
+                Toggle("Automatically Check for Updates", isOn: $automaticUpdates)
             }
         }
     }

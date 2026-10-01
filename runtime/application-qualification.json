@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "repository": "tlolabs/encap",
+  "version": "2.0.5",
+  "tag": "v2.0.5",
+  "application_revision": null,
+  "publication_policy": "complete_six_target_matrix",
+  "targets": {
+    "macos-arm64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    },
+    "macos-x86_64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    },
+    "windows-arm64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    },
+    "windows-x86_64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    },
+    "linux-arm64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    },
+    "linux-x86_64": {
+      "status": "awaiting_evidence",
+      "checks": {
+        "native_packaging": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "native_launch": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "media": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "lifecycle": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "signing": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "authenticated_upgrade": {
+          "status": "not_run",
+          "evidence": []
+        },
+        "manual_acceptance": {
+          "status": "awaiting_acceptance",
+          "evidence": []
+        }
+      }
+    }
+  }
+}

@@ -21,3 +21,7 @@ __pycache__/
 # Xcode user preferences and transient UI state.
 xcuserdata/
 *.xcuserstate
+
+# Shared Avalonia build output.
+desktop/**/bin/
+desktop/**/obj/

@@ -1,0 +1,4 @@
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:EnCap" x:Class="EnCap.App" RequestedThemeVariant="Default">
+ <Application.Resources><local:LocalImageConverter x:Key="LocalImage"/><Thickness x:Key="ControlSpacing">4</Thickness></Application.Resources>
+ <Application.Styles><FluentTheme/><Style Selector="Button"><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="12,6"/></Style><Style Selector="TextBox"><Setter Property="MinHeight" Value="32"/></Style><Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="20"/><Setter Property="FontWeight" Value="SemiBold"/></Style><Style Selector="TextBlock.label"><Setter Property="Margin" Value="0,8,0,4"/></Style><Style Selector="ComboBox"><Setter Property="MinWidth" Value="110"/></Style></Application.Styles>
+</Application>

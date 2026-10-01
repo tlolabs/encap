@@ -3,3 +3,7 @@
 *.asc text eol=lf
 *.yml text eol=lf
 *.py text eol=lf
+
+# Preserve upstream audited bytes and notice formatting.
+desktop/vendor/** -text -whitespace
+desktop/licenses/* -text -whitespace

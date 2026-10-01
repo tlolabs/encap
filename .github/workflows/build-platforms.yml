@@ -1,4 +1,4 @@
-name: Build native platform apps
+name: Build platform applications
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Native platform group to qualify
+        description: Platform group to qualify
         type: choice
         options: [all, macos, windows, linux, checks, runtime-probes]
         default: all
@@ -18,6 +18,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
   MACOSX_DEPLOYMENT_TARGET: "13.0"
   WHISPER_CPP_VERSION: "v1.9.1"
   WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
@@ -47,10 +48,8 @@ jobs:
         run: |
           cargo test --workspace --locked --all-features
           python3 script/test_runtime_ownership.py
-      - name: Check portable chapter timestamp rules
-        run: |
-          cc -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c -o /tmp/encap-chapter-names-test
-          /tmp/encap-chapter-names-test tests/fixtures/chapter-times.tsv
+          python3 script/check_desktop_dependencies.py
+          python3 script/test_desktop_distribution.py
       - name: Build native engine
         run: cargo build --package encap-engine --locked
 
@@ -110,13 +109,32 @@ jobs:
         run: |
           dist/EnCap.app/Contents/MacOS/encap-engine validate-tools
           dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
-          ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
+          if otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'; then exit 1; fi
           codesign --verify --deep --strict dist/EnCap.app
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-macos-${{ matrix.label }}
           path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
+          if-no-files-found: error
+
+      - name: Install pinned .NET SDK for internal reference
+        if: matrix.arch == 'arm64'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test and package internal shared UI reference
+        if: matrix.arch == 'arm64'
+        run: |
+          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+          python3 script/build_desktop.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS
+          python3 script/test_desktop_distribution.py
+      - name: Upload INTERNAL reference only
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: EnCap-INTERNAL-Avalonia-Reference-osx-arm64
+          path: EnCAP/dist/internal/*-INTERNAL-Avalonia-Reference-osx-arm64.zip
           if-no-files-found: error
 
   windows:
@@ -199,23 +217,36 @@ jobs:
         run: |
           cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
           if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
-          cargo build --package encap-engine --release --locked --target '${{ matrix.rust_target }}'
+          cargo build --package encap-engine --package encap-update --release --locked --target '${{ matrix.rust_target }}'
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
-      - name: Test Windows chapter naming
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test shared application and headless UI
         shell: pwsh
-        run: dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-      - name: Publish native WinUI 3 app
+        run: |
+          python script/update_config.py --props build/version.props
+          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Publish portable update installer
         shell: pwsh
-        run: dotnet publish windows/EnCap/EnCap.csproj -c Release -r '${{ matrix.runtime }}' --self-contained true -p:Platform='${{ matrix.platform }}' -o dist/staging/EnCap
+        run: |
+          python script/update_config.py --props build/version.props
+          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r '${{ matrix.runtime }}' --self-contained true -o build/portable-update
+          if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
       - name: Assemble and verify portable package
         shell: pwsh
         run: |
-          $stage = Resolve-Path dist/staging/EnCap
+          $stage = New-Item -ItemType Directory -Force build/desktop-tools
           Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" dist/staging/EnCap'
+          Copy-Item 'target/${{ matrix.rust_target }}/release/encap-update.exe' "$stage/encap-update.exe"
+          Copy-Item 'build/portable-update/encap-portable-update.exe' "$stage/encap-portable-update.exe"
+          python script/update_config.py $stage 'windows-${{ matrix.label }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
+          msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
           if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
           $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
           if (!$whisper) { throw 'whisper-cli build is missing' }
@@ -223,6 +254,9 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
+          python script/build_desktop.py --rid '${{ matrix.runtime }}' --tools build/desktop-tools
+          if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
+          $stage = Resolve-Path dist/staging/EnCap
           function Assert-PeMachine([string] $path, [uint16] $expected) {
             $bytes = [IO.File]::ReadAllBytes($path)
             if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "$path is not a PE executable" }
@@ -232,7 +266,7 @@ jobs:
             if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
           }
           $expectedMachine = [Convert]::ToUInt16('${{ matrix.pe_machine }}', 16)
-          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
+          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
           & {
@@ -252,6 +286,8 @@ jobs:
           }
           New-Item -ItemType Directory -Force dist/release | Out-Null
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $managed = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) })
+          ConvertTo-Json -InputObject $managed | Set-Content -Encoding utf8 "$stage/portable-package-files.json"
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
       - name: Verify packaged runtime discovery and rejection
         shell: bash
@@ -289,7 +325,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson ninja-build xz-utils pkg-config jq
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Acquire AVID Core FFmpeg
@@ -300,22 +336,27 @@ jobs:
       - name: Build shared engine and bundled media tools
         run: |
           cargo test --workspace --locked --all-features
-          cargo build --package encap-engine --release --locked
+          cargo build --package encap-engine --package encap-update --release --locked
       - name: Build local Whisper runtime
         run: |
           git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
           test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
           cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
-      - name: Build and assemble GTK 4 package
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test shared application and headless UI
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Build and assemble Avalonia AppImage
         run: |
-          prefix="$PWD/dist/staging/EnCap"
-          meson setup build/linux-native linux/EnCap --prefix="$prefix"
-          meson compile -C build/linux-native
-          meson test -C build/linux-native --print-errorlogs
-          meson install -C build/linux-native
+          prefix="$PWD/build/desktop-tools"
+          mkdir -p "$prefix/bin"
           ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
+          cp target/release/encap-update "$prefix/bin/encap-update"
+          python3 script/update_config.py "$prefix/bin" 'linux-${{ matrix.label }}-appimage'
           bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
           cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
@@ -326,9 +367,16 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
+          python3 script/build_desktop.py --rid 'linux-${{ matrix.label }}' --tools "$prefix/bin"
+          prefix="$PWD/dist/staging/EnCap"
+          mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
+          cp desktop/packaging/com.tlolabs.encap.desktop "$prefix/share/applications/"
+          cp assets/icons/png/EnCap-256.png "$prefix/share/icons/hicolor/256x256/apps/com.tlolabs.encap.png"
+          dbus-run-session -- python3 script/test_media_session.py "$prefix/bin/libencap-media.so"
+          xvfb-run -a python3 script/test_native_startup.py "$prefix/bin/EnCap"
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-${{ matrix.label }}.tar.gz" EnCap
+          bash script/package_appimage.sh "$(uname -m)" "$prefix" "$version"
       - name: Verify Linux cloning and mode-switch latency on Btrfs
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
@@ -345,7 +393,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-linux-${{ matrix.label }}
-          path: EnCAP/dist/release/*.tar.gz
+          path: EnCAP/dist/release/*.AppImage
           if-no-files-found: error
 
   windows_runtime_probes:
@@ -384,39 +432,72 @@ jobs:
     name: Publish GitHub release
     needs: [quality, windows, linux]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     permissions:
       contents: write
+      actions: read
+      attestations: write
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
           path: EnCAP
-      - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
+      - name: Install update metadata tools
+        run: |
+          brew install squashfs gnupg
+          python3 -m venv build/release-tools
+          build/release-tools/bin/pip install -r script/update-tool-dependencies.txt
+      - name: Verify approved signed stable release tag
+        env:
+          ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
+          ENCAP_RELEASE_SIGNING_FINGERPRINT: ${{ vars.ENCAP_RELEASE_SIGNING_FINGERPRINT }}
+        run: bash script/verify_release_tag.sh
+      - name: Require exact signed and qualified final packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 script/application_release.py --output release-assets
+      - name: Generate and verify signed stable update metadata
+        env:
+          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
+          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          version="$(python3 script/update_config.py --version)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          build/release-tools/bin/python script/tlo_update_release.py --assets release-assets --version "$version" --tag "$GITHUB_REF_NAME"
+          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets release-assets
+          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets release-assets --verify
+          build/release-tools/bin/python script/tlo_update_release.py --assets release-assets --verify
+          build/release-tools/bin/python script/qualify_updates.py --assets release-assets
+      - name: Attest authenticated final packages and metadata
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
-          path: EnCAP/release-assets
-          pattern: EnCap-*
-          merge-multiple: true
-      - name: Prepare draft release and signed update metadata
+          subject-path: EnCAP/release-assets/*
+      - name: Publish once and verify actual GitHub downloads
         env:
           GH_TOKEN: ${{ github.token }}
           ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
           ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
         run: |
-          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          test "$GITHUB_REF_NAME" = "v$version"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
-          # Release Mac builds are pre-signed and notarized on the release Mac.
-          # Refuse substituted or ad-hoc CI builds by checking the committed hashes.
-          gh release download "$GITHUB_REF_NAME" --pattern '*-signed.zip' --dir release-assets
-          (cd release-assets && sha256sum --check "../runtime/releases/$version-macos.sha256")
-          for arch in arm64 intel; do
-            mv "release-assets/EnCap-$version-macos-$arch-signed.zip" "release-assets/EnCap-$version-macos-$arch.zip"
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing replacement of published bytes.' >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" release-assets/*
+          gh release download "$GITHUB_REF_NAME" --dir verified-downloads
+          build/release-tools/bin/python script/tlo_update_release.py --assets verified-downloads --verify
+          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets verified-downloads --verify
+          (cd verified-downloads && shasum -a 256 --check SHA256SUMS)
+          for asset in verified-downloads/*; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build-platforms.yml" --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" --deny-self-hosted-runners >/dev/null
           done
-          gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
-          cargo run --locked --package encap-release -- --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
-          (cd release-assets && sha256sum *.zip *.tar.gz > SHA256SUMS)
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=true
+          gh release download "$GITHUB_REF_NAME" --dir published-downloads
+          build/release-tools/bin/python script/tlo_update_release.py --assets published-downloads --verify
+          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets published-downloads --verify
+          build/release-tools/bin/python script/qualify_updates.py --assets published-downloads --published

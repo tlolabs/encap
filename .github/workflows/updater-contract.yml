@@ -1,0 +1,31 @@
+name: Authenticated updater contract
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Common protocol and failure-safety tests
+        run: cargo test --locked -p tlo-updater -p encap-update -p encap-release
+      - name: Install metadata test dependency
+        run: python -m pip install -r script/update-tool-dependencies.txt
+      - name: Signed manifest and bridge compatibility tests
+        run: python -m unittest discover -s script -p test_tlo_update_release.py -v
+      - name: Release qualification cannot silently pass
+        run: python -m unittest discover -s script -p test_application_release.py -v
+      - name: Native Sparkle signed-feed authentication
+        if: runner.os == 'macOS'
+        run: python -m unittest discover -s script -p test_sparkle_feeds.py -v
+      - name: Verify pinned shared source
+        run: python script/check_updater_snapshot.py

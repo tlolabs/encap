@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "targets": {
+    "macos-arm64": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    },
+    "macos-intel": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    },
+    "windows-x64": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    },
+    "windows-arm64": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    },
+    "linux-x64-appimage": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    },
+    "linux-arm64-appimage": {
+      "status": "not_run",
+      "report": null,
+      "report_sha256": null
+    }
+  }
+}

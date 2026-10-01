@@ -125,33 +125,42 @@ The signing script derives the architecture from the app executable, signs neste
 helpers, refreshes the signed-copy hashes, notarizes and staples the app, verifies
 Gatekeeper acceptance, and recreates the ZIP containing the stapled app.
 
-## Windows
+## Shared Windows/Linux and internal macOS frontend
 
-The WinUI 3 application is under `windows/EnCap`. CI publishes self-contained
-Windows App SDK builds for `win-x64` and `win-arm64`, copies the matching Rust
-engine, the pinned Core FFmpeg/ffprobe runtime, whisper.cpp runtime, licenses, and
-notices into the bundle, validates the packaged tools, then creates a ZIP.
+Use the pinned SDK in `global.json` (.NET 10.0.401) and Avalonia 12.1.3.
+There is one AXAML implementation and application layer under `desktop/`.
+Windows needs the Visual Studio C++ workload and Windows SDK for the SMTC adapter.
+Linux needs CMake, a C compiler, GLib/GIO and the X11/fontconfig runtime libraries.
+GTK, GStreamer, WinUI and Meson are no longer application dependencies.
 
-The minimum target is Windows 10 version 1809. Platform compilation requires a
-Windows host with Visual Studio 2022, the .NET 8 SDK, and the Windows App SDK
-workload.
+Run the shared tests and dependency gate:
 
-## Linux
+```sh
+dotnet run --project desktop/EnCap.Tests -- tests/fixtures/chapter-times.tsv
+python3 script/check_desktop_dependencies.py
+python3 script/test_desktop_distribution.py
+```
 
-The native GTK 4/libadwaita client is under `linux/EnCap` and builds with Meson.
-CI builds the Rust engine, acquires the pinned published Core FFmpeg/ffprobe runtime,
-builds whisper.cpp, stages the application layout, runs
-tool validation, and creates x64/ARM64 tarballs. A development host needs Meson,
-Ninja, GTK 4, libadwaita 1, json-glib, and GStreamer 1.20+ headers. Recording
-previews use GStreamer playbin directly for forward/reverse playback rates.
-Install its playback and WAV/AIFF plugins (on Ubuntu,
-`libgstreamer1.0-dev`, `gstreamer1.0-plugins-base`, and `gstreamer1.0-plugins-good`). If the backend or decoder is unavailable, the
-recording button explains the playback error; project editing remains available.
+`script/build_desktop.py --rid <win-x64|win-arm64|linux-x64|linux-arm64|osx-arm64>
+--tools <verified-helper-directory>` builds on the matching native host. The helper
+directory must contain the Rust engine, verified FFmpeg/ffprobe metadata and
+Whisper, plus the updater on production platforms. The workflow stages these
+using the existing Core acquisition/verification path before invoking the script.
+Windows produces a self-contained portable ZIP; Linux produces an AppImage.
+
+On Apple Silicon, `./script/build_and_run.sh --avalonia-reference` builds and
+launches `dist/internal/EnCap-Avalonia-Reference.app` using helpers already staged
+by the normal native build. Set `DOTNET` if the SDK executable is elsewhere.
+The bundle is ad-hoc signed locally; it needs no Developer ID or notarization.
+The default Run action still builds the native SwiftUI application.
+
+See [the parity and validation report](avalonia-migration.md) for exact evidence
+and remaining platform checks. Old frontend sources are removed, not selectable.
 
 ## Recording list behavior
 
-The native clients provide selectable recording rows with a compact play/pause
-button next to the filename, dimmed until the row is hovered or selected. Arrow-key\nselection highlights the play/pause button just like pointer hover. Each client owns
+The native macOS client retains its recording-row controls. Avalonia uses a
+shared recording list with playback buttons and a keyboard-operable seek slider. Each client owns
 one recording player and stops it before starting a different recording. The
 source column initially fits the shortest filename plus control/inset space,
 and its divider remains adjustable.
@@ -202,11 +211,10 @@ Media session routing depends on the desktop and which application it selects
 as the current media player. Linux MPRIS works without X11 key grabs on Wayland.
 
 `SourcePlaybackTests` verifies actual macOS WAV pause/resume and reverse playback.
-The Windows portable checks and Linux native playback test consume the same
-`tests/fixtures/source-shuttle.tsv` cases. The Linux test also verifies real
-GStreamer WAV forward-rate seeks, reverse-rate acceptance/refusal, and the MPRIS
-interface, with a silent sink and no display. GStreamer's WAV demuxer on the tested
-host rejects negative rates; the Linux UI reports this decoder limitation.
+Shared .NET tests consume `tests/fixtures/source-shuttle.tsv`. The optional real
+engine test arguments add import/save/recovery/export and native audio-device
+checks. `script/test_media_session.py` exercises actual MPRIS commands, metadata,
+seek and busy gating on a private D-Bus session; CI runs it on Linux.
 
 Right-click a row or the empty list area to add WAV/AIFF files. Delete/Backspace
 or the context menu offers removal of the selected imports and their chapters.
@@ -240,29 +248,15 @@ may have numeric prefixes. Chapter # follows displayed order; it never changes
 the source references used for playback and export.
 
 All three episode editors reserve an artwork preview to the right of the fields
-and let the chapter area use the remaining window height. Linux uses individual
-chapter title entries in a scrolling list. Recording previews retain pause/resume
+and let the chapter area use the remaining window height. Avalonia uses editable chapter rows in a scrolling list. Recording previews retain pause/resume
 behavior, with state-dependent tooltip text. Application actions and relevant
 settings expose native tooltips; system-managed dialogs keep native behavior.
 
-Shared timestamp cases live in `tests/fixtures/chapter-times.tsv`. Swift tests,
-the portable C test, and the Windows .NET naming test consume the same cases.
-Run the platform checks with:
-
-```sh
-clang -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src \
-  linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c \
-  -o /tmp/encap-chapter-names-test
-/tmp/encap-chapter-names-test tests/fixtures/chapter-times.tsv
-dotnet run --project windows/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-meson test -C build/linux-native --print-errorlogs
-```
-
-CI runs these checks alongside each native build. Windows WinUI compilation and
-GTK UI validation still require their platform toolchains. Before release,
-verify long chapter lists at multiple window sizes, artwork selection/reopen and
-missing images, tooltips on enabled/disabled actions, all four naming styles,
-manual titles containing punctuation, and playback pause/resume/end-of-file.
+Shared timestamp cases live in `tests/fixtures/chapter-times.tsv`. Both native
+Swift and shared .NET tests consume them. The old duplicate C/C# frontend tests
+are replaced by the common test executable, retaining the naming and shuttle
+assertions. Screen-reader behavior, desktop media routing and drag/drop still
+require native Windows/Linux verification before release.
 
 ## Verification
 
@@ -310,8 +304,8 @@ verifies the saved data, without imposing an impossible size-independent limit.
 macOS, Windows x64, and Linux package gates run the tests against their bundled
 engines. macOS and a dedicated Linux Btrfs CI run set `ENCAP_REQUIRE_CLONING=1`,
 which fails the test if it cannot exercise cloning. Linux also runs on the default
-runner filesystem to cover fallback behavior. Windows ARM64 persistence tests are
-compile-checked; execution of that package still requires a native ARM64 host.
+runner filesystem to cover fallback behavior. Windows ARM64 persistence tests run on the native ARM64 CI runner; local
+cross-compilation alone does not verify execution.
 Windows automatically enforces timing on clone-capable ReFS volumes and exercises
 fallback saves on NTFS. These tests measure persistence work, not GUI rendering.
 
@@ -322,9 +316,9 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Tagged CI uses the native `encap-release` tool
-with the update private key from repository secrets and emits hashes plus signed
-metadata. macOS notarization and
+Do not commit signing credentials. Tagged CI requires the approved six-target qualification ledgers and signed
+packages, then generates authenticated update metadata using the build scripts
+and update private key from repository secrets. macOS notarization and
 Developer ID signing require external credentials and are intentionally outside
 an uncredentialed local build.
 

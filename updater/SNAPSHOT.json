@@ -1,0 +1,14 @@
+{
+  "script/check_updater_snapshot.py": "4acbfbdefed359de4c35bfa5ed41e99d2cb079d78c13af487bbfa33442017eaa",
+  "script/qualify_updates.py": "df2b3b6dfc6846b6cbaa1e68611c3d1270fd2f0f04eee11298fc995dc3357a65",
+  "script/test_tlo_update_release.py": "1fabfc8ea90b5d7e734ecacda156859ee379d50db4cfc8b624ec3bb5ee15520e",
+  "script/tlo_update_release.py": "39fcd7bd350bae6c189421704271d1014c8aaed5e7134e4715500be8dd4f54ed",
+  "updater/Cargo.toml": "066015b88d8a93d5ac294fdb0bbf43196c9a3696e57785d3410324980c1d282f",
+  "updater/LICENSE": "6a929ec804b3953c857d8fdad02fb3e6d45b5546dd7700dccaaccf9753534646",
+  "updater/README.md": "35f3f317488fca4d9299478696d03c24f6aa5d3112552616266903d1b34594de",
+  "updater/manifest.schema.json": "d38e6b7f4b8d98a921397fe8771fbc5b0aa496b5d3173a24c06ae501e455ada6",
+  "updater/src/bin/tlo-qualify.rs": "91bf1fe802ba5fa5541d942c728a463af2ead914618456e48e64b187dd15a162",
+  "updater/src/client.rs": "0e6139adb5b5d4118d36c7dba49cd5e396f1fc15508729c225927de87af38eba",
+  "updater/src/lib.rs": "57e4b99f82a167264ea655b3c6e73214e1c50a48d2af9de96b63898519a57511",
+  "updater/tests/contract.rs": "9bff7ad6f6139c08a61afede9d62c2995cb4d2b3e6d2548e07a39b36c3724a42"
+}

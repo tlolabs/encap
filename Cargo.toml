@@ -7,6 +7,8 @@ members = [
     "crates/encap-video",
     "crates/encap-engine",
     "crates/encap-release",
+    "crates/encap-update",
+    "updater",
 ]
 resolver = "2"
 

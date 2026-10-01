@@ -1,0 +1,17 @@
+[package]
+name = "tlo-updater"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Application-independent authenticated stable GitHub release updater"
+
+[dependencies]
+base64 = "0.22.1"
+ring = "0.17.14"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10.9"
+semver = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tempfile = "3.21"
+fs2 = "0.4.3"

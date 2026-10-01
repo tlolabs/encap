@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "component": "tlo-updater",
+  "version": "0.1.0",
+  "source": "ATIV standalone component working snapshot, synchronized 2026-09-30",
+  "snapshot": "updater/SNAPSHOT.json",
+  "published_revision": null,
+  "policy": "Independent identical vendored source; no dependency on ATIV or AVID Core. Replace with immutable standalone release after publication."
+}
