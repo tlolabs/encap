@@ -16,7 +16,11 @@ final release authority unless the repository later records a change.
 5. Use a short, descriptive imperative commit subject. Conventional Commit
    prefixes are not required.
 
-Cryptographic commit signatures are recommended for outside contributors and
-expected for maintainer commits. A CLA is not required. Pull requests are
+Create unsigned Git commits for both maintainer and outside contributions.
+Run `git config --local commit.gpgsign false` in each clone and do not pass
+`git commit -S`. Keep the DCO `Signed-off-by:` trailers added by
+`git commit -s`; these are plain message text and do not require a signing key.
+Release-tag authentication and release-artifact signing retain their existing
+requirements. A CLA is not required. Pull requests are
 reviewed by the maintainer; CI validation does not imply hands-on testing on
 every platform.
