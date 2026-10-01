@@ -27,9 +27,14 @@ rm "$APPDIR/usr/bin/ffmpeg" "$APPDIR/usr/bin/ffprobe"
 # https://learn.microsoft.com/dotnet/core/diagnostics/trace-perfcollect-lttng
 TRACE_PROVIDER=libcoreclrtraceptprovider.so
 if [[ -f "$APPDIR/usr/bin/$TRACE_PROVIDER" ]]; then rm "$APPDIR/usr/bin/$TRACE_PROVIDER"; fi
-linuxdeploy --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
+# GLib/GIO remains a system dependency, as documented, rather than copying the
+# runner's desktop-integration stack into the self-contained application.
+linuxdeploy --exclude-library 'libgio-2.0.so*' --exclude-library 'libgobject-2.0.so*' --exclude-library 'libglib-2.0.so*' --exclude-library 'libgmodule-2.0.so*' --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
 cp -p "$STAGE/bin/ffmpeg" "$STAGE/bin/ffprobe" "$APPDIR/usr/bin/"
 if [[ -f "$STAGE/bin/$TRACE_PROVIDER" ]]; then cp -p "$STAGE/bin/$TRACE_PROVIDER" "$APPDIR/usr/bin/"; fi
+# Retain distro license texts referenced by copied dependency copyright files.
+mkdir -p "$APPDIR/usr/share/common-licenses"
+cp -a /usr/share/common-licenses/. "$APPDIR/usr/share/common-licenses/"
 # linuxdeploy-generated AppRun supplies the relocatable runtime environment.
 ARCH="$ARCH" "$TOOLS/appimagetool" --runtime-file "$TOOLS/runtime" "$APPDIR" "$ROOT_DIR/dist/release/EnCap-$VERSION-linux-$LABEL.AppImage"
 python3 "$ROOT_DIR/script/ffmpeg_runtime.py" validate "linux-${ARCH/aarch64/arm64}" --binary "$APPDIR/usr/bin" --metadata "$APPDIR/usr/bin/ffmpeg-runtime"

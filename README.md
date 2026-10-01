@@ -44,8 +44,8 @@ Video's timing, encoder selection, and composition rules are documented in
 | Intel Mac | `EnCap-<version>-macos-intel.zip` | macOS 13 |
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
-| Linux x64 | `EnCap-<version>-linux-x64.AppImage` | X11/XWayland, glibc 2.35+ |
-| Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, glibc 2.35+ |
+| Linux x64 | `EnCap-<version>-linux-x64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
+| Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
 to install media tools. Starting with 2.0.3, release downloads for both Mac
