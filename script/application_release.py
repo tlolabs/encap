@@ -52,6 +52,8 @@ def validate(plan, pin, revision):
                     require(all(report['results'].get(name)=='passed' for name in ('previous_version_upgrade','invalid_signature','tampered_bytes','wrong_target','settings_preserved','user_files_preserved','updated_launch','intended_core_runtime')), 'Real upgrade evidence incomplete')
         require(entry['acquisition']['mode']=='published_release' and entry['acquisition']['manifest_sha256']==pin['manifest_sha256'] and entry['acquisition']['clean_environment'] is True, 'Clean production runtime acquisition evidence missing')
         origin=entry['origin']
+        expected_workflow='.github/workflows/sign-windows.yml' if system=='windows' else '.github/workflows/sign-linux.yml' if system=='linux' else '.github/workflows/native-release.yml' if APPLICATION=='ativ' else '.github/workflows/build-platforms.yml'
+        require(origin['workflow']==expected_workflow, 'Production platform signing workflow required')
         require(origin['workflow'] in PRODUCERS and re.fullmatch('[0-9a-f]{64}',origin['artifact_zip_sha256']), 'Untrusted application producer')
     return passed
 
@@ -78,6 +80,9 @@ def stage(plan, pin, output):
         jobs=gh_json(f'repos/{REPOSITORY}/actions/runs/{origin["run_id"]}/attempts/{run["run_attempt"]}/jobs?per_page=100')['jobs']
         jobs=[j for j in jobs if j['id'] in origin['required_native_job_ids'] and j['conclusion']=='success']
         require(jobs and len(jobs)==len(origin['required_native_job_ids']), 'Required native final-package jobs did not pass')
+        system=target.split('-')[0]
+        if system in ('windows','linux'):
+            require({'sign','Verify signed '+system.title()+' '+target} <= {j['name'] for j in jobs}, 'Exact platform signing/native verification jobs required')
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);archive=root/'artifact.zip'
             with archive.open('wb') as stream:

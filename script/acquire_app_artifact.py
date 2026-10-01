@@ -12,7 +12,8 @@ if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--run',required=True,type=int);p.add_argument('--workflow',required=True)
     p.add_argument('--platform',choices=['windows','linux'],required=True)
-    p.add_argument('--output',required=True,type=Path);a=p.parse_args()
+    p.add_argument('--output',required=True,type=Path)
+    p.add_argument('--allow-partial',action='store_true');a=p.parse_args()
     repo=os.environ['GITHUB_REPOSITORY'];revision=os.environ['GITHUB_SHA']
     require(repo in ('tlolabs/ativ','tlolabs/encap'),'Unexpected application repository')
     expected='.github/workflows/'+('native-release.yml' if repo.endswith('/ativ') else 'build-platforms.yml')
@@ -21,12 +22,16 @@ if __name__ == '__main__':
     require(run['repository']['full_name']==repo and run['head_repository']['full_name']==repo and
             run['head_sha']==revision and run['event']=='workflow_dispatch' and run['path']==expected and
             run['status']=='completed' and run['conclusion'] in ('success','failure'),'Untrusted native input origin')
+    require(not a.allow_partial or repo=='tlolabs/ativ','Partial publication policy is ATIV-only')
     prefix=('ATIV' if repo.endswith('/ativ') else 'EnCap')+'-'+a.platform+'-'
     labels=['x64','ARM64'] if a.platform=='windows' and repo.endswith('/ativ') else ['x86_64','aarch64'] if a.platform=='linux' and repo.endswith('/ativ') else ['x64','arm64']
     artifacts=gh_json(f'repos/{repo}/actions/runs/{a.run}/artifacts?per_page=100')['artifacts']
     jobs=gh_json(f'repos/{repo}/actions/runs/{a.run}/attempts/{run["run_attempt"]}/jobs?per_page=100')['jobs']
     require(not a.output.exists(),'Fresh native input directory required');a.output.mkdir(parents=True)
+    downloaded=0
     for label in labels:
+        native=[j for j in jobs if j['name']==a.platform.title()+' '+label and j['conclusion']=='success']
+        if a.allow_partial and not native:continue
         name=prefix+label;items=[v for v in artifacts if v['name']==name and not v['expired']]
         require(len(items)==1,'Missing native input artifact: '+name);artifact=items[0]
         require(artifact['workflow_run']['head_sha']==revision and artifact['workflow_run']['id']==a.run and
@@ -39,4 +44,6 @@ if __name__ == '__main__':
                 subprocess.run(['gh','api',f'repos/{repo}/actions/artifacts/{artifact["id"]}/zip'],stdout=stream,check=True)
             require(digest(archive)==artifact['digest'].removeprefix('sha256:'),'Native input container digest mismatch')
             extract_zip(archive,a.output/name)
+        downloaded+=1
+    require(downloaded>0,'No native target qualified for signing')
     print('Same-commit native inputs authenticated before platform signing.')
