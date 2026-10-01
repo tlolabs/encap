@@ -263,6 +263,8 @@ jobs:
           python script/build_desktop.py --rid '${{ matrix.runtime }}' --tools build/desktop-tools
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
+          python script/test_native_startup.py "$stage/EnCap.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Native desktop startup failed' }
           function Assert-PeMachine([string] $path, [uint16] $expected) {
             $bytes = [IO.File]::ReadAllBytes($path)
             if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "$path is not a PE executable" }
@@ -383,6 +385,7 @@ jobs:
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           bash script/package_appimage.sh "$(uname -m)" "$prefix" "$version"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 script/test_native_startup.py "dist/release/EnCap-$version-linux-${{ matrix.label }}.AppImage"
       - name: Verify Linux cloning and mode-switch latency on Btrfs
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
