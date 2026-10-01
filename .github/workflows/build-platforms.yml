@@ -12,6 +12,10 @@ on:
         type: choice
         options: [all, macos, windows, linux, checks, runtime-probes]
         default: all
+      diagnose_save_latency:
+        description: Run the unchanged save contract with phase diagnostics on native Macs
+        type: boolean
+        default: false
       qualify_core_candidate:
         description: Unpublished host qualification with authenticated exact Core candidate
         type: boolean
@@ -62,7 +66,7 @@ jobs:
         run: cargo build --package encap-engine --locked
 
   macos:
-    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'macos')
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'macos')
     defaults:
       run:
         working-directory: EnCAP
@@ -133,7 +137,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'windows')
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'windows')
     defaults:
       run:
         working-directory: EnCAP
@@ -290,7 +294,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'linux')
+    if: github.event_name == 'workflow_dispatch' && !inputs.diagnose_save_latency && (inputs.platform == 'all' || inputs.platform == 'linux')
     defaults:
       run:
         working-directory: EnCAP
@@ -407,3 +411,34 @@ jobs:
       - name: Isolate synthetic filtering and encoding paths
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
+
+  native-save:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose_save_latency
+
+    name: Save latency ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Report real host and filesystem
+        run: |
+          sw_vers
+          uname -m
+          df -h "$RUNNER_TEMP"
+      - name: Build the actual release engine
+        run: cargo build --locked --release -p encap-engine
+      - name: Diagnose unchanged strict save contract
+        env:
+          ENCAP_TEST_ENGINE: ${{ github.workspace }}/target/release/encap-engine
+          ENCAP_REQUIRE_CLONING: '1'
+          ENCAP_SAVE_TIMINGS: '1'
+        run: cargo test --locked -p encap-engine --test save_protocol -- --nocapture
