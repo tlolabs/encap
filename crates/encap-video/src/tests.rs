@@ -191,15 +191,9 @@ printf complete > "$last"
                 root = root.display()
             ),
         );
-        let tools = avid_core::MediaTools::discover(
-            ToolDiscovery {
-                ffmpeg: Some(ffmpeg),
-                ffprobe: Some(ffprobe),
-                ..Default::default()
-            },
-            &CancellationToken::default(),
-        )
-        .unwrap();
+        let tools =
+            avid_core::MediaTools::from_paths(ffmpeg, ffprobe, &CancellationToken::default())
+                .unwrap();
         Renderer::new(tools)
     }
 
@@ -229,11 +223,12 @@ printf complete > "$last"
         let mut project = project(root.path());
         let renderer = fake(root.path(), "success");
         let output = root.path().join("out.mp4");
+        project.video.export_settings.encoding = "automatic".into();
         let before = project.clone();
         let request = render_request(&project, &output).unwrap();
         export_with_renderer(&project, &request, &renderer, &CancellationToken::default()).unwrap();
         let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        let graph = include_str!("../../../../AVID Core/tests/fixtures/encap-graph.txt").trim();
+        let graph = include_str!("../tests/fixtures/encap-graph.txt").trim();
         assert!(arguments.lines().any(|line| line == graph));
         assert!(arguments.contains("h264_videotoolbox\n"));
         assert!(arguments.contains("libx264\n"));
@@ -262,11 +257,20 @@ printf complete > "$last"
             let mut project = project(root.path());
             let output = root.path().join("out.mp4");
             fs::write(&output, b"old output").unwrap();
+            // Only the deliberate sleep fixtures need a short timeout. Applying
+            // 80 ms to ordinary failures can test scheduler load instead of the
+            // fallback/error contract on shared native CI runners.
+            let timeout = if mode.ends_with("sleep") {
+                Duration::from_millis(80)
+            } else {
+                Duration::from_secs(5)
+            };
             let renderer = fake(root.path(), mode).with_options(avid_core::OperationOptions {
-                probe_timeout: Some(Duration::from_millis(80)),
-                render_timeout: Some(Duration::from_millis(80)),
+                probe_timeout: Some(timeout),
+                render_timeout: Some(timeout),
                 ..Default::default()
             });
+            project.video.export_settings.encoding = "automatic".into();
             if mode == "success" {
                 project.video.export_settings.encoding = "hardware".into();
             }
@@ -280,7 +284,7 @@ printf complete > "$last"
                 assert!(error.contains("timed out"));
             }
             if mode == "fail" {
-                assert!(error.contains("software fallback also failed"));
+                assert!(error.contains("software fallback also failed"), "{error}");
             }
             assert_clean(root.path(), &project, &output);
         }

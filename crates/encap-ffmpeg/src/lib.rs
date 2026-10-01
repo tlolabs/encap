@@ -5,21 +5,9 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-
-#[derive(Clone, Debug, Default)]
-pub struct CancellationToken(Arc<AtomicBool>);
-
-impl CancellationToken {
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-}
+mod runtime;
+pub use avid_core::CancellationToken;
 
 #[derive(Debug)]
 pub struct ProcessOutput {
@@ -29,39 +17,30 @@ pub struct ProcessOutput {
 }
 
 #[derive(Clone, Debug)]
-pub struct MediaTools {
-    ffmpeg: PathBuf,
-    ffprobe: PathBuf,
-}
+pub struct MediaTools(avid_core::MediaTools);
 
 impl MediaTools {
-    pub fn discover() -> Result<Self> {
-        Self::discover_with_validator(|tools| {
-            tools.validate()?;
-            Ok(tools.clone())
-        })
-    }
-
-    /// The same host resolution policy with caller-owned validation. Video uses
-    /// the shared cancellable validator; unrelated modes retain `discover()`.
-    pub fn discover_with_validator<T>(validate: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
-        let tools = Self {
-            ffmpeg: locate_tool("ffmpeg", "ENCAP_FFMPEG")?,
-            ffprobe: locate_tool("ffprobe", "ENCAP_FFPROBE")?,
-        };
-        validate(&tools)
+    pub fn discover_with_cancellation(token: &CancellationToken) -> Result<Self> {
+        // Production release engines only use the packaged pair. Debug fixture
+        // overrides require both paths; they never fall back to PATH or a bundle.
+        #[cfg(debug_assertions)]
+        let paths = (
+            std::env::var_os("ENCAP_FFMPEG").map(PathBuf::from),
+            std::env::var_os("ENCAP_FFPROBE").map(PathBuf::from),
+        );
+        #[cfg(not(debug_assertions))]
+        let paths = (None, None);
+        runtime::resolve(paths.0, paths.1, token).map(Self)
     }
 
     pub fn ffmpeg(&self) -> &Path {
-        &self.ffmpeg
+        self.0.ffmpeg()
     }
     pub fn ffprobe(&self) -> &Path {
-        &self.ffprobe
+        self.0.ffprobe()
     }
-
-    pub fn validate(&self) -> Result<()> {
-        validate_binary(&self.ffmpeg, "ffmpeg")?;
-        validate_binary(&self.ffprobe, "ffprobe")
+    pub fn into_core(self) -> avid_core::MediaTools {
+        self.0
     }
 }
 
@@ -71,6 +50,11 @@ pub fn run(
     cancellation: &CancellationToken,
     operation: &str,
 ) -> Result<ProcessOutput> {
+    if cancellation.is_cancelled() {
+        return Err(EncapError::Message(format!(
+            "{operation} was cancelled safely."
+        )));
+    }
     let stdout_file = tempfile::NamedTempFile::new().map_err(|source| EncapError::Write {
         path: executable.to_path_buf(),
         source,
@@ -102,13 +86,26 @@ pub fn run(
                 "{operation} was cancelled safely."
             )));
         }
-        if let Some(status) = child.try_wait().map_err(|source| {
-            EncapError::Message(format!("{operation} could not be monitored: {source}"))
-        })? {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(source) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(EncapError::Message(format!(
+                    "{operation} could not be monitored: {source}"
+                )));
+            }
+        };
+        if let Some(status) = status {
             break status;
         }
         std::thread::sleep(Duration::from_millis(50));
     };
+    if cancellation.is_cancelled() {
+        return Err(EncapError::Message(format!(
+            "{operation} was cancelled safely."
+        )));
+    }
     let stdout = fs::read(stdout_file.path()).unwrap_or_default();
     let stderr = fs::read(stderr_file.path()).unwrap_or_default();
     if !status.success() {
@@ -153,12 +150,10 @@ pub fn locate_optional_tool(name: &str, environment: &str) -> Option<PathBuf> {
     .or_else(|| find_on_path(&platform_name))
 }
 
-fn locate_tool(name: &str, environment: &str) -> Result<PathBuf> {
-    locate_optional_tool(name, environment).ok_or_else(|| {
-        EncapError::Message(format!(
-            "The bundled {name} tool is missing or damaged. Reinstall EnCap."
-        ))
-    })
+fn runtime_error() -> EncapError {
+    EncapError::Message(
+        "The bundled FFmpeg runtime is missing, damaged or incompatible. Reinstall EnCap.".into(),
+    )
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
@@ -169,21 +164,6 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
     })
 }
 
-fn validate_binary(path: &Path, name: &str) -> Result<()> {
-    let output = run(
-        path,
-        &[OsString::from("-version")],
-        &CancellationToken::default(),
-        name,
-    )?;
-    if output.stdout.is_empty() && output.stderr.is_empty() {
-        return Err(EncapError::Message(format!(
-            "The bundled {name} tool is incompatible. Reinstall EnCap."
-        )));
-    }
-    Ok(())
-}
-
 pub fn os(value: impl AsRef<OsStr>) -> OsString {
     value.as_ref().to_owned()
 }
@@ -191,6 +171,14 @@ pub fn os(value: impl AsRef<OsStr>) -> OsString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn precancelled_operation_does_not_spawn() {
+        let token = CancellationToken::default();
+        token.cancel();
+        let error = run(Path::new("/missing/should-not-spawn"), &[], &token, "Test").unwrap_err();
+        assert!(error.to_string().contains("cancelled safely"));
+    }
 
     #[cfg(unix)]
     #[test]

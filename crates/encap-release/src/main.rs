@@ -91,19 +91,24 @@ fn main() -> Result<()> {
     let base_url = format!("{REPOSITORY_URL}/releases/download/{}", args.tag);
     let specs = [
         (
+            "linux-arm64",
+            format!("EnCap-{}-linux-arm64.AppImage", args.version),
+            "AppImage",
+        ),
+        (
             "linux-x64",
-            format!("EnCap-{}-linux-x64.tar.gz", args.version),
-            "tar.gz",
+            format!("EnCap-{}-linux-x64.AppImage", args.version),
+            "AppImage",
         ),
         (
             "macos-arm64",
-            format!("EnCap-{}-macos-arm64.dmg", args.version),
-            "dmg",
+            format!("EnCap-{}-macos-arm64.zip", args.version),
+            "zip",
         ),
         (
             "macos-intel",
-            format!("EnCap-{}-macos-intel.dmg", args.version),
-            "dmg",
+            format!("EnCap-{}-macos-intel.zip", args.version),
+            "zip",
         ),
         (
             "windows-arm64",

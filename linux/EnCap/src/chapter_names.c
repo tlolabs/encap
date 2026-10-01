@@ -21,8 +21,9 @@ bool encap_rounded_recording_time(const char *filename, char output[9]) {
   bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
   int maximum = days[month - 1] + (month == 2 && leap ? 1 : 0);
   if (day < 1 || day > maximum) return false;
-  int rounded = (hour * 60 + minute + (second >= 30 ? 1 : 0)) % 1440;
+  unsigned rounded = (unsigned)(hour * 60 + minute + (second >= 30 ? 1 : 0)) % 1440;
   hour = rounded / 60;
-  snprintf(output, 9, "%d:%02d %s", hour % 12 == 0 ? 12 : hour % 12, rounded % 60, hour < 12 ? "AM" : "PM");
+  unsigned display_hour = (rounded / 60 + 11) % 12 + 1;
+  snprintf(output, 9, "%u:%02u %s", display_hour, rounded % 60, hour < 12 ? "AM" : "PM");
   return true;
 }

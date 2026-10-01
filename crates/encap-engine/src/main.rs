@@ -24,6 +24,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Report the compiled application and immutable AVID Core identity.
+    BuildInfo,
     Inspect {
         folder: PathBuf,
     },
@@ -84,6 +86,10 @@ enum Commands {
     LoadRecovery,
     ClearRecovery,
     ValidateTools,
+    /// Validate the original matched pair through Core before platform signing.
+    ValidateCoreRuntime {
+        directory: PathBuf,
+    },
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -106,11 +112,9 @@ fn main() {
     let _log_guard = init_logging();
     let cancellation = CancellationToken::default();
     let signal_cancellation = cancellation.clone();
-    let video_cancellation = avid_core::CancellationToken::default();
-    let signal_video_cancellation = video_cancellation.clone();
+    let video_cancellation = cancellation.clone();
     if let Err(error) = ctrlc::set_handler(move || {
         signal_cancellation.cancel();
-        signal_video_cancellation.cancel();
     }) {
         tracing::warn!(%error, "could not install the cancellation signal handler");
     }
@@ -140,6 +144,18 @@ fn run(
     video_cancellation: &avid_core::CancellationToken,
 ) -> Result<Value> {
     match cli.command {
+        Commands::BuildInfo => Ok(serde_json::json!({
+            "encap_version": env!("CARGO_PKG_VERSION"),
+            "avid_core": { "version": encap_core::CORE_VERSION,
+                "revision": encap_core::CORE_REVISION, "source": encap_core::CORE_SOURCE }
+        })),
+        Commands::ValidateCoreRuntime { directory } => {
+            let tools = avid_core::MediaTools::from_core_directory(&directory, cancellation)
+                .map_err(|error| EncapError::Message(error.to_string()))?;
+            Ok(
+                serde_json::json!({"ffmpeg": tools.ffmpeg_version(), "ffprobe": tools.ffprobe_version()}),
+            )
+        }
         Commands::Inspect { folder } => json(encap_audio::inspect(&folder)?),
         Commands::Waveform { file } => json(encap_core::waveform_preview(&file)?),
         Commands::InspectFiles { files } => json(encap_core::inspect_files(&files)?),
@@ -225,7 +241,7 @@ fn run(
             json(serde_json::json!({ "ok": true }))
         }
         Commands::ValidateTools => {
-            MediaTools::discover()?;
+            MediaTools::discover_with_cancellation(cancellation)?;
             json(serde_json::json!({ "ok": true }))
         }
     }
