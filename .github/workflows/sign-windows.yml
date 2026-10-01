@@ -91,6 +91,7 @@ jobs:
           path: signed-packages/*
           if-no-files-found: error
   verify-native:
+    name: Verify signed Windows ${{ matrix.target }}
     needs: sign
     strategy:
       fail-fast: false
