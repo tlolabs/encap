@@ -667,11 +667,5 @@
       "repeat_sha256": "e9a554749db1fbfc0c672782cef82249d3156a4dd3f4db92a07d599eea3fd47b",
       "source_provenance_sha256": "2ab92056df9d93e2f639930b68f7941c6507933088fcb7f42d21cfe6b3d465ce"
     }
-  },
-  "revision": "25d19098a22936638b0e2a70616083d929fe409c",
-  "run_id": 36681249099,
-  "release_revision": null,
-  "manifest_sha256": null,
-  "acquisition": "release",
-  "qualification_only": true
+  }
 }

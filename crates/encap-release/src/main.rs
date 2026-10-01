@@ -92,13 +92,13 @@ fn main() -> Result<()> {
     let specs = [
         (
             "linux-arm64",
-            format!("EnCap-{}-linux-arm64.tar.gz", args.version),
-            "tar.gz",
+            format!("EnCap-{}-linux-arm64.AppImage", args.version),
+            "AppImage",
         ),
         (
             "linux-x64",
-            format!("EnCap-{}-linux-x64.tar.gz", args.version),
-            "tar.gz",
+            format!("EnCap-{}-linux-x64.AppImage", args.version),
+            "AppImage",
         ),
         (
             "macos-arm64",

@@ -1,0 +1,89 @@
+name: Sign and verify native Linux AppImages
+on:
+  workflow_dispatch:
+    inputs:
+      native_run:
+        description: Same-commit native Linux qualification run
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Authenticate exact native AppImage inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.native_run }}
+        run: python3 script/acquire_app_artifact.py --run "$SOURCE_RUN" --workflow .github/workflows/build-platforms.yml --platform linux --output unsigned
+      - name: Sign final AppImage bytes with approved maintainer key
+        env:
+          LINUX_GPG_PRIVATE_KEY_B64: ${{ secrets.LINUX_GPG_PRIVATE_KEY_B64 }}
+          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+          LINUX_GPG_FINGERPRINT: ${{ vars.LINUX_GPG_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          mkdir signed-packages
+          mapfile -d '' images < <(find unsigned -type f -name '*.AppImage' -print0)
+          test "${#images[@]}" = 2
+          for image in "${images[@]}"; do
+            cp "$image" signed-packages/
+            python3 script/sign_linux.py "signed-packages/$(basename "$image")"
+          done
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: signed-packages/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: signed-linux-appimages
+          path: signed-packages/*
+          if-no-files-found: error
+  verify-native:
+    needs: sign
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+            label: x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+            label: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: signed-linux-appimages
+          path: signed-packages
+      - name: Verify final signature before native execution
+        env:
+          LINUX_GPG_PUBLIC_KEY_B64: ${{ vars.LINUX_GPG_PUBLIC_KEY_B64 }}
+          LINUX_GPG_FINGERPRINT: ${{ vars.LINUX_GPG_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          test "$LINUX_GPG_FINGERPRINT" = F7E74ED98DB485D03F2565B96B68B73FE752FD16
+          export GNUPGHOME="$(mktemp -d)"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$LINUX_GPG_PUBLIC_KEY_B64" | base64 --decode | gpg --batch --import
+          images=(signed-packages/*-linux-${{ matrix.label }}.AppImage)
+          test "${#images[@]}" = 1
+          status="$(gpg --batch --status-fd 1 --verify "${images[0]}.asc" "${images[0]}" 2>/dev/null)"
+          test "$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" {print $3}' <<< "$status")" = "$LINUX_GPG_FINGERPRINT"
+          chmod +x "${images[0]}"
+          mkdir final-native
+          image="$(realpath "${images[0]}")"
+          (cd final-native && "$image" --appimage-extract)
+          python3 script/ffmpeg_runtime.py validate '${{ matrix.target }}' --binary final-native/squashfs-root/usr/bin --metadata final-native/squashfs-root/usr/bin/ffmpeg-runtime

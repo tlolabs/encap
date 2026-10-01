@@ -64,70 +64,37 @@ def checked_files(metadata, target):
 
 
 def verify(runtime, target, binary=None, signed=False):
+    from core_runtime import verify_directory
     target = target_id(target)
-    binary = binary or runtime
-    files = checked_files(runtime, target)
-    required = {'spec.json', 'build.json', 'validation.json', 'repeat-build.json', 'source-provenance.json', 'core-tests-passed.txt', 'SOURCE.json', *pair(target)}
-    if not required <= files.keys():
-        raise ValueError('Incomplete Core runtime')
-    for path in runtime.rglob('*'):
-        if path.is_symlink():
-            raise ValueError('Core runtime contains a symlink')
-    for name, expected in files.items():
-        if name in pair(target):
-            continue
-        if digest(runtime / name) != expected:
-            raise ValueError('Core metadata checksum mismatch: ' + name)
-    info = json.loads((runtime / 'build.json').read_text())
-    if info['target'] != target or info['core_revision'] != PIN['revision'] or info['core_worktree_modified']:
-        raise ValueError('Core build identity mismatch')
-    hashes = {name: files[name] for name in pair(target)}
-    if signed:
-        signature = json.loads((runtime / 'signed-payload.json').read_text())
-        if signature['schema'] != 1 or signature['target'] != target or signature['original_binary_sha256'] != hashes:
-            raise ValueError('Signed runtime identity mismatch')
-        hashes = signature['signed_binary_sha256']
-    for name in pair(target):
-        machine(binary / name, target)
-        if (binary / name).is_symlink() or digest(binary / name) != hashes[name]:
-            raise ValueError('Core executable checksum mismatch: ' + name)
-    source = (runtime / 'corresponding-source.tar.gz') if signed else runtime.parent / PIN['targets'][target]['source_archive']
+    derivative=json.loads((runtime / 'signed-payload.json').read_text()) if signed else None
+    info=verify_directory(PIN, target, runtime, binary=binary, signed=derivative)
+    source=runtime / 'corresponding-source.tar.gz' if signed else runtime.parent / PIN['targets'][target]['source_archive']
     if digest(source) != PIN['targets'][target]['source_sha256']:
         raise ValueError('Core corresponding source mismatch')
     return info
 
 
 def provision(target):
+    from core_runtime import candidate, release, require, verify_receipt, digest as core_digest
     target = target_id(target)
+    verifier = json.loads((ROOT / 'runtime/core-acquirer.json').read_text())
+    require(core_digest(ROOT / 'script/core_runtime.py') == verifier['sha256'], 'Shared Core verifier differs from its pin')
+    qualification = os.environ.get('AVID_CORE_QUALIFICATION') == '1'
+    if qualification and os.environ.get('GITHUB_EVENT_NAME') in ('push', 'pull_request', 'pull_request_target'):
+        raise ValueError('Candidate qualification is limited to deliberate local/manual qualification; never releases or PR artifacts')
+    plan = json.loads((ROOT / 'runtime/core-candidate.json').read_text()) if qualification else PIN
+    if not qualification and PIN.get('qualification_only'):
+        raise ValueError('Core production release is not published/pinned yet; complete its release gates first')
     selected = os.environ.get('ENCAP_FFMPEG_RUNTIME')
     if selected:
         runtime = Path(selected).resolve()
         verify(runtime, target)
-        return runtime
-    record = PIN['targets'][target]
-    artifact_root = ROOT / 'build/core-artifacts' / str(PIN['run_id'])
-    artifact = artifact_root / record['artifact']
-    archive = artifact / 'packages' / record['archive']
-    runtime = ROOT / 'build/core-runtime' / target / record['archive'].removesuffix('.tar.gz')
-    if runtime.exists():
-        verify(runtime, target)
-        return runtime
-    if not archive.is_file():
-        subprocess.run(['gh', 'run', 'download', str(PIN['run_id']), '--repo', PIN['repository'], '--name', record['artifact'], '--dir', str(artifact)], check=True)
-    if digest(archive) != record['sha256']:
-        raise ValueError('Core archive checksum mismatch')
-    source = artifact / record['source_archive']
-    if digest(source) != record['source_sha256']:
-        raise ValueError('Core source archive checksum mismatch')
-    runtime.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as contents:
-        for member in contents.getmembers():
-            if not (member.isfile() or member.isdir()) or member.name.split('/')[0] != runtime.name:
-                raise ValueError('Unexpected Core archive entry')
-        contents.extractall(runtime.parent, filter='data')
-    shutil.copy2(source, runtime.parent / source.name)
-    verify(runtime, target)
-    return runtime
+        return verify_receipt(plan,target,runtime,qualification)
+    destination = ROOT / 'build/core-acquisition' / ('qualification' if qualification else PIN['release_tag']) / target
+    if destination.exists():
+        runtime = destination / plan['targets'][target]['archive'].removesuffix('.tar.gz')
+        return verify_receipt(plan,target,runtime,qualification)
+    return candidate(plan, target, destination, qualification=True) if qualification else release(PIN, target, destination)
 
 
 def core_identity():
@@ -173,7 +140,10 @@ def finish(target, binary, metadata):
     files = checked_files(original, target)
     write_json(original / 'signed-payload.json', {'schema': 1, 'target': target,
                'original_binary_sha256': {name: files[name] for name in pair(target)},
-               'signed_binary_sha256': {name: digest(binary / name) for name in pair(target)}})
+               'signed_binary_sha256': {name: digest(binary / name) for name in pair(target)},
+               'transformation': 'platform code signing or identity-preserving staging',
+               'signing_identity': os.environ.get('APPLE_SIGN_IDENTITY') or os.environ.get('ENCAP_SIGN_IDENTITY') or os.environ.get('AZURE_SIGNING_ACCOUNT') or 'unconfigured',
+               'original_runtime_archive_sha256': PIN['targets'][target]['sha256']})
     if original.resolve() != metadata.resolve():
         metadata.mkdir(parents=True, exist_ok=True)
         names = {Path(name).parts[0] for name in files} - set(pair(target))

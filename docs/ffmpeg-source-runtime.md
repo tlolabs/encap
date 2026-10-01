@@ -1,6 +1,6 @@
 # AVID Core runtime packaging
 
-EnCAP 2.0.4 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
+The 2.0.5 integration consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
 Core owns source acquisition, signature verification, codec configuration, native
 compilation, media validation, repeat-build checks, runtime packaging and licenses.
 EnCAP's former FFmpeg source builder and dependency recipe have been removed.
@@ -12,14 +12,9 @@ and corresponding-source archive hashes. These are validated Core candidates;
 EnCAP packaging additionally runs its application contracts. No qualification of
 an EnCAP platform is inferred solely from Core's native build result.
 
-`script/prepare_ffmpeg.sh <platform> <architecture>` downloads the exact target's
-artifact using GitHub CLI, verifies it, and extracts it under `build/core-runtime`.
-Python 3.12+ and GitHub CLI are build tools only. `ENCAP_FFMPEG_RUNTIME` can select
-an already extracted **identical pinned Core artifact**; its corresponding-source
-archive must remain next to that directory. It cannot select arbitrary tools.
-Artifact retention is controlled by GitHub. If an artifact expires, archive the
-same checked bytes in a durable Core release and update acquisition deliberately;
-never silently build or choose a different runtime.
+`script/prepare_ffmpeg.sh <platform> <architecture>` uses the identical vendored Core verifier pinned at `runtime/core-acquirer.json`. Production requires a durable, exact published Core release with its manifest digest and promotion workflow identity; it currently fails closed because publication/pinning is outstanding.
+
+Unpublished qualification is explicit: set `AVID_CORE_QUALIFICATION=1` locally or dispatch `build-platforms.yml` with `qualify_core_candidate=true`. The verifier checks the complete pinned Core run, repository, dispatch event, source revision, workflow, native jobs and artifact container digest before extraction. Candidates cannot enter push/PR production paths. Cached/selected runtimes require verified original archives and authenticated origin or release receipts; production rechecks the manifest attestation. Python and GitHub CLI are build tools only. End-user packages work offline with their embedded tools, with no PATH fallback.
 
 Before staging, `encap-engine validate-core-runtime <directory>` delegates the
 original complete directory to `avid_core::MediaTools::from_core_directory`.

@@ -12,11 +12,16 @@ on:
         type: choice
         options: [all, macos, windows, linux, checks, runtime-probes]
         default: all
+      qualify_core_candidate:
+        description: Unpublished host qualification with authenticated exact Core candidate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 env:
+  AVID_CORE_QUALIFICATION: ${{ github.event_name == 'workflow_dispatch' && inputs.qualify_core_candidate && '1' || '0' }}
   CARGO_TERM_COLOR: always
   MACOSX_DEPLOYMENT_TARGET: "13.0"
   WHISPER_CPP_VERSION: "v1.9.1"
@@ -47,6 +52,7 @@ jobs:
         run: |
           cargo test --workspace --locked --all-features
           python3 script/test_runtime_ownership.py
+          python3 -m unittest discover -s script -p test_application_release.py -v
       - name: Check portable chapter timestamp rules
         run: |
           cc -std=c17 -Wall -Wextra -Werror -Ilinux/EnCap/src linux/EnCap/src/chapter_names.c linux/EnCap/tests/chapter_names_test.c -o /tmp/encap-chapter-names-test
@@ -55,7 +61,7 @@ jobs:
         run: cargo build --package encap-engine --locked
 
   macos:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && (inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos') }}
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'macos')
     defaults:
       run:
         working-directory: EnCAP
@@ -112,15 +118,21 @@ jobs:
           dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
           ! otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
           codesign --verify --deep --strict dist/EnCap.app
+      - name: Native application launch smoke and exact host evidence
+        run: |
+          python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
+          python3 script/host_evidence.py --application encap --target "macos-${{ matrix.arch }}" --pin runtime/core-runtime.json --binary dist/EnCap.app/Contents/MacOS --metadata dist/EnCap.app/Contents/Resources/FFmpeg --packages dist/EnCap-*-macos-*.zip --output "dist/host-macos-${{ matrix.arch }}.json"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-macos-${{ matrix.label }}
-          path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
+          path: |
+            EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
+            EnCAP/dist/host-macos-*.json
           if-no-files-found: error
 
   windows:
-    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'windows'
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'windows')
     defaults:
       run:
         working-directory: EnCAP
@@ -256,15 +268,21 @@ jobs:
       - name: Verify packaged runtime discovery and rejection
         shell: bash
         run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
+      - name: Native application launch smoke and exact host evidence
+        shell: pwsh
+        run: |
+          python script/test_native_startup.py dist/staging/EnCap/EnCap.exe
+          $packages = (Get-ChildItem dist/release -Filter '*.zip').FullName
+          python script/host_evidence.py --application encap --target 'windows-${{ matrix.label == 'arm64' && 'arm64' || 'x86_64' }}' --pin runtime/core-runtime.json --binary dist/staging/EnCap --metadata dist/staging/EnCap/ffmpeg-runtime --packages $packages --output 'dist/release/host-windows-${{ matrix.label == 'arm64' && 'arm64' || 'x86_64' }}.json'
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-windows-${{ matrix.label }}
-          path: EnCAP/dist/release/*.zip
+          path: EnCAP/dist/release/*
           if-no-files-found: error
 
   linux:
-    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'linux'
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'linux')
     defaults:
       run:
         working-directory: EnCAP
@@ -289,7 +307,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson ninja-build xz-utils pkg-config jq
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libadwaita-1-dev libgtk-4-dev libjson-glib-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good meson ninja-build xz-utils pkg-config jq patchelf file desktop-file-utils libgdk-pixbuf2.0-bin librsvg2-common xvfb dbus-x11 squashfs-tools libfuse2t64
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Acquire AVID Core FFmpeg
@@ -328,7 +346,7 @@ jobs:
           "$prefix/bin/ffmpeg" -hide_banner -version
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          tar -C dist/staging -czf "dist/release/EnCap-$version-linux-${{ matrix.label }}.tar.gz" EnCap
+          bash script/package_appimage.sh "${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}" "$prefix" "$version"
       - name: Verify Linux cloning and mode-switch latency on Btrfs
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
@@ -341,11 +359,16 @@ jobs:
           sudo chown "$(id -u):$(id -g)" "$mount_dir"
           TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/dist/staging/EnCap/bin/encap-engine" \
             cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+      - name: Extracted AppImage native launch and exact host evidence
+        run: |
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py dist/release/EnCap-*-linux-*.AppImage
+          python3 script/host_evidence.py --application encap --target "linux-${{ matrix.arch }}" --pin runtime/core-runtime.json --binary "build/EnCap-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppDir/usr/bin" --metadata "build/EnCap-${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}.AppDir/usr/bin/ffmpeg-runtime" --packages dist/release/*.AppImage --output "dist/release/host-linux-${{ matrix.arch }}.json"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: EnCap-linux-${{ matrix.label }}
-          path: EnCAP/dist/release/*.tar.gz
+          path: EnCAP/dist/release/*
           if-no-files-found: error
 
   windows_runtime_probes:
@@ -376,47 +399,3 @@ jobs:
       - name: Isolate synthetic filtering and encoding paths
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
-
-  release:
-    defaults:
-      run:
-        working-directory: EnCAP
-    name: Publish GitHub release
-    needs: [quality, windows, linux]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          path: EnCAP
-      - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
-        with:
-          path: EnCAP/release-assets
-          pattern: EnCap-*
-          merge-multiple: true
-      - name: Prepare draft release and signed update metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
-        run: |
-          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          test "$GITHUB_REF_NAME" = "v$version"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --generate-notes
-          # Release Mac builds are pre-signed and notarized on the release Mac.
-          # Refuse substituted or ad-hoc CI builds by checking the committed hashes.
-          gh release download "$GITHUB_REF_NAME" --pattern '*-signed.zip' --dir release-assets
-          (cd release-assets && sha256sum --check "../runtime/releases/$version-macos.sha256")
-          for arch in arm64 intel; do
-            mv "release-assets/EnCap-$version-macos-$arch-signed.zip" "release-assets/EnCap-$version-macos-$arch.zip"
-          done
-          gh release view "$GITHUB_REF_NAME" --json body --jq .body > release-notes.md
-          cargo run --locked --package encap-release -- --assets-dir release-assets --version "$version" --tag "$GITHUB_REF_NAME" --notes-file release-notes.md
-          (cd release-assets && sha256sum *.zip *.tar.gz > SHA256SUMS)
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false

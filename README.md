@@ -45,8 +45,8 @@ Video's timing, encoder selection, and composition rules are documented in
 | Intel Mac | `EnCap-<version>-macos-intel.zip` | macOS 13 |
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
-| Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
-| Linux ARM64 | `EnCap-<version>-linux-arm64.tar.gz` | GTK 4 + libadwaita 1 |
+| Linux x64 | `EnCap-<version>-linux-x64.AppImage` | GTK 4 + libadwaita 1 |
+| Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | GTK 4 + libadwaita 1 |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
 to install media tools. Starting with 2.0.3, release downloads for both Mac
@@ -133,17 +133,9 @@ artifacts, and the engine protocol. The project format is specified in
 
 ## Release process
 
-Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests platform packages. Before tagging, upload Developer ID-signed and
-notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.zip`
-to the draft release, and commit their final checksums in
-`runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
-x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those
-checksums, then publish all six packages and signed update metadata.
-macOS uses Sparkle with architecture-specific appcasts. Developer ID,
-notarization, and the private update-signing key remain credential-gated release
-steps and are never stored in the repository.
+The next release integration prepares 2.0.5 without changing existing tags or assets. AVID Core owns the matched six-target FFmpeg/FFprobe runtime. Unpublished native host qualification uses `build-platforms.yml` with `qualify_core_candidate=true`; production acquisition remains blocked until Core's durable runtime is published and its authenticated identity pinned.
+
+Final distribution formats are signed/notarized macOS ZIP, Azure Authenticode Windows portable ZIP, and GPG-signed Linux AppImage. Native packaging, launch/media/lifecycle, real authenticated upgrades and required manual acceptance must apply to exact final packages. The earlier 2.0.4 notarization establishes the local signing mechanism; it does not qualify 2.0.5. See [release integration](docs/release-integration.md) for exact configuration and outstanding evidence. No draft or workflow upload constitutes production publication.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for
