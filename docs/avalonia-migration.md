@@ -107,7 +107,8 @@ rerun successfully without build-server reuse. Other discovered failures were
 fixed: misplaced JSON attributes, cancellation being treated as confirmation,
 playback lifetime/resume/next-chapter state, AAC encoder compatibility, MPRIS
 shutdown race, initial artwork, filename underscores, native build-script syntax,
-portable-installer typo, and Python test discovery executing a CLI at import.
+portable-installer typo, Python test discovery executing a CLI at import, and
+a save-cache environment-override test racing with parallel Rust tests.
 
 ## Builds and packaging
 
@@ -150,17 +151,25 @@ Native CI results (each run identifies its exact source commit; later Windows/Li
 
 | Target | Native CI evidence |
 |---|---|
-| Linux x64 and ARM64 | VERIFIED in [run 36884828806](https://github.com/tlolabs/encap/actions/runs/36884828806): 39 presentation/headless checks per target (the extra Mac-only update guard makes 40 locally), retained fixtures, native adapters, MPRIS protocol, staged startup, AppImage assembly and finished-AppImage startup, media suite and Btrfs persistence. Both artifacts uploaded. |
+| Linux x64 and ARM64 | VERIFIED in [run 36890873483](https://github.com/tlolabs/encap/actions/runs/36890873483): 39 presentation/headless checks per target (the extra Mac-only update guard makes 40 locally), retained fixtures, native adapters, MPRIS protocol, staged startup, AppImage assembly and finished-AppImage startup, media suite and Btrfs persistence. Both artifacts uploaded. |
 | Native macOS ARM64 and internal reference | VERIFIED in [run 36876431008](https://github.com/tlolabs/encap/actions/runs/36876431008): native package/tests and separate internal shared UI artifact uploaded. |
 | Windows x64 and ARM64 | VERIFIED in [run 36883090923](https://github.com/tlolabs/encap/actions/runs/36883090923): native playback/SMTC adapters, 39 shared presentation/headless checks plus retained fixtures per architecture, portable updater, assembled application startup, PE architecture checks, core/save/media tests, provenance/rejection checks and portable ZIP uploads. |
 | Native macOS Intel | Local cross-build/package VERIFIED. Native CI builds the application but package qualification is BLOCKED by the existing 250 ms save budget: post-reopen saves measured 456.8 ms and 705.7 ms on separate runs; another metadata save measured 410.1 ms. One intervening workspace run passed. The core save implementation and timing test are unchanged from the starting revision. |
 
 Downloadable artifacts: [Windows x64](https://github.com/tlolabs/encap/actions/runs/36883090923/artifacts/11173952686),
 [Windows ARM64](https://github.com/tlolabs/encap/actions/runs/36883090923/artifacts/11174446541),
-[Linux x64](https://github.com/tlolabs/encap/actions/runs/36884828806/artifacts/11173778462),
-[Linux ARM64](https://github.com/tlolabs/encap/actions/runs/36884828806/artifacts/11173723479),
+[Linux x64](https://github.com/tlolabs/encap/actions/runs/36890873483/artifacts/11176654501),
+[Linux ARM64](https://github.com/tlolabs/encap/actions/runs/36890873483/artifacts/11177320408),
 and [INTERNAL macOS ARM64 reference](https://github.com/tlolabs/encap/actions/runs/36876431008/artifacts/11170288056).
 These are workflow artifacts subject to GitHub retention, not production releases.
+
+The release path accepts matching unsigned annotated Git tags. Linux final-package
+qualification now uses the exact native workflow artifact and GitHub attestation
+instead of a detached repository signature. The new `verify-linux.yml` manual
+workflow is NOT VERIFIED in CI yet: GitHub does not dispatch a workflow that
+exists only on this branch until it is present on the default branch. Its native
+build inputs passed in the Linux run above; the remaining provenance and upgrade
+evidence must still be recorded before production promotion.
 
 CI exposed and corrected missing GitHub CLI visibility under MSYS2, missing token
 scope for repeat Mac provenance verification, a PPM test fixture unsupported by
