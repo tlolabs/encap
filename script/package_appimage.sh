@@ -4,15 +4,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ARCH="${1:?architecture}"; STAGE="${2:?application prefix}"; VERSION="${3:?version}"
 LABEL=x64
 case "$ARCH" in
- x86_64) RUNTIME_HASH=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d; DEPLOY_HASH=36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62; IMAGE_HASH=a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0 ;;
- aarch64) LABEL=arm64; RUNTIME_HASH=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444; DEPLOY_HASH=556ab80baa98e600aa80f0dcedfb70bca0e1ce7e9f147fb345be3fcc3e91b2b1; IMAGE_HASH=1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe ;;
+ x86_64) RUNTIME_HASH=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d; DEPLOY_HASH=c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d; IMAGE_HASH=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+ aarch64) LABEL=arm64; RUNTIME_HASH=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444; DEPLOY_HASH=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff; IMAGE_HASH=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
  *) exit 2 ;;
 esac
 TOOLS="$ROOT_DIR/build/appimage-tools-$ARCH"; APPDIR="$ROOT_DIR/build/EnCap-$ARCH.AppDir"
 mkdir -p "$TOOLS"
 fetch() { curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' "$1" -o "$2"; printf '%s  %s\n' "$3" "$2" | sha256sum --check; chmod +x "$2"; }
-fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$ARCH.AppImage" "$TOOLS/linuxdeploy" "$DEPLOY_HASH"
-fetch "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage" "$TOOLS/appimagetool" "$IMAGE_HASH"
+fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-$ARCH.AppImage" "$TOOLS/linuxdeploy" "$DEPLOY_HASH"
+fetch "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-$ARCH.AppImage" "$TOOLS/appimagetool" "$IMAGE_HASH"
 fetch "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-$ARCH" "$TOOLS/runtime" "$RUNTIME_HASH"
 rm -rf "$APPDIR"; mkdir -p "$APPDIR"; mkdir -p "$APPDIR/usr"; cp -a "$STAGE/"* "$APPDIR/usr/"
 export APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1
