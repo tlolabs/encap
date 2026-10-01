@@ -1,5 +1,34 @@
 # Native development
 
+## Git commit policy
+
+Create unsigned Git commits. Cryptographic commit signatures are not required
+for maintainers or contributors. Disable automatic commit signing for each clone:
+
+```sh
+git config --local commit.gpgsign false
+```
+
+Do not pass `git commit -S`. A DCO `Signed-off-by:` trailer added with
+`git commit -s` is plain commit-message text and remains required wherever the
+contribution policy calls for it.
+
+The unsigned-history migration preserves existing commit messages (including
+DCO trailers), authors, committers, timestamps, file trees, and merge topology.
+Removing signatures changes commit IDs and descendant IDs; local branches and
+tags now point to the equivalent unsigned history. Original signed objects and
+an old-to-new commit map are retained locally under
+`.git/unsigned-history-backups/` in a verified Git bundle and JSON files.
+The backup is local and is not included in a clone.
+
+When publishing rewritten history, coordinate updates to remote branches and
+tags. After publication, existing clones must realign with the new commit IDs;
+avoid merging the old signed history back into the rewritten branches.
+
+Release-tag authentication, application code signing, notarization, signed update
+metadata, and upstream source-signature verification retain their existing
+requirements.
+
 ## Workspace ownership
 
 The Rust workspace is intentionally layered:
