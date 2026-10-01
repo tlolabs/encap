@@ -40,22 +40,30 @@ impl Harness {
     fn ff(&self, args: &[&OsStr]) -> Vec<u8> {
         self.tool(&self.ffmpeg, args).stdout
     }
+    #[track_caller]
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
-        let out = Command::new(&self.engine)
-            .args(args)
-            .env("ENCAP_FFMPEG", &self.ffmpeg)
-            .env("ENCAP_FFPROBE", &self.ffprobe)
-            .env(
-                "ENCAP_RECOVERY_PATH",
-                self.root.path().join("recovery.json"),
-            )
-            .output()
-            .unwrap();
+        let mut command = Command::new(&self.engine);
+        command.args(args).env(
+            "ENCAP_RECOVERY_PATH",
+            self.root.path().join("recovery.json"),
+        );
+        if std::env::var_os("ENCAP_TEST_PACKAGED").is_some() {
+            command
+                .env_remove("ENCAP_FFMPEG")
+                .env_remove("ENCAP_FFPROBE")
+                .env("PATH", "");
+        } else {
+            command
+                .env("ENCAP_FFMPEG", &self.ffmpeg)
+                .env("ENCAP_FFPROBE", &self.ffprobe);
+        }
+        let out = command.output().unwrap();
         assert_eq!(
             out.status.success(),
             ok,
-            "{}",
-            String::from_utf8_lossy(&out.stdout)
+            "engine {args:?}: stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
         );
         let value: Value = serde_json::from_slice(&out.stdout).expect("exactly one JSON value");
         assert_eq!(value.get("error").is_none(), ok);
@@ -98,10 +106,11 @@ fn release_pair_has_complete_audio_transcript_video_capabilities() {
     h.engine(&[s("video-capabilities")], true);
     let version = String::from_utf8(h.ff(&[s("-version")])).unwrap();
     let identifier = version.split_whitespace().nth(2).unwrap();
-    assert!(
-        identifier == "9.0.1"
-            || identifier.starts_with("9.0.1-")
-            || identifier.starts_with("n9.0.1-")
+    let dependencies: Value =
+        serde_json::from_str(avid_core::FFMPEG_RUNTIME_SPECIFICATION).unwrap();
+    assert_eq!(
+        identifier,
+        dependencies["source"]["version"].as_str().unwrap()
     );
     for (option, required) in [
         (
@@ -493,6 +502,31 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
             }
         }
     }
+    // Preserve the portrait/60 fps/two-flip composition that previously exposed
+    // a Windows software-encode crash in the Core runtime candidate. Exercise it
+    // through the ordinary packaged EnCAP engine, without changing the graph.
+    project["video"]["export_settings"]["width"] = json!(90);
+    project["video"]["export_settings"]["height"] = json!(160);
+    project["video"]["export_settings"]["fps"] = json!(60);
+    let portrait = h.root.path().join("portrait60.mp4");
+    h.engine(
+        &[
+            s("export-video"),
+            h.write(&project).as_os_str(),
+            portrait.as_os_str(),
+        ],
+        true,
+    );
+    let probe = h.probe(&portrait);
+    let stream = probe["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["codec_type"] == "video")
+        .unwrap();
+    assert_eq!(stream["width"], 90);
+    assert_eq!(stream["height"], 160);
+    assert_eq!(stream["r_frame_rate"], "60/1");
     let output = h.root.path().join("old.mp4");
     fs::write(&output, b"old").unwrap();
     let source_bytes = fs::read(&source).unwrap();
@@ -556,4 +590,101 @@ fn artwork_flips_and_real_media_failures_preserve_sources() {
         .file_name()
         .to_string_lossy()
         .starts_with(".avid-")));
+}
+
+#[test]
+#[ignore = "requires the packaged source runtime"]
+fn real_ffmpeg_cancellation_reaps_child() {
+    use encap_ffmpeg::{os, run, CancellationToken};
+    use std::time::{Duration, Instant};
+    let h = Harness::new();
+    let cancellation = CancellationToken::default();
+    let worker_token = cancellation.clone();
+    let started = Instant::now();
+    let worker = std::thread::spawn(move || {
+        run(
+            &h.ffmpeg,
+            &[
+                os("-nostdin"),
+                os("-re"),
+                os("-f"),
+                os("lavfi"),
+                os("-i"),
+                os("sine=duration=30"),
+                os("-f"),
+                os("null"),
+                os("-"),
+            ],
+            &worker_token,
+            "Actual FFmpeg cancellation",
+        )
+    });
+    std::thread::sleep(Duration::from_millis(250));
+    cancellation.cancel();
+    assert!(worker
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .to_string()
+        .contains("cancelled safely"));
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+#[ignore = "requires packaged Whisper and the checksum-verified Base English model"]
+fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
+    let h = Harness::new();
+    let speech = PathBuf::from(
+        std::env::var_os("ENCAP_TEST_SPEECH").expect("pinned Whisper speech fixture"),
+    );
+    let input = h.root.path().join("speech");
+    fs::create_dir(&input).unwrap();
+    // Force the normal Transcript path to convert stereo 44.1 kHz input.
+    h.ff(&[
+        s("-v"),
+        s("error"),
+        s("-i"),
+        speech.as_os_str(),
+        s("-ar"),
+        s("44100"),
+        s("-ac"),
+        s("2"),
+        input.join("speech.wav").as_os_str(),
+    ]);
+    let mut project = h.engine(&[s("inspect"), input.as_os_str()], true);
+    let payload = h.write(&project);
+    let result = h.engine(
+        &[s("transcribe"), payload.as_os_str(), s("whisper-base-en")],
+        true,
+    );
+    let segments = result.as_array().expect("transcript segment array");
+    assert!(!segments.is_empty());
+    let text = segments
+        .iter()
+        .filter_map(|segment| segment["text"].as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    assert!(
+        text.contains("country"),
+        "unexpected speech recognition: {text}"
+    );
+    project["transcript_segments"] = result;
+    let payload = h.write(&project);
+    for format in ["txt", "srt"] {
+        let output = h.root.path().join(format!("speech.{format}"));
+        h.engine(
+            &[
+                s("export-transcript"),
+                payload.as_os_str(),
+                output.as_os_str(),
+                s(format),
+            ],
+            true,
+        );
+        assert!(fs::read_to_string(output)
+            .unwrap()
+            .to_lowercase()
+            .contains("country"));
+    }
 }

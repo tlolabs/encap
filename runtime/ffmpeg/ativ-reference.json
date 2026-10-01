@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/tlolabs/ativ",
+  "revision": "bc43ed0fc3c82acc4ea2ffbf0bb65fd2c8ebb91e",
+  "files": {
+    "runtime/ffmpeg/dependency.json": "2b87344a9c4539a894bcac38b871955330c87f575b66137690532afb0236e167",
+    "script/ffmpeg_build.py": "ea1e5070e379dd0a0d6137d46dff06b2b08c1d6085e692db28a1f10d9d3f5d0b",
+    "script/ffmpeg_runtime.py": "c2a4d4eea85fee84d1c4bd39af28e11aee7adabc935d4957dacc1762946fcec4",
+    "crates/ativ-engine/src/media_tools.rs": "234b5ef8d67dbcd14f44356579507b61d98871a8aa4eaba8fd011803ea7ffd22"
+  },
+  "policy": "Upstream FFmpeg, x264 and zlib identities match ATIV. EnCAP extends the source profile for existing x265, LAME and Apple AudioToolbox features. Review changes to the reference scripts when upgrading; no sibling checkout is required by builds."
+}

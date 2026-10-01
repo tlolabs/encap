@@ -6,7 +6,7 @@ SwiftUI / WinUI / GTK -> encap-engine (one JSON response)
                         |-- encap-audio / encap-transcript -> encap-ffmpeg
                         `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
 
-All modes resolve the same host-owned FFmpeg/ffprobe pair.
+All modes resolve the same Core-built FFmpeg/ffprobe pair.
 ```
 
 `encap-core` contains platform-neutral data and long-term file compatibility.
@@ -14,11 +14,18 @@ The three user modes are separate crates and do not depend on one another.
 `encap-ffmpeg` is deliberately narrow: it locates and validates bundled tools,
 passes arguments without a shell, drains output without pipe deadlocks, records
 diagnostics, and terminates child processes on cancellation for Audio/Transcript.
-Video uses its resolution policy through `discover_with_validator`, then passes both
-resolved getters as explicit shared overrides. This avoids uncancellable duplicate
-validation. Invalid environment files still fall back before overrides are set.
-AVID Core owns Video tool validation, probing, capabilities, rendering, and staging.
-One signal handler cancels the retained Audio/Transcript token and a shared Video token.
+Core validates the complete original runtime directory before staging. Every mode
+checks the pinned Core checksum manifest, metadata, source archive, target and
+Core/application identity, plus original and post-sign hashes before using the pair.
+Core's explicit `MediaTools::from_paths` validates both tools with the operation's
+cancellation token. Video receives that same validated pair without rediscovery.
+Release builds never use environment or PATH FFmpeg. Debug fixture overrides
+require both absolute paths; invalid, partial or mismatched pairs fail.
+AVID Core owns Video probing, capabilities, graphs and rendering. Audio export,
+Transcript providers, native WAV/AIFF parsing, waveform/editing and project archives
+remain EnCAP responsibilities. One Core cancellation token connects the signal
+handler to all three modes; EnCAP's Audio/Transcript runner still owns and reaps
+its processes. Acquisition uses the pinned Core CI artifacts; a sibling checkout is unnecessary.
 
 All three native applications use the `encap-engine` JSON process boundary.
 JSON keys use

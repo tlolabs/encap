@@ -547,7 +547,18 @@ mod tests {
             "audio/source.wav".into(),
         )
         .unwrap();
-        fs::write(&project.audio_sources[0].source_path, b"modified audio").unwrap();
+        let source = &project.audio_sources[0].source_path;
+        let changed_at =
+            fs::metadata(source).unwrap().modified().unwrap() + std::time::Duration::from_secs(2);
+        fs::write(source, b"modified audio").unwrap();
+        // Same-size writes can share a timestamp tick on NTFS. Keep the size
+        // unchanged and make this fixture's metadata mutation observable.
+        fs::File::options()
+            .write(true)
+            .open(source)
+            .unwrap()
+            .set_modified(changed_at)
+            .unwrap();
         assert!(write_archive(&root.path().join("staged"), b"{}", &plan, None).is_err());
     }
 
