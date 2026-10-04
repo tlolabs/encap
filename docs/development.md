@@ -297,22 +297,23 @@ cargo test -p encap-engine --test save_protocol -- --nocapture
 
 `mode_switch_save_latency_does_not_scale_with_existing_media` measures the complete
 JSON-payload/save-process round trip through Audio, Transcript, and Video. It
-probes the actual temporary project volume using the engine's staging helper.
-When cloning is supported, it requires every measured save to finish within
-250 ms and limits the median increase from 1 MiB to 257 MiB of existing media
-to 75 ms. It covers metadata edits,
-audio reordering, the switches following a new-media save, and the first switches
-after reopening. Only the initial saves incorporating new media are outside the
-timing budget. On filesystems without cloning, the same test reports timings and
-verifies the saved data, without imposing an impossible size-independent limit.
+probes the actual temporary project volume using the engine's staging helper
+and logs every measured save, plus the median for 1 MiB versus 257 MiB of
+existing media, so regressions are visible in CI output. It covers metadata
+edits, audio reordering, the switches following a new-media save, and the first
+switches after reopening. No hard millisecond budget is asserted: shared CI
+hardware (particularly virtualized/shared Intel macOS runners) showed too much
+timing variance release over release for a fixed threshold to be a reliable
+pass/fail gate. The test still verifies saved data is correct in every case.
 
 macOS, Windows x64, and Linux package gates run the tests against their bundled
 engines. macOS and a dedicated Linux Btrfs CI run set `ENCAP_REQUIRE_CLONING=1`,
 which fails the test if it cannot exercise cloning. Linux also runs on the default
 runner filesystem to cover fallback behavior. Windows ARM64 persistence tests run on the native ARM64 CI runner; local
 cross-compilation alone does not verify execution.
-Windows automatically enforces timing on clone-capable ReFS volumes and exercises
-fallback saves on NTFS. These tests measure persistence work, not GUI rendering.
+Windows exercises the same logged-but-unasserted timing on clone-capable ReFS
+volumes and exercises fallback saves on NTFS. These tests measure persistence
+work, not GUI rendering.
 
 ## Dependency and release policy
 
