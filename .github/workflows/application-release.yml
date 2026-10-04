@@ -1,0 +1,63 @@
+name: Publish qualified application packages
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: application-promotion-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      attestations: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require all applicable final-package release gates
+        run: python3 script/application_release.py --output release-assets
+      - name: Verify approved signed annotated stable tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64: ${{ vars.ENCAP_RELEASE_SIGNING_PUBLIC_KEY_B64 }}
+          ENCAP_RELEASE_SIGNING_FINGERPRINT: ${{ vars.ENCAP_RELEASE_SIGNING_FINGERPRINT }}
+        run: bash script/verify_release_tag.sh
+      - name: Generate signed updates for exact qualified staged packages
+        env:
+          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
+          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          cargo run --locked --release -p encap-release -- --assets-dir release-assets --version "$VERSION" --tag "v$VERSION" --notes-file docs/release-integration.md
+          (cd release-assets && sha256sum * > SHA256SUMS)
+      - name: Attest package promotion identity
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: release-assets/*
+      - name: Create new release, verify actual downloads, then publish
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing asset replacement or tag movement.' >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "$GITHUB_REF_NAME" --notes-file docs/release-integration.md
+          gh release upload "$GITHUB_REF_NAME" release-assets/*
+          gh release download "$GITHUB_REF_NAME" --dir verified-downloads
+          (cd verified-downloads && sha256sum --check SHA256SUMS)
+          for asset in verified-downloads/*; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/application-release.yml" --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" --deny-self-hosted-runners >/dev/null
+          done
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=true

@@ -13,7 +13,7 @@ let package = Package(
             name: "EnCap",
             dependencies: ["SparkleBridge"],
             path: "EnCap",
-            exclude: ["Resources"]
+            exclude: ["Resources", "Assets.xcassets", "ContentView.swift", "EnCAPApp.swift"]
         ),
         .target(
             name: "SparkleBridge",

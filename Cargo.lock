@@ -78,11 +78,13 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "avid-core"
-version = "0.1.0"
+version = "0.3.0"
+source = "git+https://github.com/tlolabs/avid-core?rev=25d19098a22936638b0e2a70616083d929fe409c#25d19098a22936638b0e2a70616083d929fe409c"
 dependencies = [
  "same-file",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
@@ -415,7 +417,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "encap-audio"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -425,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "avid-core",
  "directories",
@@ -435,6 +437,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+ "toml",
  "tracing",
  "uuid",
  "windows-sys 0.61.2",
@@ -443,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "avid-core",
  "clap",
@@ -465,16 +468,20 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
+ "avid-core",
  "encap-core",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "tracing",
 ]
 
 [[package]]
 name = "encap-release"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -488,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "directories",
  "encap-core",
@@ -503,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "encap-video"
-version = "2.0.3"
+version = "2.0.5"
 dependencies = [
  "avid-core",
  "encap-core",
@@ -526,7 +533,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1195,7 +1202,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1343,7 +1350,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1400,7 +1407,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1515,6 +1522,15 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1663,7 +1679,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1773,6 +1789,47 @@ dependencies = [
  "rustls",
  "tokio",
 ]
+
+[[package]]
+name = "toml"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_write",
+ "winnow",
+]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tower"
@@ -2080,7 +2137,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2170,6 +2227,15 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "writeable"

@@ -20,3 +20,8 @@ pub use source::{discover_audio_files, inspect_files, inspect_folder, inspect_so
 pub use transcript::{render_srt, render_transcript_text};
 
 pub use waveform::{waveform_preview, WaveformPreview};
+
+/// Compiled dependency identity, checked against Cargo.lock at build time.
+pub const CORE_VERSION: &str = env!("ENCAP_CORE_VERSION");
+pub const CORE_REVISION: &str = env!("ENCAP_CORE_REVISION");
+pub const CORE_SOURCE: &str = env!("ENCAP_CORE_SOURCE");

@@ -28,7 +28,7 @@ EnCap has three peer application modes over one shared project format:
 The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
 and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
-Video delegates media work to the canonical sibling `avid-core` crate. A small
+Video delegates media work to the pinned `avid-core` crate. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI, WinUI 3, and
 GTK 4/libadwaita applications thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
@@ -41,16 +41,16 @@ Video's timing, encoder selection, and composition rules are documented in
 
 | Platform | Release file | Baseline |
 | --- | --- | --- |
-| Apple silicon Mac | `EnCap-<version>-macos-arm64.dmg` | macOS 13 |
-| Intel Mac | `EnCap-<version>-macos-intel.dmg` | macOS 13 |
+| Apple silicon Mac | `EnCap-<version>-macos-arm64.zip` | macOS 13 |
+| Intel Mac | `EnCap-<version>-macos-intel.zip` | macOS 13 |
 | Windows x64 | `EnCap-<version>-windows-x64.zip` | Windows 10 1809 |
 | Windows ARM64 | `EnCap-<version>-windows-arm64.zip` | Windows 10 1809 |
-| Linux x64 | `EnCap-<version>-linux-x64.tar.gz` | GTK 4 + libadwaita 1 |
+| Linux x64 | `EnCap-<version>-linux-x64.AppImage` | GTK 4 + libadwaita 1 |
+| Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | GTK 4 + libadwaita 1 |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. macOS builds are currently ad-hoc signed while Developer
-ID signing and notarization are being prepared. If macOS blocks a first launch,
-Control-click EnCap, choose **Open**, and confirm once.
+to install media tools. Starting with 2.0.3, release downloads for both Mac
+architectures are Developer ID signed and notarized by Apple.
 
 ## Features
 
@@ -96,8 +96,12 @@ disabled.
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Check out `tlolabs/avid-core` beside EnCAP as `AVID Core` at revision
-`0cce6ba838827d0bed540efc98731e74a1014456`. Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
+Cargo fetches AVID Core `v0.3.0` at immutable commit
+`25d19098a22936638b0e2a70616083d929fe409c`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
+AVID Core. Its six runtime and corresponding-source archives are checksum-pinned
+in `runtime/core-runtime.json`; EnCAP no longer compiles FFmpeg or owns its recipe.
+See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
+Platform prerequisites are Xcode 26 on macOS, Visual Studio 2022 with the
 Windows App SDK workload on Windows, or GTK 4/libadwaita/json-glib development
 packages plus Meson on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
@@ -109,9 +113,10 @@ On macOS, the project run action and the shell use the same entrypoint:
 ```
 
 Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
-`--package`. The script builds the release Rust engine, native SwiftUI app,
-static FFmpeg/ffprobe, local transcription helpers, and an application bundle
-at `dist/EnCap.app`.
+`--package`. The script builds the release Rust engine, native SwiftUI app and
+local transcription helpers, then bundles the Core-built FFmpeg/ffprobe pair
+at `dist/EnCap.app`. All modes use this verified pair with no production PATH
+fallback. Clean qualification uses the same normal application and packaging path.
 
 Shared checks:
 
@@ -128,16 +133,13 @@ artifacts, and the engine protocol. The project format is specified in
 
 ## Release process
 
-Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests macOS Intel/ARM64, Windows x64/ARM64, and Linux x64 packages. Tagged
-runs additionally publish checksummed release assets and signed update metadata.
-macOS uses Sparkle with architecture-specific appcasts. Developer ID,
-notarization, and the private update-signing key remain credential-gated release
-steps and are never stored in the repository.
+The next release integration prepares 2.0.5 without changing existing tags or assets. AVID Core owns the matched six-target FFmpeg/FFprobe runtime. Unpublished native host qualification uses `build-platforms.yml` with `qualify_core_candidate=true`; production acquisition remains blocked until Core's durable runtime is published and its authenticated identity pinned.
 
-The native-only policy check rejects tracked and local Python source, packaging
-files, and environments, including ignored leftovers. The macOS build runs it
+Final distribution formats are signed/notarized macOS ZIP, Azure Authenticode Windows portable ZIP, and GPG-signed Linux AppImage. Native packaging, launch/media/lifecycle, real authenticated upgrades and required manual acceptance must apply to exact final packages. The earlier 2.0.4 notarization establishes the local signing mechanism; it does not qualify 2.0.5. See [release integration](docs/release-integration.md) for exact configuration and outstanding evidence. No draft or workflow upload constitutes production publication.
+
+The native-only policy check rejects application Python source, packaging files
+and environments, including ignored leftovers. Python 3.12+ is used only for
+build/provisioning tests in `script/`, following ATIV; it is not an application dependency. The macOS build runs it
 before building. Third-party dependency caches are excluded from the local scan.
 Historical Python work remains available from the archive branch.
 

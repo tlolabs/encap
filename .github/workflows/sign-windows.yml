@@ -1,0 +1,125 @@
+name: Sign Windows portable packages with Azure
+on:
+  workflow_dispatch:
+    inputs:
+      native_run:
+        description: Successful native Windows qualification run for this exact commit
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  sign:
+    runs-on: windows-2025
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: ${{ inputs.native_run }}
+      AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+      AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+      AZURE_CERTIFICATE_PROFILE: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+      AZURE_SIGNING_SUBJECT: ${{ vars.AZURE_SIGNING_SUBJECT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Require existing configured signing account
+        shell: pwsh
+        env:
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          foreach ($name in @('AZURE_SIGNING_ENDPOINT','AZURE_SIGNING_ACCOUNT','AZURE_CERTIFICATE_PROFILE','AZURE_SIGNING_SUBJECT','CLIENT_ID','TENANT_ID','SUBSCRIPTION_ID')) {
+            if (![Environment]::GetEnvironmentVariable($name)) { throw "Missing Azure signing configuration: $name" }
+          }
+      - name: Authenticate exact same-commit native build before signing
+        shell: pwsh
+        run: |
+          python script/acquire_app_artifact.py --run $env:SOURCE_RUN --workflow '.github/workflows/build-platforms.yml' --platform windows --output unsigned
+          if ($LASTEXITCODE -ne 0) { throw 'Native input authentication failed' }
+          New-Item -ItemType Directory -Force sign-stage | Out-Null
+          Get-ChildItem unsigned -Recurse -Filter '*.zip' | ForEach-Object {
+            $target = if ($_.Name -match 'arm64') { 'windows-arm64' } else { 'windows-x86_64' }
+            $destination = Join-Path sign-stage $target
+            Expand-Archive -LiteralPath $_.FullName -DestinationPath $destination
+            python -c "import sys,json;from pathlib import Path;sys.path.insert(0,'script');from core_runtime import verify_directory; p=json.load(open('runtime/core-runtime.json'));root=Path(sys.argv[1]);verify_directory(p,sys.argv[2],root/'ffmpeg-runtime',binary=root,signed=json.load(open(root/'ffmpeg-runtime/signed-payload.json')))" $destination $target
+            if ($LASTEXITCODE -ne 0) { throw 'Core input manifest/executable verification failed' }
+          }
+      - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/artifact-signing-action@c0ae2c1d0c1847ab81ac0ab8521bee597cfedd30
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\sign-stage
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-managed-identity-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Verify signatures and preserve signed derivative identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force signed-packages | Out-Null
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          foreach ($target in @('windows-arm64','windows-x86_64')) {
+            $root = Join-Path sign-stage $target
+            ./script/verify_authenticode.ps1 -Folder $root -ExpectedSubject $env:AZURE_SIGNING_SUBJECT
+            python script/ffmpeg_runtime.py finish $target --binary $root --metadata (Join-Path $root 'ffmpeg-runtime')
+            if ($LASTEXITCODE -ne 0) { throw 'Signed derivative recording failed' }
+            $label = if ($target -eq 'windows-arm64') { 'arm64' } else { 'x64' }
+            Compress-Archive -Path "$root/*" -DestinationPath "signed-packages/EnCap-$version-windows-$label.zip"
+          }
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: signed-packages/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: timestamped-windows-packages
+          path: signed-packages/*
+          if-no-files-found: error
+  verify-native:
+    name: Verify signed Windows ${{ matrix.target }}
+    needs: sign
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            target: windows-x86_64
+            label: x64
+          - runner: windows-11-arm
+            target: windows-arm64
+            label: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: timestamped-windows-packages
+          path: signed-packages
+      - name: Verify final ZIP on its native architecture
+        shell: pwsh
+        env:
+          EXPECTED_SUBJECT: ${{ vars.AZURE_SIGNING_SUBJECT }}
+        run: |
+          $zip = Get-ChildItem signed-packages -Filter '*-windows-${{ matrix.label }}.zip'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath final-native
+          ./script/verify_authenticode.ps1 -Folder final-native -ExpectedSubject $env:EXPECTED_SUBJECT
+          python script/ffmpeg_runtime.py validate '${{ matrix.target }}' --binary final-native --metadata final-native/ffmpeg-runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Native final signed-runtime validation failed' }
+          python script/test_native_startup.py final-native/EnCap.exe

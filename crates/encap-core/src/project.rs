@@ -429,6 +429,15 @@ fn extract(archive: &mut zip::ZipArchive<File>, root: &Path) -> Result<()> {
                 "A project member expanded beyond its allowed size.".into(),
             ));
         }
+        // APFS can make the next archive fsync wait for earlier extraction
+        // writes. Finish those writes as part of opening the document so a
+        // metadata-only save does not inherit media-sized writeback latency.
+        // Saving still performs its full file and parent-directory syncs.
+        #[cfg(target_os = "macos")]
+        output.sync_all().map_err(|source| EncapError::Write {
+            path: target.clone(),
+            source,
+        })?;
         total = total.saturating_add(copied);
         if total > MAX_TOTAL {
             return Err(EncapError::Message(
