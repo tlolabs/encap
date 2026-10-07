@@ -1,8 +1,35 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:EnCap" x:Class="EnCap.MainWindow" Title="{Binding WindowTitle}" Width="1180" Height="820" MinWidth="800" MinHeight="580" DragDrop.AllowDrop="True">
  <Window.KeyBindings><KeyBinding Gesture="Ctrl+O" Command="{Binding OpenCommand}"/><KeyBinding Gesture="Ctrl+S" Command="{Binding SaveCommand}"/><KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding SaveAsCommand}"/><KeyBinding Gesture="Ctrl+I" Command="{Binding ImportCommand}"/><KeyBinding Gesture="Ctrl+1" Command="{Binding AudioCommand}"/><KeyBinding Gesture="Ctrl+2" Command="{Binding TranscriptCommand}"/><KeyBinding Gesture="Ctrl+3" Command="{Binding VideoCommand}"/></Window.KeyBindings>
  <DockPanel>
-  <Menu DockPanel.Dock="Top"><MenuItem Header="_File"><MenuItem Header="_Import Folder…" Command="{Binding ImportCommand}" InputGesture="Ctrl+I"/><MenuItem Header="_Open Project…" Command="{Binding OpenCommand}" InputGesture="Ctrl+O"/><MenuItem Header="_Save" Command="{Binding SaveCommand}" InputGesture="Ctrl+S"/><MenuItem Header="Save _As…" Command="{Binding SaveAsCommand}"/><Separator/><MenuItem Header="Export Audio…" Command="{Binding ExportAudioCommand}"/><MenuItem Header="Export Text…" Command="{Binding ExportTextCommand}"/><MenuItem Header="Export SRT…" Command="{Binding ExportSrtCommand}"/><MenuItem Header="Export MP4…" Command="{Binding ExportVideoCommand}"/></MenuItem><MenuItem Header="_Mode"><MenuItem Header="_Audio" Command="{Binding AudioCommand}"/><MenuItem Header="_Transcript" Command="{Binding TranscriptCommand}"/><MenuItem Header="_Video" Command="{Binding VideoCommand}"/></MenuItem><MenuItem Header="_Application"><MenuItem x:Name="CheckUpdatesMenu" Header="Check for Updates…" Click="CheckUpdates"/><MenuItem x:Name="AutomaticUpdatesMenu" Header="Automatically Check for Updates" ToggleType="CheckBox" IsChecked="True" Click="ToggleUpdates"/><Separator/><MenuItem Header="Appearance"><MenuItem Header="System" Click="ThemeSystem"/><MenuItem Header="Light" Click="ThemeLight"/><MenuItem Header="Dark" Click="ThemeDark"/></MenuItem></MenuItem></Menu>
-  <Border DockPanel.Dock="Bottom" Padding="16,8" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="4"><TextBlock x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.Name="Application status" AutomationProperties.LiveSetting="Polite"/><ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="4" AutomationProperties.Name="Operation in progress"/></StackPanel><Button Grid.Column="1" Content="Cancel" IsVisible="{Binding IsBusy}" Command="{Binding CancelCommand}" Margin="12,0,0,0"/></Grid></Border>
+  <Menu DockPanel.Dock="Top">
+   <MenuItem Header="_File">
+    <MenuItem x:Name="ImportMenu" Header="_Import Folder…" Command="{Binding ImportCommand}" InputGesture="Ctrl+I"/>
+    <MenuItem x:Name="OpenMenu" Header="_Open Project…" Command="{Binding OpenCommand}" InputGesture="Ctrl+O"/>
+    <MenuItem x:Name="SaveMenu" Header="_Save" Command="{Binding SaveCommand}" InputGesture="Ctrl+S"/>
+    <MenuItem x:Name="SaveAsMenu" Header="Save _As…" Command="{Binding SaveAsCommand}" InputGesture="Ctrl+Shift+S"/>
+    <Separator/>
+    <MenuItem Header="Export Audio…" Command="{Binding ExportAudioCommand}"/>
+    <MenuItem Header="Export Text…" Command="{Binding ExportTextCommand}"/>
+    <MenuItem Header="Export SRT…" Command="{Binding ExportSrtCommand}"/>
+    <MenuItem Header="Export MP4…" Command="{Binding ExportVideoCommand}"/>
+   </MenuItem>
+   <MenuItem Header="_Mode">
+    <MenuItem x:Name="AudioMenu" Header="_Audio" Command="{Binding AudioCommand}" InputGesture="Ctrl+1"/>
+    <MenuItem x:Name="TranscriptMenu" Header="_Transcript" Command="{Binding TranscriptCommand}" InputGesture="Ctrl+2"/>
+    <MenuItem x:Name="VideoMenu" Header="_Video" Command="{Binding VideoCommand}" InputGesture="Ctrl+3"/>
+   </MenuItem>
+   <MenuItem Header="_Application">
+    <MenuItem x:Name="CheckUpdatesMenu" Header="Check for Updates…" Click="CheckUpdates"/>
+    <MenuItem x:Name="AutomaticUpdatesMenu" Header="Automatically Check for Updates" ToggleType="CheckBox" IsChecked="True" Click="ToggleUpdates"/>
+    <Separator/>
+    <MenuItem Header="_Appearance">
+     <MenuItem x:Name="ThemeSystemMenu" Header="_System" ToggleType="Radio" Click="ThemeSystem"/>
+     <MenuItem x:Name="ThemeLightMenu" Header="_Light" ToggleType="Radio" Click="ThemeLight"/>
+     <MenuItem x:Name="ThemeDarkMenu" Header="_Dark" ToggleType="Radio" Click="ThemeDark"/>
+    </MenuItem>
+   </MenuItem>
+  </Menu>
+  <Border DockPanel.Dock="Bottom" Padding="16,8" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="4"><TextBlock x:Name="StatusText" Text="{Binding Status}" TextWrapping="Wrap" AutomationProperties.Name="Application status" AutomationProperties.LiveSetting="Polite"/><ProgressBar x:Name="OperationProgress" IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="4" AutomationProperties.Name="Operation in progress"/></StackPanel><Button Grid.Column="1" Content="Cancel" IsVisible="{Binding IsBusy}" Command="{Binding CancelCommand}" Margin="12,0,0,0"/></Grid></Border>
   <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="16,8"><Button Content="Import Folder…" Command="{Binding ImportCommand}"/><Button Content="Open Project…" Command="{Binding OpenCommand}"/><Button Content="Save" Command="{Binding SaveCommand}"/><Separator/><Button Content="Audio" Command="{Binding AudioCommand}"/><Button Content="Transcript" Command="{Binding TranscriptCommand}"/><Button Content="Video" Command="{Binding VideoCommand}"/></StackPanel>
   <Grid Margin="16,8" IsEnabled="{Binding IsIdle}">
    <Grid IsVisible="{Binding IsAudio}" ColumnDefinitions="240,12,*">

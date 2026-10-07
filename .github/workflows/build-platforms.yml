@@ -134,6 +134,10 @@ jobs:
           dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
           python3 script/build_desktop.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS
           python3 script/test_desktop_distribution.py
+      - name: Informational internal UI accessibility checks
+        if: matrix.arch == 'arm64'
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
       - name: Upload INTERNAL reference only
         if: matrix.arch == 'arm64'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -244,6 +248,10 @@ jobs:
         run: |
           python script/update_config.py --props build/version.props
           dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Informational Windows accessibility checks
+        shell: pwsh
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
       - name: Publish portable update installer
         shell: pwsh
         run: |
@@ -364,6 +372,9 @@ jobs:
           global-json-file: EnCAP/global.json
       - name: Test shared application and headless UI
         run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Informational Linux accessibility checks
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
       - name: Build and assemble Avalonia AppImage
         run: |
           prefix="$PWD/build/desktop-tools"

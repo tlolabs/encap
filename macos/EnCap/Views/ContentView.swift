@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @ObservedObject var store: AppStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -39,13 +40,16 @@ struct ContentView: View {
             Divider()
             HStack(spacing: 8) {
                 if store.isWorking {
-                    ProgressView().controlSize(.small)
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Operation in progress")
                     Button("Cancel", action: store.cancelCurrentOperation)
                         .help("Cancel the current operation")
                 }
                 Text(store.status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("Status: \(store.status)")
                 Spacer()
                 if store.isPlaying || store.playingSourceID != nil {
                     Button("Stop Playback", action: store.stopPlayback)
@@ -53,16 +57,17 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 28)
+            .frame(minHeight: 28)
         }
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 880, minHeight: 620)
         .modifier(PinnedTitleVisibility(isActive: store.workspace == .audio && store.isProjectLoaded))
         .background {
             if #available(macOS 14.0, *) {
                 PinnedSidebarHeader(
                     visibility: $sidebarVisibility,
                     isVisible: store.workspace == .audio && store.isProjectLoaded,
-                    isEnabled: !store.isWorking
+                    isEnabled: !store.isWorking,
+                    reduceMotion: reduceMotion
                 )
             }
         }
@@ -135,6 +140,7 @@ private struct PinnedSidebarHeader: NSViewRepresentable {
     @Binding var visibility: NavigationSplitViewVisibility
     var isVisible: Bool
     var isEnabled: Bool
+    var reduceMotion: Bool
 
     func makeNSView(context: Context) -> WindowProbe { WindowProbe() }
 
@@ -145,7 +151,11 @@ private struct PinnedSidebarHeader: NSViewRepresentable {
         view.button.toolTip = label
         view.button.setAccessibilityLabel(label)
         view.onToggle = {
-            withAnimation { visibility = visibility == .detailOnly ? .all : .detailOnly }
+            if reduceMotion {
+                visibility = visibility == .detailOnly ? .all : .detailOnly
+            } else {
+                withAnimation { visibility = visibility == .detailOnly ? .all : .detailOnly }
+            }
         }
         view.updateAccessory()
     }

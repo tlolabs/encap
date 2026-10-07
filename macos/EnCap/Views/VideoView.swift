@@ -113,11 +113,13 @@ struct VideoView: View {
                             }
                             .disabled(index == 0)
                             .help("Move this chapter earlier in the video")
+                            .accessibilityLabel("Move \(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title) earlier")
                             Button { store.moveVideoChapter(id: chapter.id, direction: 1) } label: {
                                 Image(systemName: "arrow.down")
                             }
                             .disabled(index == store.selectedVideoChapters.count - 1)
                             .help("Move this chapter later in the video")
+                            .accessibilityLabel("Move \(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title) later")
                             }
                             .padding(.vertical, 3)
                             .contentShape(Rectangle())
@@ -268,19 +270,24 @@ struct VideoView: View {
             )
             .disabled(store.selectedVideoChapters.isEmpty)
             .help("Scrub through the selected chapters to preview a different time")
+            .accessibilityLabel("Video timeline position")
+            .accessibilityValue(EnCapFormatters.timestamp(store.videoCurrentTime))
             HStack {
                 Text(EnCapFormatters.timestamp(store.videoCurrentTime)).monospacedDigit()
                 Spacer()
                 Button(action: store.previousVideoChapter) { Image(systemName: "backward.end.fill") }
                     .help("Previous selected chapter")
+                    .accessibilityLabel("Previous selected chapter")
                 Button(action: store.toggleVideoPlayback) {
                     Image(systemName: store.isVideoPlaying ? "pause.fill" : "play.fill")
                         .frame(width: 24)
                 }
                 .keyboardShortcut(.space, modifiers: [])
                 .help(store.isVideoPlaying ? "Pause video preview (Space)" : "Play video preview (Space)")
+                .accessibilityLabel(store.isVideoPlaying ? "Pause video preview" : "Play video preview")
                 Button(action: store.nextVideoChapter) { Image(systemName: "forward.end.fill") }
                     .help("Next selected chapter")
+                    .accessibilityLabel("Next selected chapter")
                 Spacer()
                 Text(EnCapFormatters.timestamp(store.selectedVideoDuration)).monospacedDigit()
             }

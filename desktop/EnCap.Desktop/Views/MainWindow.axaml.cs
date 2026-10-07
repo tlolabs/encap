@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(IEngineClient? engine, IUserDialogs? dialogs, IPlayback? playback, string[]? args = null)
     {
         AvaloniaXamlLoader.Load(this);
+        ConfigurePlatformShortcuts();
         Editor = new(engine ?? new EngineClient(), dialogs ?? new Dialogs(this), playback ?? new NativePlayback());
         DataContext = Editor;
         if (engine is null && AppIdentity.ProductionUpdatesAllowed)
@@ -34,6 +35,7 @@ public sealed partial class MainWindow : Window
         var automatic = this.FindControl<MenuItem>("AutomaticUpdatesMenu")!;
         automatic.IsEnabled = updater is not null;
         automatic.IsChecked = updater?.Automatic ?? false;
+        UpdateThemeMenu();
         clock.Tick += (_, _) => { Editor.Tick(); media?.Update(); };
         updates.Tick += async (_, _) => { if (updater?.Automatic == true) await updater.CheckAsync(false); };
         Opened += async (_, _) =>
@@ -222,8 +224,43 @@ public sealed partial class MainWindow : Window
     }
     private void SetTheme(ThemeVariant variant)
     {
-        if (Application.Current is not null)
-            Application.Current.RequestedThemeVariant = variant;
+        try
+        {
+            AppearancePreference.Save(variant);
+            if (Application.Current is not null)
+                Application.Current.RequestedThemeVariant = variant;
+            UpdateThemeMenu();
+        }
+        catch (Exception error) { Editor.Fail(error); }
+    }
+    private void UpdateThemeMenu()
+    {
+        var selected = Application.Current?.RequestedThemeVariant ?? ThemeVariant.Default;
+        this.FindControl<MenuItem>("ThemeSystemMenu")!.IsChecked = selected == ThemeVariant.Default;
+        this.FindControl<MenuItem>("ThemeLightMenu")!.IsChecked = selected == ThemeVariant.Light;
+        this.FindControl<MenuItem>("ThemeDarkMenu")!.IsChecked = selected == ThemeVariant.Dark;
+    }
+    private void ConfigurePlatformShortcuts()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var shortcuts = new (string Menu, Key Key, KeyModifiers Modifiers)[]
+        {
+            ("OpenMenu", Key.O, KeyModifiers.Meta),
+            ("SaveMenu", Key.S, KeyModifiers.Meta),
+            ("SaveAsMenu", Key.S, KeyModifiers.Meta | KeyModifiers.Shift),
+            ("ImportMenu", Key.I, KeyModifiers.Meta),
+            ("AudioMenu", Key.D1, KeyModifiers.Meta),
+            ("TranscriptMenu", Key.D2, KeyModifiers.Meta),
+            ("VideoMenu", Key.D3, KeyModifiers.Meta)
+        };
+        for (var index = 0; index < shortcuts.Length; index++)
+        {
+            var shortcut = shortcuts[index];
+            var gesture = new KeyGesture(shortcut.Key, shortcut.Modifiers);
+            KeyBindings[index].Gesture = gesture;
+            this.FindControl<MenuItem>(shortcut.Menu)!.InputGesture = gesture;
+        }
     }
     private void ThemeSystem(object? sender, RoutedEventArgs e) => SetTheme(ThemeVariant.Default); private void ThemeLight(object? sender, RoutedEventArgs e) => SetTheme(ThemeVariant.Light); private void ThemeDark(object? sender, RoutedEventArgs e) => SetTheme(ThemeVariant.Dark);
 }

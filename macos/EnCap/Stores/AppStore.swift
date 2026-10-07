@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Combine
 import Foundation
 #if SWIFT_PACKAGE
@@ -29,7 +30,19 @@ final class AppStore: ObservableObject {
     @Published var transcriptShowsSpeakers = true
     @Published var isModelManagerPresented = false
     @Published var isWorking = false { didSet { EnCapSetUpdateWorkInProgress(isWorking) } }
-    @Published var status = "Import an audio folder to begin."
+    @Published var status = "Import an audio folder to begin." {
+        didSet {
+            guard status != oldValue else { return }
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: status,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                ]
+            )
+        }
+    }
     @Published var errorMessage: String?
     @Published var fileImportKind: FileImportKind?
     @Published var isFileImporterPresented = false

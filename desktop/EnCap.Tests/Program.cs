@@ -1,12 +1,15 @@
 using EnCap;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using EnCap.Tests;
 
-if (args.Length != 1 && args.Length != 4) throw new ArgumentException("Pass the shared chapter timestamp fixture path.");
+if (args.Length != 1 && args.Length != 4 && !(args.Length == 2 && args[1] == "--accessibility")) throw new ArgumentException("Pass the shared chapter timestamp fixture path.");
 var count = 0;
 foreach (var line in File.ReadLines(args[0]))
 {
@@ -58,6 +61,38 @@ foreach (var line in File.ReadLines(Path.Combine(Path.GetDirectoryName(args[0])!
 Console.WriteLine("Passed shared shuttle playback cases.");
 
 var checks = 0;
+if (args.Length == 2)
+{
+    var appearancePath = Path.Combine(Path.GetTempPath(), "encap-appearance-" + Guid.NewGuid(), "appearance.txt");
+    try
+    {
+        Check(AppearancePreference.Load(appearancePath) == ThemeVariant.Default, "Appearance defaults to System");
+        AppearancePreference.Save(appearancePath, ThemeVariant.Dark);
+        Check(AppearancePreference.Load(appearancePath) == ThemeVariant.Dark, "Dark appearance survives restart");
+        AppearancePreference.Save(appearancePath, ThemeVariant.Light);
+        Check(AppearancePreference.Load(appearancePath) == ThemeVariant.Light, "Light appearance survives restart");
+        AppearancePreference.Save(appearancePath, ThemeVariant.Default);
+        Check(AppearancePreference.Load(appearancePath) == ThemeVariant.Default, "System appearance survives restart");
+    }
+    finally { Directory.Delete(Path.GetDirectoryName(appearancePath)!, recursive: true); }
+    await using var accessibilitySession = HeadlessUnitTestSession.StartNew(typeof(TestApp));
+    await accessibilitySession.Dispatch(() =>
+    {
+        var window = new MainWindow(new FakeEngine(), new FakeDialogs(), new FakePlayback());
+        Check(AutomationProperties.GetLiveSetting(window.FindControl<TextBlock>("StatusText")!) == AutomationLiveSetting.Polite, "Status is a polite live region");
+        Check(AutomationProperties.GetName(window.FindControl<ProgressBar>("OperationProgress")!) == "Operation in progress", "Progress has an accessible name");
+        Check(AutomationProperties.GetName(window.FindControl<Slider>("SourceSeek")!) == "Recording position", "Audio seek has an accessible name");
+        Check(AutomationProperties.GetName(window.FindControl<Slider>("VideoSeek")!) == "Video timeline position", "Video seek has an accessible name");
+        Check(new[] { "ThemeSystemMenu", "ThemeLightMenu", "ThemeDarkMenu" }.Count(name => window.FindControl<MenuItem>(name)!.IsChecked) == 1, "Exactly one appearance option is selected");
+        var expectedModifier = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control;
+        Check(window.KeyBindings.All(binding => (binding.Gesture?.KeyModifiers & expectedModifier) == expectedModifier), "Shortcuts use the host platform modifier");
+        Check((window.FindControl<MenuItem>("OpenMenu")!.InputGesture?.KeyModifiers & expectedModifier) == expectedModifier, "Menu displays the host platform shortcut");
+        window.Editor.Dispose();
+        return true;
+    }, CancellationToken.None);
+    Console.WriteLine($"Passed {checks} informational accessibility checks.");
+    return;
+}
 var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 var roundTrip = JsonSerializer.Deserialize<ProjectDocument>("""{"future_field":{"enabled":true},"metadata":{"future_metadata":42},"chapters":[{"future_chapter":"retained"}]}""", options)!;
 var encoded = JsonDocument.Parse(JsonSerializer.Serialize(roundTrip, options)).RootElement;
