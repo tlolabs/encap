@@ -10,7 +10,7 @@ def snapshot(root):
     paths += [root/'script'/name for name in ('tlo_update_release.py','qualify_updates.py','test_tlo_update_release.py','check_updater_snapshot.py')]
     missing=[str(p) for p in paths if not p.is_file()]
     if missing: raise SystemExit('Incomplete updater snapshot: '+', '.join(missing))
-    return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+    return {p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--write',action='store_true');p.add_argument('--compare',type=Path);a=p.parse_args()
     current=snapshot(ROOT);path=ROOT/'updater/SNAPSHOT.json'
