@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -5,11 +6,14 @@ struct EnCapApp: App {
     @NSApplicationDelegateAdaptor(EnCapApplicationDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()
     @AppStorage("SUEnableAutomaticChecks") private var automaticUpdates = true
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
         WindowGroup("EnCap", id: "main") {
             ContentView(store: store)
                 .onAppear { appDelegate.store = store }
+                .onAppear(perform: applyAppearance)
+                .onChange(of: appearance) { _ in applyAppearance() }
         }
         .defaultSize(width: 1180, height: 820)
         .commands {
@@ -17,6 +21,10 @@ struct EnCapApp: App {
                 Button("Import Audio Folder…") { store.presentFileImporter(.audioFolder) }
                     .keyboardShortcut("i", modifiers: .command)
                     .help("Import a folder of WAV or AIFF recordings")
+                Button("Add Audio Files…") { store.presentFileImporter(.audioFiles) }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .help("Add WAV or AIFF recordings to this episode")
+                    .disabled(!store.isProjectLoaded || store.isWorking)
                 Button("Open Project…") { store.presentFileImporter(.project) }
                     .keyboardShortcut("o", modifiers: .command)
                     .help("Open a saved EnCap project")
@@ -45,6 +53,26 @@ struct EnCapApp: App {
                     .help("Check for a newer version of EnCap")
                 Toggle("Automatically Check for Updates", isOn: $automaticUpdates)
             }
+        }
+        Settings {
+            Form {
+                Picker("Appearance", selection: $appearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.radioGroup)
+            }
+            .padding(20)
+            .frame(width: 320)
+        }
+    }
+
+    private func applyAppearance() {
+        switch appearance {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
         }
     }
 }

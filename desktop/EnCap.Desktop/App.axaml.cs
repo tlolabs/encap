@@ -9,6 +9,7 @@ public sealed partial class App : Application
     {
         Name = AppIdentity.Title;
         AvaloniaXamlLoader.Load(this);
+        RequestedThemeVariant = AppearancePreference.Load();
     }
     public override void OnFrameworkInitializationCompleted()
     {

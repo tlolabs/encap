@@ -48,8 +48,9 @@ Video's timing, encoder selection, and composition rules are documented in
 | Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. Starting with 2.0.3, release downloads for both Mac
-architectures are Developer ID signed and notarized by Apple.
+to install media tools. The 2.0.5 Mac downloads are ad-hoc signed and have not
+been notarized. The 2.0.5 Windows downloads are not Authenticode signed. See
+the [2.0.5 release notes](docs/releases/2.0.5.md) before installing.
 
 ## Features
 
@@ -142,16 +143,12 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests platform packages. Before tagging, upload Developer ID-signed and
-notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.zip`
-to the draft release, and commit their final checksums in
-`runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
-x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those
-checksums, then publish all six packages and signed update metadata.
-macOS uses Sparkle with architecture-specific appcasts. Developer ID,
-notarization, and the private update-signing key remain credential-gated release
-steps and are never stored in the repository.
+version (for example, version `2.0.5` uses `v2.0.5`). The native workflow builds
+and tests all six platform packages from the tag. It verifies packaged identity,
+writes SHA-256 checksums, attests the files, and publishes them with their
+distribution limitations in the release notes. Version 2.0.5 is a manual-download
+release: it has no signed update metadata or macOS appcasts. Its Mac and Windows
+packages do not have public distribution signatures.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for

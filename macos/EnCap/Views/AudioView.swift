@@ -7,7 +7,6 @@ struct AudioView: View {
     @AppStorage(ChapterNamingStyle.preferenceKey) private var chapterNamingStyle = ChapterNamingStyle.original
 
     @StateObject private var waveforms = SourceWaveforms()
-    @State private var hoveredSourceID: AudioSource.ID?
     @State private var selectedSourceIDs: Set<AudioSource.ID> = []
     @State private var pendingDeletionIDs: Set<AudioSource.ID> = []
     @State private var isDeleteConfirmationPresented = false
@@ -44,7 +43,9 @@ struct AudioView: View {
                 ForEach(store.project?.audioSources ?? []) { source in
                     HStack(spacing: 4) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(source.displayName).lineLimit(1)
+                            Text(source.displayName)
+                                .lineLimit(1)
+                                .help(source.displayName)
                             HStack(spacing: 8) {
                                 Text(source.fileTypeLabel)
                                 SourceWaveform(peaks: waveforms.peaks[source.id] ?? [])
@@ -67,7 +68,6 @@ struct AudioView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .opacity(hoveredSourceID == source.id || selectedSourceIDs.contains(source.id) ? 1 : 0.4)
                         .help(store.isPlaying(source: source)
                             ? "Pause \(source.displayName)"
                             : store.playingSourceID == source.id
@@ -77,10 +77,6 @@ struct AudioView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onHover { hovering in
-                        if hovering { hoveredSourceID = source.id }
-                        else if hoveredSourceID == source.id { hoveredSourceID = nil }
-                    }
                     .onAppear { waveforms.show(source.id) }
                     .onDisappear { waveforms.hide(source.id) }
                     .tag(source.id)
@@ -150,7 +146,7 @@ struct AudioView: View {
         }.min() ?? 140
         // Include the 24-point playback target, its 4-point gap, and the
         // sidebar's row, container, and scrollbar space (60 points).
-        return max(180, ceil(shortestNameWidth) + 88)
+        return min(300, max(180, ceil(shortestNameWidth) + 88))
     }
 
     private func requestSourceDeletion(_ ids: Set<AudioSource.ID>) {
@@ -335,13 +331,15 @@ private struct ChapterRow: View {
                         didRename()
                     }
                 ))
+                .accessibilityLabel("Chapter \(displayNumber) title")
                 TextField("Link", text: $chapter.linkUrl)
                     .frame(minWidth: 160)
+                    .accessibilityLabel("Chapter \(displayNumber) link")
                 Button(action: chooseArtwork) {
                     Image(systemName: chapter.imagePath == nil ? "photo.badge.plus" : "photo.fill")
                 }
                 .help(chapter.imagePath == nil ? "Add chapter artwork" : "Replace chapter artwork")
-                .accessibilityLabel(chapter.imagePath == nil ? "Add chapter artwork" : "Replace chapter artwork")
+                .accessibilityLabel("\(chapter.imagePath == nil ? "Add" : "Replace") artwork for chapter \(displayNumber)")
             }
         }
         .padding(.vertical, 3)

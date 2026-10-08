@@ -393,6 +393,9 @@ public sealed class EditorViewModel : ObservableObject, IDisposable
         SelectedPreset = Presets.FirstOrDefault(p => p.Platform == document.Video.ExportSettings.Platform && p.Width == document.Video.ExportSettings.Width && p.Height == document.Video.ExportSettings.Height);
         PreviewArtwork=VideoChapters.FirstOrDefault(c=>c.Selected)?.Chapter.ImagePath??document.Metadata.ArtworkPath;
         foreach(var property in new[]{nameof(PreviewWidth),nameof(PreviewHeight),nameof(FlipX),nameof(FlipY),nameof(PlaybackDuration)})Changed(property);
+        Changed(nameof(VideoFormatSummary));
+        Changed(nameof(VideoArtworkSummary));
+        Changed(nameof(NeedsVideoArtwork));
         presenting = false;
         IsDirty = changed;
         Status = $"Loaded {Sources.Count} recordings.";
@@ -436,7 +439,11 @@ public sealed class EditorViewModel : ObservableObject, IDisposable
             Changed(nameof(PreviewHeight));
             Changed(nameof(FlipX));
             Changed(nameof(FlipY));
+            Changed(nameof(VideoFormatSummary));
+            Changed(nameof(VideoArtworkSummary));
         }
+        if (sender is EpisodeMetadata && e.PropertyName == nameof(EpisodeMetadata.ArtworkPath))
+            Changed(nameof(NeedsVideoArtwork));
     }
     private void RebuildRows()
     {
@@ -725,8 +732,24 @@ public sealed class EditorViewModel : ObservableObject, IDisposable
         }
         presenting = wasPresenting;
         Changed(nameof(VideoDuration));
+        Changed(nameof(VideoChapterSummary));
     }
     public double VideoDuration => VideoChapters.Where(c => c.Selected).Sum(c => c.Chapter.DurationSeconds);
+    public string VideoChapterSummary => $"{VideoChapters.Count(c => c.Selected)} of {VideoChapters.Count} selected · {TimeSpan.FromSeconds(VideoDuration):hh\\:mm\\:ss}";
+    public string VideoFormatSummary => Project is null ? "" : $"{Project.Video.ExportSettings.Width} × {Project.Video.ExportSettings.Height} · {Project.Video.ExportSettings.Fps} fps · {Project.Video.ExportSettings.Codec.ToUpperInvariant()}";
+    public string VideoArtworkSummary
+    {
+        get
+        {
+            var settings = Project?.Video.ExportSettings;
+            if (settings is null) return "";
+            var flips = settings.FlipHorizontal && settings.FlipVertical ? "Horizontal and vertical flips"
+                : settings.FlipHorizontal ? "Horizontal flip"
+                : settings.FlipVertical ? "Vertical flip" : "No flips";
+            return $"{flips} · {settings.PreviewQuality} preview";
+        }
+    }
+    public bool NeedsVideoArtwork => Project is not null && string.IsNullOrEmpty(Project.Metadata.ArtworkPath);
     private void SelectVideo(bool selected)
     {
         foreach (var c in VideoChapters)
