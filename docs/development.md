@@ -322,11 +322,13 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Tagged CI requires the approved six-target qualification ledgers and verified
-packages, then generates authenticated update metadata using the build scripts
-and update private key from repository secrets. macOS notarization and
-Developer ID signing require external credentials and are intentionally outside
-an uncredentialed local build.
+Do not commit signing credentials. For 2.0.5, tagged CI builds and tests six
+packages from the tag, checks their packaged identities, writes checksums,
+attests the downloads and publishes a manual-download release. The application
+and updater qualification ledgers do not gate this release. It does not generate
+authenticated update metadata. macOS notarization, Developer ID signing and
+Windows Authenticode signing require external credentials and are not claimed
+for these packages.
 
 ## Common media distribution gate
 

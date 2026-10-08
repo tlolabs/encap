@@ -61,14 +61,19 @@ Windows stages beside the installation, rejects traversal/duplicate/oversized ZI
 
 Linux stages in the same filesystem, verifies the complete download, fsyncs the staged image and backup, then atomically replaces the path. Symlinks, hardlinks, privileged images, permissions errors or incompatible OS/glibc versions fail safely. A retained `tlo-previous-*.AppImage` is available for manual rollback. The Linux adapter offers an authenticated download when automatic replacement is unavailable; it does not execute a downloaded AppImage to inspect it. Partial temp files are deleted; a completed user-requested download is retained.
 
-## Release procedure
+## Qualified updater promotion
+
+EnCap 2.0.5 uses a manual-download release path described in the
+[release notes](releases/2.0.5.md). The tagged workflow does not run the
+qualification steps below or publish signed updater metadata. These steps
+remain the evidence requirements for a future authenticated updater release.
 
 1. Change the workspace Cargo version once. Tag must equal `v` plus that stable SemVer. `script/update_config.py` writes package identity, macOS bundle versions and generated Windows properties. Linux Meson reads that version. No development/nightly source enters stable promotion.
 2. Build native packages using `build-platforms.yml`; test the shared protocol using `updater-contract.yml`. The macOS packaging script supplies authoritative Xcode version overrides; direct Xcode builds must set ENCAP_VERSION from Cargo. Local Windows builds first run `python script/update_config.py --props build/version.props`.
 3. Run manual `sign-windows.yml`, `verify-linux.yml`, and `verify-macos.yml` gates. Developer ID/notary execution remains on the release Mac. Record final artifact identities, authenticated derivative runtime hashes and native evidence.
 4. Populate `runtime/application-qualification.json` only with real evidence. `application_release.py` requires the entire six-target EnCAP matrix, authenticates workflow/artifact origins and rejects missing native launch, media, lifecycle, Windows/macOS signing or Linux provenance, authenticated upgrade and manual acceptance evidence.
 5. Populate `runtime/updater-qualification.json` using actual older-build reports under `docs/updates`, including old package hash/trust configuration, final new package hash, host/time/reviewer and every native upgrade/failure case. Every entry is intentionally `not_run` now. Do not invent evidence or use the new manifest's key as an independent baseline.
-6. The existing release job runs on macOS for upstream Sparkle signing and stages those exact qualified artifacts. The shared generator checks packaged identity/version/key and artifact bytes, creates both modern and bridge metadata, and signs it. `tlo-qualify` exercises older trust configurations before publication.
+6. For an authenticated updater release, stage those exact qualified artifacts. The shared generator checks packaged identity/version/key and artifact bytes, creates both modern and bridge metadata, and signs it. `tlo-qualify` exercises older trust configurations before publication.
 7. Attest final packages/metadata. Refuse existing release identities and asset clobber. Upload to a draft, re-download, verify signatures/hashes/identity/attestations, then mark stable/latest. Re-download after publication and probe the actual latest static endpoint. Publication is not reversible; a failed postpublication probe requires investigation and stopping further rollout. Do not mark qualification passed automatically from this probe.
 
 `encap-release` is a compatibility CLI delegating to the shared Python generator. Activate a Python environment containing `script/update-tool-dependencies.txt` first. The obsolete independent Rust wire-format generator is removed. No production release was created by this implementation.
