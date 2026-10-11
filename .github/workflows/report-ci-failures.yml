@@ -1,0 +1,36 @@
+name: Report CI/CD failures
+
+on:
+  workflow_run:
+    workflows:
+      - Build platform applications
+      - Authenticated updater contract
+      - Sign Windows portable packages with Azure
+      - Verify and attest native Linux AppImages
+      - Verify locally notarized Mac qualification packages
+      - CodeQL
+      - Retry failed verification workflows
+    types: [completed]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  security-events: read
+
+jobs:
+  update-report:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out report updater
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Update the consolidated failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 script/report_ci_failures.py

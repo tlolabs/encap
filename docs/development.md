@@ -11,8 +11,8 @@ git config --local tag.gpgsign false
 ```
 
 Do not pass `git commit -S`. A DCO `Signed-off-by:` trailer added with
-`git commit -s` is plain commit-message text and remains required wherever the
-contribution policy calls for it.
+`git commit -s` is plain commit-message text and remains a development
+convention, but is not enforced as a blocking requirement.
 
 The unsigned-history migration preserves existing commit messages (including
 DCO trailers), authors, committers, timestamps, file trees, and merge topology.
@@ -322,13 +322,22 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. For 2.0.5, tagged CI builds and tests six
-packages from the tag, checks their packaged identities, writes checksums,
-attests the downloads and publishes a manual-download release. The application
+Do not commit signing credentials. For 2.0.5, tagged CI builds and tests
+six packages from the tag, checks their packaged identities, writes checksums,
+and publishes verified targets independently as manual downloads. The application
 and updater qualification ledgers do not gate this release. It does not generate
-authenticated update metadata. macOS notarization, Developer ID signing and
+authenticated update metadata. macOS notarization, Developer ID signing, and
 Windows Authenticode signing require external credentials and are not claimed
 for these packages.
+
+Each target package is published only after its build, package-integrity,
+dependency, and functional smoke checks pass. Failures remain diagnostic and
+do not block other targets. Direct downloads do not require code signing or
+notarization. Authenticated update feeds remain a separate security channel:
+their signed metadata, Sparkle archive/feed checks, Windows Authenticode checks,
+and updater integrity verification must remain in force. An unsigned package
+must not be placed on an authenticated update feed. See
+[`ci-cd-audit.md`](ci-cd-audit.md) for the nonblocking policy.
 
 ## Common media distribution gate
 

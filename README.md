@@ -49,8 +49,11 @@ Video's timing, encoder selection, and composition rules are documented in
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
 to install media tools. The 2.0.5 Mac downloads are ad-hoc signed and have not
-been notarized. The 2.0.5 Windows downloads are not Authenticode signed. See
-the [2.0.5 release notes](docs/releases/2.0.5.md) before installing.
+been notarized; its Windows downloads are not Authenticode signed. See the
+[2.0.5 release notes](docs/releases/2.0.5.md) before installing. New direct
+downloads may be unsigned after target-platform functional verification.
+Authenticated application updates remain separately signed and are not
+generated for unsigned packages.
 
 ## Features
 
@@ -143,12 +146,16 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.5` uses `v2.0.5`). The native workflow builds
-and tests all six platform packages from the tag. It verifies packaged identity,
-writes SHA-256 checksums, attests the files, and publishes them with their
-distribution limitations in the release notes. Version 2.0.5 is a manual-download
-release: it has no signed update metadata or macOS appcasts. Its Mac and Windows
-packages do not have public distribution signatures.
+version (for example, version `2.0.5` uses `v2.0.5`). Tagged CI builds
+and functionally verifies each target, then publishes each verified package
+independently to the GitHub release. A failure on one target does not hold
+back another target; failures remain visible in Actions and are eligible for
+bounded automatic retry. The 2.0.5 release is for manual downloads and has
+no signed update metadata or macOS appcasts. Direct downloads may be unsigned
+and unnotarized. They are not added to authenticated updater feeds: Sparkle
+signatures, signed update manifests, and Windows Authenticode checks remain
+enforced. Optional platform signing can be enabled when credentials are
+available. See [`docs/ci-cd-audit.md`](docs/ci-cd-audit.md) for the policy.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for
