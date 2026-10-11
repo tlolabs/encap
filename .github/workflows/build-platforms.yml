@@ -54,11 +54,15 @@ jobs:
         run: cargo build --package encap-engine --locked
 
   macos:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && (inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos') }}
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos'
     defaults:
       run:
         working-directory: EnCAP
     name: macOS ${{ matrix.label }}
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +120,13 @@ jobs:
           dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
           if otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'; then exit 1; fi
           codesign --verify --deep --strict dist/EnCap.app
+      - name: Verify packaged application launch
+        run: python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -148,6 +159,10 @@ jobs:
       run:
         working-directory: EnCAP
     name: Windows ${{ matrix.label }}
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -304,9 +319,20 @@ jobs:
           $managed = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) })
           ConvertTo-Json -InputObject $managed | Set-Content -Encoding utf8 "$stage/portable-package-files.json"
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
+      - name: Verify portable package integrity
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem dist/release -Filter "EnCap-*-windows-${{ matrix.label }}.zip"
+          if (!$package) { throw 'Portable package is missing' }
+          python -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); bad=z.testzip(); assert bad is None, f'Corrupt ZIP member: {bad}'; assert z.namelist()" $package.FullName
       - name: Verify packaged runtime discovery and rejection
         shell: bash
         run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/dist/release/EnCap-*-windows-${{ matrix.label }}.zip
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -320,6 +346,10 @@ jobs:
       run:
         working-directory: EnCAP
     name: Linux ${{ matrix.label }}
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -393,6 +423,11 @@ jobs:
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           bash script/package_appimage.sh "$(uname -m)" "$prefix" "$version"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 script/test_native_startup.py "dist/release/EnCap-$version-linux-${{ matrix.label }}.AppImage"
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/dist/release/EnCap-*-linux-${{ matrix.label }}.AppImage
       - name: Verify Linux cloning and mode-switch latency on Btrfs
         run: |
           image="$RUNNER_TEMP/encap-save-test.btrfs"
@@ -447,71 +482,28 @@ jobs:
       run:
         working-directory: EnCAP
     name: Publish GitHub release
-    needs: [quality, windows, linux]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [quality, macos, windows, linux]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: macos-15
     permissions:
       contents: write
       actions: read
-      attestations: write
-      id-token: write
     steps:
-      - name: Check out repository
+      - name: Check out release publisher
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
           path: EnCAP
-      - name: Install update metadata tools
-        run: |
-          brew install squashfs
-          python3 -m venv build/release-tools
-          build/release-tools/bin/pip install -r script/update-tool-dependencies.txt
-      - name: Verify matching annotated stable release tag
-        run: bash script/verify_release_tag.sh
-      - name: Require exact authenticated and qualified final packages
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 script/application_release.py --output release-assets
-      - name: Generate and verify signed stable update metadata
-        env:
-          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
-        run: |
-          set -euo pipefail
-          version="$(python3 script/update_config.py --version)"
-          test "$GITHUB_REF_NAME" = "v$version"
-          build/release-tools/bin/python script/tlo_update_release.py --assets release-assets --version "$version" --tag "$GITHUB_REF_NAME"
-          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets release-assets
-          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets release-assets --verify
-          build/release-tools/bin/python script/tlo_update_release.py --assets release-assets --verify
-          build/release-tools/bin/python script/qualify_updates.py --assets release-assets
-      - name: Attest authenticated final packages and metadata
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+      - name: Download artifacts from successful platform jobs
+        id: artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
         with:
-          subject-path: EnCAP/release-assets/*
-      - name: Publish once and verify actual GitHub downloads
+          pattern: EnCap-*
+          path: EnCAP/release-inputs
+          merge-multiple: true
+          if-no-artifact-found: warn
+      - name: Publish each verified platform package independently
         env:
           GH_TOKEN: ${{ github.token }}
-          ENCAP_UPDATE_PRIVATE_KEY: ${{ secrets.ENCAP_UPDATE_PRIVATE_KEY }}
-          ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
         run: |
-          set -euo pipefail
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo 'Release already exists; refusing replacement of published bytes.' >&2
-            exit 1
-          fi
-          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" release-assets/*
-          gh release download "$GITHUB_REF_NAME" --dir verified-downloads
-          build/release-tools/bin/python script/tlo_update_release.py --assets verified-downloads --verify
-          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets verified-downloads --verify
-          (cd verified-downloads && shasum -a 256 --check SHA256SUMS)
-          for asset in verified-downloads/*; do
-            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/build-platforms.yml" --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" --deny-self-hosted-runners >/dev/null
-          done
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=true
-          gh release download "$GITHUB_REF_NAME" --dir published-downloads
-          build/release-tools/bin/python script/tlo_update_release.py --assets published-downloads --verify
-          build/release-tools/bin/python script/sign_sparkle_feeds.py --assets published-downloads --verify
-          build/release-tools/bin/python script/qualify_updates.py --assets published-downloads --published
+          python3 EnCAP/script/publish_verified_artifacts.py "$GITHUB_REF_NAME" EnCAP/release-inputs

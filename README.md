@@ -48,8 +48,10 @@ Video's timing, encoder selection, and composition rules are documented in
 | Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. Starting with 2.0.3, release downloads for both Mac
-architectures are Developer ID signed and notarized by Apple.
+to install media tools. New direct-download packages are published unsigned by
+default and tested on their target platform. Legacy releases may have different
+signing/notarization status. Authenticated application updates remain separately
+signed and are not generated for unsigned packages.
 
 ## Features
 
@@ -142,16 +144,17 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.0` uses `v2.0.0`). The native workflow builds
-and tests platform packages. Before tagging, upload Developer ID-signed and
-notarized Mac Intel/ARM64 downloads named `EnCap-<version>-macos-<arch>-signed.zip`
-to the draft release, and commit their final checksums in
-`runtime/releases/<version>-macos.sha256`. Tagged runs build and test Windows
-x64/ARM64 and Linux x64/ARM64, verify the approved Mac downloads against those
-checksums, then publish all six packages and signed update metadata.
-macOS uses Sparkle with architecture-specific appcasts. Developer ID,
-notarization, and the private update-signing key remain credential-gated release
-steps and are never stored in the repository.
+version (for example, version `2.0.0` uses `v2.0.0`). Tagged CI builds and
+functionally verifies each platform independently, then publishes each verified
+package to the existing GitHub release. A failure on one target does not hold
+back another target. Failed builds remain visible in Actions and are eligible
+for a bounded automatic retry.
+
+Direct downloads may be unsigned and unnotarized. They are not added to the
+authenticated updater feeds: Sparkle signatures, signed update manifests, and
+Windows Authenticode checks remain enforced. Optional platform signing can be
+enabled separately when credentials are available. See
+[`docs/ci-cd-audit.md`](docs/ci-cd-audit.md) for the repository policy.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for

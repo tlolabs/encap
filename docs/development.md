@@ -11,8 +11,8 @@ git config --local tag.gpgsign false
 ```
 
 Do not pass `git commit -S`. A DCO `Signed-off-by:` trailer added with
-`git commit -s` is plain commit-message text and remains required wherever the
-contribution policy calls for it.
+`git commit -s` is plain commit-message text and remains a development
+convention, but is not enforced as a blocking requirement.
 
 The unsigned-history migration preserves existing commit messages (including
 DCO trailers), authors, committers, timestamps, file trees, and merge topology.
@@ -322,11 +322,17 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Tagged CI requires the approved six-target qualification ledgers and verified
-packages, then generates authenticated update metadata using the build scripts
-and update private key from repository secrets. macOS notarization and
-Developer ID signing require external credentials and are intentionally outside
-an uncredentialed local build.
+Do not commit signing credentials. Tagged CI publishes each target package
+independently after the target's build, package-integrity, dependency, and
+functional smoke checks pass. Failures remain diagnostic and do not block other
+targets. Direct downloads do not require code signing or notarization.
+
+Authenticated update feeds remain a separate security channel. Their signed
+metadata, Sparkle archive/feed checks, Windows Authenticode checks, and updater
+integrity verification must not be disabled. An unsigned package is not placed
+on an authenticated update feed. Missing signing credentials therefore affect
+that update channel only, not development or direct downloads. See
+[`ci-cd-audit.md`](ci-cd-audit.md) for the authoritative nonblocking policy.
 
 ## Common media distribution gate
 

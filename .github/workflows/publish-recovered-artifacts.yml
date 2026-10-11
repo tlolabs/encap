@@ -1,0 +1,38 @@
+name: Publish recovered platform artifacts
+
+on:
+  workflow_run:
+    workflows: [Build platform applications]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.run_attempt > 1 &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the exact verified source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Download verified artifacts from the completed build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: EnCap-*
+          path: release-inputs
+          merge-multiple: true
+          if-no-artifact-found: warn
+      - name: Publish missing verified packages without replacing existing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: python3 script/publish_verified_artifacts.py "$RELEASE_TAG" release-inputs
