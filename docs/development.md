@@ -14,25 +14,14 @@ Do not pass `git commit -S`. A DCO `Signed-off-by:` trailer added with
 `git commit -s` is plain commit-message text and remains a development
 convention, but is not enforced as a blocking requirement.
 
-The unsigned-history migration preserves existing commit messages (including
-DCO trailers), authors, committers, timestamps, file trees, and merge topology.
-Removing signatures changes commit IDs and descendant IDs; local branches and
-tags now point to the equivalent unsigned history. Original signed objects and
-an old-to-new commit map are retained locally under
-`.git/unsigned-history-backups/` in a verified Git bundle and JSON files.
-The backup is local and is not included in a clone.
-
-If a published branch still contains signed commits, first preserve a verified
-backup and old-to-new commit map. Recreate those commits without signatures while
-preserving their messages, DCO trailers, authors, dates, file trees and topology;
-then update that branch using `git push --force-with-lease`. Update affected tags
-only after checking their targets. Existing clones must realign with the new
-commit IDs; avoid merging the old signed history back into rewritten branches.
+The earlier unsigned-history migration is historical. Preserve existing
+published history and tags; do not rewrite branches or force-push to remove
+old signatures. New commits may be unsigned.
 
 Release tags are annotated and must match the Cargo version and checked-out
-commit; they do not need a Git signature. Application code signing,
-notarization, authenticated update metadata, and upstream source verification
-retain their separate requirements.
+commit; they do not need a Git signature. Application signing and notarization
+are optional for direct downloads. Authenticated update metadata and upstream
+source verification retain their security checks.
 
 ## Workspace ownership
 
@@ -117,7 +106,7 @@ Rosetta. Physical Intel hardware testing remains a separate validation step.
 WhisperKit is Apple-silicon-only; Intel packages retain whisper.cpp and the
 Apple Speech helper.
 
-Sign the tested Intel bundle and notarize using a saved Keychain profile:
+To optionally sign and notarize the tested Intel bundle, use a saved Keychain profile:
 
 ```bash
 ENCAP_APP_BUNDLE="$PWD/dist/intel/EnCap.app" \
@@ -138,7 +127,7 @@ Windows needs the Visual Studio C++ workload and Windows SDK for the SMTC adapte
 Linux needs CMake, a C compiler, GLib/GIO and the X11/fontconfig runtime libraries.
 GTK, GStreamer, WinUI and Meson are no longer application dependencies.
 
-Run the shared tests and dependency gate:
+Run the shared tests and dependency checks:
 
 ```sh
 dotnet run --project desktop/EnCap.Tests -- tests/fixtures/chapter-times.tsv
@@ -339,7 +328,7 @@ and updater integrity verification must remain in force. An unsigned package
 must not be placed on an authenticated update feed. See
 [`ci-cd-audit.md`](ci-cd-audit.md) for the nonblocking policy.
 
-## Common media distribution gate
+## Common media distribution checks
 
 AVID Core owns FFmpeg/ffprobe source selection, codec dependencies, compilation,
 validation and runtime releases. EnCAP pins the published Core runtime, verifies
