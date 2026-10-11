@@ -18,6 +18,7 @@ on:
 permissions:
   actions: read
   contents: read
+  pull-requests: read
   issues: write
   security-events: read
 

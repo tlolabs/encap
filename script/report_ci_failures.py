@@ -36,13 +36,28 @@ def fetch_json(path):
 
 
 def current_run_failures():
+    repo = os.environ["GITHUB_REPOSITORY"]
+    try:
+        live_refs = {
+            item["name"]
+            for kind in ("branches", "tags")
+            for item in fetch_json(f"repos/{repo}/{kind}?per_page=100")
+        }
+        live_refs.update(
+            item["head"]["ref"]
+            for item in fetch_json(f"repos/{repo}/pulls?state=open&per_page=100")
+        )
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        live_refs = None
     runs = gh(
         "run", "list", "--limit", "100",
-        "--json", "databaseId,workflowName,status,conclusion,createdAt,headBranch,headSha,url",
+        "--json", "databaseId,workflowName,status,conclusion,createdAt,headBranch,headSha,url,event",
     )
     grouped = {}
     for run in json.loads(runs.stdout):
-        if run["workflowName"] not in MONITORED_WORKFLOWS or run["status"] != "completed":
+        if run["workflowName"] not in MONITORED_WORKFLOWS:
+            continue
+        if live_refs is not None and run["headBranch"] not in live_refs:
             continue
         key = (run["workflowName"], run["headBranch"])
         if key not in grouped or run["createdAt"] > grouped[key]["createdAt"]:
@@ -50,9 +65,9 @@ def current_run_failures():
 
     failures = []
     for (workflow, branch), run in sorted(grouped.items()):
-        if run["conclusion"] in ("success", "skipped"):
+        if run["status"] != "completed" or run["conclusion"] in ("success", "skipped", "cancelled"):
             continue
-        if run["conclusion"] not in ("failure", "timed_out", "cancelled", "action_required", "startup_failure"):
+        if run["conclusion"] not in ("failure", "timed_out", "action_required", "startup_failure"):
             continue
         try:
             details = json.loads(gh("run", "view", str(run["databaseId"]), "--json", "jobs").stdout)
