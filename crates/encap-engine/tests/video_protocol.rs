@@ -140,8 +140,9 @@ fn audio_and_transcript_signals_cancel_shared_pair_validation() {
         fs::write(&source, b"source audio").unwrap();
         let payload = root.path().join("payload.json");
         fs::write(&payload, serde_json::to_vec(&json!({
+            "metadata": {"podcast_title": "Show", "episode_title": "Episode"},
             "audio_sources": [{"source_path": source, "duration_seconds": 1.0}],
-            "chapters": [{"id":"one", "chapter_number":1, "start_time_seconds":0.0, "duration_seconds":1.0}]
+            "chapters": [{"id":"one", "chapter_number":1, "title":"Intro", "start_time_seconds":0.0, "duration_seconds":1.0}]
         })).unwrap()).unwrap();
         let output = root.path().join("out.mp3");
         fs::write(&output, b"old output").unwrap();

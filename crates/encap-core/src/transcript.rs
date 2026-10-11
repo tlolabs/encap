@@ -37,7 +37,12 @@ pub fn render_srt(segments: &[TranscriptSegment]) -> String {
 }
 
 fn format_time(seconds: f64) -> String {
-    let millis = (seconds.max(0.0) * 1000.0).round() as u64;
+    let valid = if seconds.is_finite() {
+        seconds.max(0.0)
+    } else {
+        0.0
+    };
+    let millis = (valid * 1000.0).round() as u64;
     format!(
         "{:02}:{:02}:{:02},{:03}",
         millis / 3_600_000,

@@ -199,6 +199,11 @@ fn run(
             format,
         } => {
             let project = read_payload(&payload)?;
+            if project.transcript_segments.is_empty() {
+                return Err(EncapError::Message(
+                    "There is no transcript available to export.".into(),
+                ));
+            }
             let content = match format {
                 TranscriptFormat::Txt => {
                     encap_core::render_transcript_text(&project.transcript_segments)

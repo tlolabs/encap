@@ -137,6 +137,10 @@ pub fn ffmetadata(project: &ProjectDocument) -> String {
         escape(&project.metadata.podcast_title)
     ));
     output.push_str(&format!(
+        "artist={}\n",
+        escape(&project.metadata.podcast_title)
+    ));
+    output.push_str(&format!(
         "title={}\n",
         escape(&project.metadata.episode_title)
     ));
@@ -158,6 +162,12 @@ pub fn ffmetadata(project: &ProjectDocument) -> String {
 
 fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> {
     project.validate()?;
+    if project.metadata.podcast_title.trim().is_empty() {
+        return Err(EncapError::Message("Podcast title is required.".into()));
+    }
+    if project.metadata.episode_title.trim().is_empty() {
+        return Err(EncapError::Message("Episode title is required.".into()));
+    }
     if project.audio_sources.is_empty() {
         return Err(EncapError::Message("Import audio before exporting.".into()));
     }
@@ -165,6 +175,19 @@ fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> 
         return Err(EncapError::Message(
             "At least one chapter is required.".into(),
         ));
+    }
+    for chapter in &project.chapters {
+        if chapter.title.trim().is_empty() {
+            return Err(EncapError::Message(
+                "Every chapter must have a title.".into(),
+            ));
+        }
+        if !chapter.link_url.trim().is_empty() && !chapter.link_url.contains("://") {
+            return Err(EncapError::Message(format!(
+                "Chapter link must be a full URL: {}",
+                chapter.link_url
+            )));
+        }
     }
     if project
         .chapters
@@ -251,6 +274,7 @@ mod tests {
     fn metadata_contains_chapters() {
         let project = ProjectDocument {
             metadata: EpisodeMetadata {
+                podcast_title: "Show".into(),
                 episode_title: "A=B".into(),
                 ..Default::default()
             },
@@ -268,6 +292,8 @@ mod tests {
             ..Default::default()
         };
         let metadata = ffmetadata(&project);
+        assert!(metadata.contains("album=Show"));
+        assert!(metadata.contains("artist=Show"));
         assert!(metadata.contains("title=A\\=B"));
         assert!(metadata.contains("START=0\nEND=3000"));
     }
