@@ -24,4 +24,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-        run: gh run rerun "$RUN_ID" --failed
+          REPO: ${{ github.repository }}
+        run: gh run rerun "$RUN_ID" --failed --repo "$REPO"
