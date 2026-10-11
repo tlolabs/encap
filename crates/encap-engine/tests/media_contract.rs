@@ -213,7 +213,16 @@ fn whole_engine_media_persistence_recovery_and_reference_contract() {
     }
     let mut project = h.engine(&[s("inspect"), audio.as_os_str()], true);
     project["metadata"]["artwork_path"] = json!(main);
+    project["metadata"]["podcast_title"] = json!("Contract Show");
     project["metadata"]["episode_title"] = json!("Contract");
+    for (index, chapter) in project["chapters"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        chapter["title"] = json!(format!("Chapter {}", index + 1));
+    }
     project["chapters"][1]["image_path"] = json!(art);
     project["transcript_segments"] = json!([{"id":"s", "start_time_seconds":0.0,"end_time_seconds":0.5,"text":"Hello world","speaker":"Host"}]);
     let ids = vec![
