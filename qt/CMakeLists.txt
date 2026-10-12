@@ -26,6 +26,9 @@ add_executable(EnCap WIN32 MACOSX_BUNDLE
     assets.qrc
     ${ENCAP_WINDOWS_RESOURCES}
 )
+if(WIN32)
+    target_link_options(EnCap PRIVATE "/MANIFEST:EMBED" "/MANIFESTINPUT:${ENCAP_WINDOWS_MANIFEST}")
+endif()
 target_link_libraries(EnCap PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets encap-playback)
 if(TARGET encap-media)
     target_link_libraries(EnCap PRIVATE encap-media)
