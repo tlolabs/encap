@@ -123,8 +123,14 @@ def build(args):
     suffix = '.exe' if host == 'win' else ''
     test_tools = build_dir / ('Release' if host == 'win' else '')
     copy_required(tools / ('encap-engine' + suffix), test_tools / ('encap-engine' + suffix))
+    if host == 'win':
+        for name in ('encap-playback', 'encap-media'):
+            copy_required(build_dir / 'native/Release' / (name + '.dll'), test_tools / (name + '.dll'))
     environment = os.environ.copy()
     environment['ENCAP_TEST_ENGINE'] = str(tools / ('encap-engine' + suffix))
+    if host == 'win' and args.qt_prefix:
+        environment['PATH'] = str(test_tools) + os.pathsep + str(args.qt_prefix / 'bin') + os.pathsep + environment['PATH']
+        environment['QT_PLUGIN_PATH'] = str(args.qt_prefix / 'plugins')
     run('ctest', '--test-dir', build_dir, '-C', 'Release', '--output-on-failure', env=environment)
 
     if reference:
