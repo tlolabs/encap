@@ -6,23 +6,35 @@ compilation, media validation, repeat-build checks, runtime packaging and licens
 EnCAP's former FFmpeg source builder and dependency recipe have been removed.
 
 Cargo pins Core 0.3.0 at `25d19098a22936638b0e2a70616083d929fe409c`.
-`runtime/core-runtime.json` pins the published Core release
-[`ffmpeg-9.0.1-r7.1`](https://github.com/tlolabs/avid-core/releases/tag/ffmpeg-9.0.1-r7.1),
-its promotion revision `2e137df692aa612e0dd62ebd93b5fff26c61663a`, authenticated
-manifest digest, and six runtime and corresponding-source archive hashes.
-The binaries come from Core run `36681249099`; EnCAP downloads the durable release
-assets rather than that run's expiring candidate artifacts.
+The default `runtime/platform-runtimes.json` pins one immutable, attested AVID Core
+release per target from build run `38185320964`. Each record fixes its release
+tag, publisher and build source commits, GitHub asset IDs and sizes, runtime and
+source archive SHA-256 digests, executable hashes, and native target. EnCAP
+downloads only the record for the requested target. Newer Core releases or
+failures on other targets do not change that selection.
 
-`script/prepare_ffmpeg.sh <platform> <architecture>` delegates acquisition to
-Core's unchanged verifier in `script/core_runtime.py`, pinned by
-`runtime/core-acquirer.json`. It authenticates the release manifest with GitHub
-attestations, checks archive hashes, architecture and Core evidence, then extracts
-the pair under `build/core-acquisition/ffmpeg-9.0.1-r7.1/<target>`.
+`runtime/core-runtime.json` remains the explicit compatibility pin for the
+authenticated six-target [`ffmpeg-9.0.1-r7.1`](https://github.com/tlolabs/avid-core/releases/tag/ffmpeg-9.0.1-r7.1)
+release. Set `ENCAP_CORE_RUNTIME_SOURCE=legacy` to use it for a build. There is
+no automatic fallback from a missing or invalid platform release. Normal
+platform acquisition makes no request to the legacy release and does not wait
+for its six-target manifest.
+
+`script/prepare_ffmpeg.sh <platform> <architecture>` selects the target's pin.
+`script/platform_runtime.py` verifies the immutable GitHub Release and tag,
+the exact `platform-release.json` bytes, its GitHub attestation from AVID Core's
+`platform-publisher.yml` on `main`, the publisher source commit, build origin,
+target, archive and source hashes, and executable architecture before accepting
+the pair. The attested manifest is checked before executable bytes are fetched.
+The unchanged shared archive verifier in `script/core_runtime.py` is pinned by
+`runtime/core-acquirer.json` and checks the extracted runtime's own evidence.
+The selected release tag appears in the build cache and verification receipt.
 Python 3.12+ and authenticated GitHub CLI are build tools only.
-`ENCAP_FFMPEG_RUNTIME` may select an identical extracted release with its original
-archives, manifest and verification receipt alongside it. Cached acquisitions
-are reverified. Candidate-only caches from older builds cannot substitute for a
-release; leave the override unset to acquire the published runtime automatically.
+`ENCAP_FFMPEG_RUNTIME` may select only an extracted runtime matching the
+explicitly selected source, with its original archives, manifest and receipt
+alongside it. Cached platform acquisitions recheck the release, attestation,
+archive, source and extracted bytes. Candidate-only caches and system binaries
+cannot substitute for a published release.
 There is no application-owned source build or system-tool fallback.
 
 EnCAP packages and tests the runtime in the actual application. Core's native
@@ -35,7 +47,8 @@ original complete directory to `avid_core::MediaTools::from_core_directory`.
 EnCAP preserves Core's manifest and evidence unchanged, includes the corresponding
 source archive, and records the app/Core identity. Platform signing changes binary
 bytes, so `signed-payload.json` binds both original and signed binary hashes.
-Production discovery verifies the exact pinned Core manifest, every metadata file,
+Production discovery recognizes only the exact target-specific or explicit
+legacy archive pin and verifies the Core checksum manifest, every metadata file,
 source archive and signed executable, then lets Core validate and execute the pair.
 Release builds ignore PATH and environment tool overrides. Debug fixture overrides
 require both absolute tool paths.

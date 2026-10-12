@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acquire and package checksum-pinned AVID Core runtimes; never compile FFmpeg."""
+"""Acquire attested AVID Core runtimes and package the exact verified pair."""
 import argparse
 import hashlib
 import json
@@ -11,6 +11,40 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = json.loads((ROOT / 'runtime/core-runtime.json').read_text())
+
+
+def platform_plan(target):
+    from platform_runtime import plan_for
+    return plan_for(target)
+
+
+def runtime_source():
+    source = os.environ.get('ENCAP_CORE_RUNTIME_SOURCE', 'platform')
+    if source not in ('platform', 'legacy'):
+        raise ValueError('Unknown AVID Core runtime source')
+    return source
+
+
+def selected_plan(target, runtime=None, signed=None):
+    """Identify a package only by its exact target-scoped or legacy pin."""
+    target = target_id(target)
+    platform = platform_plan(target)
+    current, legacy = platform['targets'][target], PIN['targets'][target]
+    if signed is not None:
+        archive_hash = signed['original_runtime_archive_sha256']
+        if archive_hash == current['sha256']:
+            return platform
+        if archive_hash == legacy['sha256']:
+            return PIN
+        raise ValueError('Packaged runtime archive is not pinned for this target')
+    if runtime is not None:
+        checksum_hash = digest(Path(runtime) / 'SHA256SUMS')
+        if checksum_hash == current['checksums_sha256']:
+            return platform
+        if checksum_hash == legacy['checksums_sha256']:
+            return PIN
+        raise ValueError('Runtime checksum manifest is not pinned for this target')
+    return PIN if runtime_source() == 'legacy' else platform
 
 
 def digest(path):
@@ -35,37 +69,55 @@ def pair(target):
 
 def checked_files(metadata, target):
     from core_runtime import checked_files as core_checked_files
-    return core_checked_files(metadata, PIN['targets'][target])
+    plan = selected_plan(target, runtime=metadata)
+    return core_checked_files(metadata, plan['targets'][target])
 
 
 def verify(runtime, target, binary=None, signed=False):
-    from core_runtime import verify_directory
+    from core_runtime import verify_directory, verify_receipt
     target = target_id(target)
     derivative = json.loads((runtime / 'signed-payload.json').read_text()) if signed else None
-    info = verify_directory(PIN, target, runtime, binary=binary, signed=derivative)
-    source = runtime / 'corresponding-source.tar.gz' if signed else runtime.parent / PIN['targets'][target]['source_archive']
-    if digest(source) != PIN['targets'][target]['source_sha256']:
+    plan = selected_plan(target, runtime=runtime, signed=derivative)
+    info = verify_directory(plan, target, runtime, binary=binary, signed=derivative)
+    source = runtime / 'corresponding-source.tar.gz' if signed else runtime.parent / plan['targets'][target]['source_archive']
+    if digest(source) != plan['targets'][target]['source_sha256']:
         raise ValueError('Core corresponding source mismatch')
+    if not signed:
+        if plan is PIN:
+            verify_receipt(PIN, target, runtime)
+        else:
+            from platform_runtime import verify_cached
+            verify_cached(target, runtime.parent)
     return info
 
 
 def provision(target):
     from core_runtime import release, require, verify_receipt
+    from platform_runtime import acquire, record_for, verify_cached
     target = target_id(target)
     verifier = json.loads((ROOT / 'runtime/core-acquirer.json').read_text())
     require(digest(ROOT / 'script/core_runtime.py') == verifier['sha256'],
             'Shared Core verifier differs from its pin')
-    require(PIN.get('acquisition') == 'release' and not PIN.get('qualification_only'),
-            'EnCAP requires a published AVID Core runtime')
+    source = runtime_source()
+    plan = selected_plan(target)
+    if source == 'legacy':
+        print('Explicit AVID Core legacy fallback: ' + PIN['release_tag'], file=__import__('sys').stderr)
+        require(PIN.get('acquisition') == 'release' and not PIN.get('qualification_only'),
+                'Legacy AVID Core runtime is not a published release')
     selected = os.environ.get('ENCAP_FFMPEG_RUNTIME')
     if selected:
         runtime = Path(selected).resolve()
-        return verify_receipt(PIN, target, runtime)
-    destination = ROOT / 'build/core-acquisition' / PIN['release_tag'] / target
+        verify(runtime, target)
+        require(selected_plan(target, runtime=runtime)['targets'][target]['sha256']
+                == plan['targets'][target]['sha256'],
+                'Selected local runtime differs from explicitly requested source')
+        return runtime
+    tag = PIN['release_tag'] if source == 'legacy' else record_for(target)[0]['release_tag']
+    destination = ROOT / 'build/core-acquisition' / tag / target
     if destination.exists():
-        runtime = destination / PIN['targets'][target]['archive'].removesuffix('.tar.gz')
-        return verify_receipt(PIN, target, runtime)
-    return release(PIN, target, destination)
+        runtime = destination / plan['targets'][target]['archive'].removesuffix('.tar.gz')
+        return verify_receipt(PIN, target, runtime) if source == 'legacy' else verify_cached(target, destination)
+    return release(PIN, target, destination) if source == 'legacy' else acquire(target, destination)
 
 
 def core_identity():
@@ -89,6 +141,9 @@ def engine_identity(binary, target):
 def stage(target, runtime, binary):
     target = target_id(target)
     verify(runtime, target)
+    plan = selected_plan(target, runtime=runtime)
+    if plan['targets'][target]['sha256'] != selected_plan(target)['targets'][target]['sha256']:
+        raise ValueError('Runtime differs from explicitly requested source')
     engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
     subprocess.run([str(engine.resolve()), 'validate-core-runtime', str(runtime.resolve())], check=True, timeout=60)
     binary.mkdir(parents=True, exist_ok=True)
@@ -100,7 +155,7 @@ def stage(target, runtime, binary):
             shutil.copytree(item, destination)
         else:
             shutil.copy2(item, destination)
-    shutil.copy2(runtime.parent / PIN['targets'][target]['source_archive'], binary / 'corresponding-source.tar.gz')
+    shutil.copy2(runtime.parent / plan['targets'][target]['source_archive'], binary / 'corresponding-source.tar.gz')
     identity = engine_identity(binary, target)
     write_json(binary / 'encap-runtime.json', {'schema': 1, 'owner': 'AVID Core', **identity, 'target': target})
 
@@ -108,13 +163,14 @@ def stage(target, runtime, binary):
 def finish(target, binary, metadata):
     target = target_id(target)
     original = binary if (binary / 'SHA256SUMS').exists() else metadata
+    plan = selected_plan(target, runtime=original)
     files = checked_files(original, target)
     write_json(original / 'signed-payload.json', {'schema': 1, 'target': target,
                'original_binary_sha256': {name: files[name] for name in pair(target)},
                'signed_binary_sha256': {name: digest(binary / name) for name in pair(target)},
                'transformation': 'platform code signing or identity-preserving staging',
                'signing_identity': os.environ.get('APPLE_SIGN_IDENTITY') or os.environ.get('ENCAP_SIGN_IDENTITY') or os.environ.get('AZURE_SIGNING_ACCOUNT') or 'unconfigured',
-               'original_runtime_archive_sha256': PIN['targets'][target]['sha256']})
+               'original_runtime_archive_sha256': plan['targets'][target]['sha256']})
     if original.resolve() != metadata.resolve():
         metadata.mkdir(parents=True, exist_ok=True)
         names = {Path(name).parts[0] for name in files} - set(pair(target))
@@ -150,7 +206,8 @@ if __name__ == '__main__':
     if args.mode == 'provision':
         print(provision(args.target))
     elif args.mode == 'key':
-        print(PIN['targets'][target_id(args.target)]['sha256'])
+        target = target_id(args.target)
+        print(selected_plan(target)['targets'][target]['sha256'])
     elif args.binary is None:
         parser.error('--binary is required')
     elif args.mode == 'stage':

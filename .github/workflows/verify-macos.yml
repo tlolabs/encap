@@ -78,7 +78,7 @@ jobs:
           bash script/ffmpeg/qualify.sh final-native/extracted/EnCap.app/Contents/MacOS/encap-engine
           ENCAP_TEST_ENGINE="$PWD/final-native/extracted/EnCap.app/Contents/MacOS/encap-engine" ENCAP_REQUIRE_CLONING=1 cargo test --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
           python3 script/test_native_startup.py final-native/extracted/EnCap.app/Contents/MacOS/EnCap
-          python3 script/host_evidence.py --application encap --target '${{ matrix.target }}' --pin runtime/core-runtime.json --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg --packages final-native/*.zip --output final-native/host-${{ matrix.target }}.json
+          python3 script/host_evidence.py --application encap --target '${{ matrix.target }}' --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg --packages final-native/*.zip --output final-native/host-${{ matrix.target }}.json
           python3 -c 'import json,pathlib; p=pathlib.Path("final-native/host-${{ matrix.target }}.json"); d=json.loads(p.read_text()); d["checks"]["signing"]={"status":"passed","evidence":["signing.json; native strict Developer ID, stapled-ticket, Gatekeeper and original-code comparison"]}; p.write_text(json.dumps(d,indent=2)+"\n")'
           cp signing.json final-native/signing-${{ matrix.target }}.json
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6

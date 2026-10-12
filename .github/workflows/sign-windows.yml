@@ -47,7 +47,7 @@ jobs:
             $target = if ($_.Name -match 'arm64') { 'windows-arm64' } else { 'windows-x86_64' }
             $destination = Join-Path sign-stage $target
             Expand-Archive -LiteralPath $_.FullName -DestinationPath $destination
-            python -c "import sys,json;from pathlib import Path;sys.path.insert(0,'script');from core_runtime import verify_directory; p=json.load(open('runtime/core-runtime.json'));root=Path(sys.argv[1]);verify_directory(p,sys.argv[2],root/'ffmpeg-runtime',binary=root,signed=json.load(open(root/'ffmpeg-runtime/signed-payload.json')))" $destination $target
+            python -c "import sys;from pathlib import Path;sys.path.insert(0,'script');from ffmpeg_runtime import verify;root=Path(sys.argv[1]);verify(root/'ffmpeg-runtime',sys.argv[2],binary=root,signed=True)" $destination $target
             if ($LASTEXITCODE -ne 0) { throw 'Core input manifest/executable verification failed' }
           }
       - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f

@@ -1,5 +1,5 @@
 name: AVID Core FFmpeg runtime
-description: Acquire the matched runtime and corresponding source from the pinned published Core release
+description: Authenticate the pinned target-specific Core release and corresponding source
 inputs:
   platform:
     required: true

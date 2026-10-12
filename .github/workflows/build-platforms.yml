@@ -50,6 +50,7 @@ jobs:
           python3 script/test_runtime_ownership.py
           python3 script/check_desktop_dependencies.py
           python3 script/test_desktop_distribution.py
+          python3 script/test_platform_runtime.py
           python3 script/test_publish_verified_artifacts.py
       - name: Build native engine
         run: cargo build --package encap-engine --locked
