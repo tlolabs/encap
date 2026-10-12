@@ -43,6 +43,7 @@ def build(args):
         configure += ['-A', 'ARM64' if machine == 'arm64' else 'x64']
     run(*configure)
     run('cmake', '--build', native_build, '--config', 'Release')
+    run('ctest', '--test-dir', native_build, '-C', 'Release', '--output-on-failure')
     suffix = '.dll' if host == 'win' else '.dylib' if reference else '.so'
     for library in native_build.rglob('*' + suffix):
         if 'encap-' in library.name:
