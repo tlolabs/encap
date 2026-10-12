@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import publish_verified_artifacts as publisher
@@ -69,6 +70,20 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "wrong channel"):
             publisher.ensure_release("v2.0.5", SHA, False)
         run.assert_not_called()
+
+    @patch.object(publisher, "release_info", return_value={"isPrerelease": True, "assets": []})
+    @patch.object(publisher, "run")
+    def test_draft_development_release_creates_source_tag_first(self, run, _release_info):
+        run.side_effect = [SimpleNamespace(returncode=1, stdout=""),
+                           SimpleNamespace(returncode=0, stdout=""),
+                           SimpleNamespace(returncode=0, stdout=json.dumps({"object": {"sha": SHA}})),
+                           SimpleNamespace(returncode=0, stdout=json.dumps({"object": {"sha": SHA}}))]
+        tag = f"dev-v{VERSION}-{SHA}"
+        publisher.ensure_release(tag, SHA, True)
+        self.assertEqual(run.call_args_list[1].args[:4],
+                         ("gh", "api", "-X", "POST"))
+        self.assertIn(f"ref=refs/tags/{tag}", run.call_args_list[1].args)
+        self.assertIn(f"sha={SHA}", run.call_args_list[1].args)
 
     @patch.object(publisher, "same_remote_asset", return_value=False)
     def test_existing_asset_cannot_be_replaced(self, _same_remote):

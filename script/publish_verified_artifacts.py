@@ -108,9 +108,16 @@ def same_remote_asset(tag, filename, expected_hash):
 
 def ensure_release(tag, sha, prerelease):
     if prerelease:
-        tag_ref = run("gh", "api", f"repos/{REPOSITORY}/git/ref/tags/{tag}",
-                      check=False, capture=True)
-        if tag_ref.returncode == 0 and json.loads(tag_ref.stdout)["object"]["sha"] != sha:
+        tag_endpoint = f"repos/{REPOSITORY}/git/ref/tags/{tag}"
+        tag_ref = run("gh", "api", tag_endpoint, check=False, capture=True)
+        if tag_ref.returncode != 0:
+            # A draft release does not create its tag until publication. Create
+            # it first so concurrent platform publishers share one source ref.
+            run("gh", "api", "-X", "POST", f"repos/{REPOSITORY}/git/refs",
+                "-f", f"ref=refs/tags/{tag}", "-f", f"sha={sha}",
+                check=False, capture=True)
+            tag_ref = run("gh", "api", tag_endpoint, capture=True)
+        if json.loads(tag_ref.stdout)["object"]["sha"] != sha:
             raise RuntimeError(f"Development tag {tag} points to another revision")
     info = release_info(tag)
     if info is None:
