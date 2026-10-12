@@ -16,16 +16,18 @@ QJsonValue EngineClient::parseResponse(const QByteArray& output, QString* error)
     QJsonParseError parseError;
     const auto json = QJsonDocument::fromJson(output, &parseError);
     if (parseError.error != QJsonParseError::NoError || json.isNull()) {
-        *error = QStringLiteral("The EnCap engine returned invalid JSON: ") + parseError.errorString();
+        if (error) *error = QStringLiteral("The EnCap engine returned invalid JSON: ") + parseError.errorString();
         return {};
     }
     if (json.isObject()) {
         const auto object = json.object();
-        if (object.contains("error")) *error = object.value("error").toString();
+        if (object.contains("error")) {
+            if (error) *error = object.value("error").toString();
+        }
         return object;
     }
     if (json.isArray()) return json.array();
-    *error = QStringLiteral("The EnCap engine returned an unsupported response.");
+    if (error) *error = QStringLiteral("The EnCap engine returned an unsupported response.");
     return {};
 }
 
@@ -99,12 +101,14 @@ void EngineClient::runWithPayload(const QStringList& arguments, const QJsonValue
 }
 
 void EngineClient::cancel() {
-    if (!process_) return;
+    if (!process_ || process_->state() == QProcess::NotRunning) return;
+    const auto pid = process_->processId();
+    if (pid <= 0) return;
 #ifdef Q_OS_WIN
     // taskkill /T closes the complete engine/FFmpeg process tree on Windows.
-    QProcess::startDetached(QStringLiteral("taskkill"), {"/T", "/F", "/PID", QString::number(process_->processId())});
+    QProcess::startDetached(QStringLiteral("taskkill"), {"/T", "/F", "/PID", QString::number(pid)});
 #else
-    ::kill(static_cast<pid_t>(process_->processId()), SIGINT);
+    ::kill(static_cast<pid_t>(pid), SIGINT);
 #endif
 }
 

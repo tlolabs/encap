@@ -17,9 +17,14 @@ int main(int argc, char** argv) {
     error.clear();
     EngineClient::parseResponse("not json", &error);
     if (error.isEmpty()) return EXIT_FAILURE;
+    const auto nullErrVal = EngineClient::parseResponse("{\"path\":\"sample.encap\"}", nullptr);
+    if (nullErrVal.toObject().value("path") != "sample.encap") return EXIT_FAILURE;
+    const auto invalidNullErr = EngineClient::parseResponse("not json", nullptr);
+    if (!invalidNullErr.isNull()) return EXIT_FAILURE;
     const auto executable = qEnvironmentVariable("ENCAP_TEST_ENGINE");
     if (executable.isEmpty()) return EXIT_SUCCESS;
     EngineClient client(executable, QCoreApplication::applicationDirPath() + "/test-recovery.json");
+    client.cancel(); // Regress safe idle cancellation (must not signal process group)
     QEventLoop loop;
     QTimer timeout;
     timeout.setSingleShot(true);

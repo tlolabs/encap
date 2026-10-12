@@ -1,5 +1,7 @@
 # Shared Avalonia presentation migration
 
+**Historical audit:** This report documents the retired Avalonia/.NET implementation and is preserved for historical reference.
+
 Validation date: 2026-10-01. This report distinguishes implementation/build
 verification from production release qualification. No release or tag is created
 by this migration. The existing six-target application/update qualification

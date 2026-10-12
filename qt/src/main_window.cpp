@@ -207,6 +207,10 @@ QString MainWindow::preferencePath(const QString& name) const {
     return dataDirectory() + "/" + name;
 }
 QString MainWindow::enginePath() const {
+    const auto overrideEngine = qEnvironmentVariable("ENCAP_TEST_ENGINE");
+    if (!overrideEngine.isEmpty() && QFile::exists(overrideEngine)) {
+        return overrideEngine;
+    }
     return QCoreApplication::applicationDirPath() + "/encap-engine"
 #ifdef Q_OS_WIN
         ".exe"
@@ -214,6 +218,10 @@ QString MainWindow::enginePath() const {
         ;
 }
 QString MainWindow::updaterPath() const {
+    const auto overrideUpdater = qEnvironmentVariable("ENCAP_TEST_UPDATER");
+    if (!overrideUpdater.isEmpty() && QFile::exists(overrideUpdater)) {
+        return overrideUpdater;
+    }
     return QCoreApplication::applicationDirPath() + "/encap-update"
 #ifdef Q_OS_WIN
         ".exe"
@@ -532,8 +540,10 @@ void MainWindow::removeSources() {
 void MainWindow::saveProject(bool saveAs, std::function<void(bool)> completed) {
     if (!hasProject_ || busy_) { if (completed) completed(false); return; }
     QString path = saveAs ? QString{} : project_.value("project_path").toString();
+    const auto episodeTitle = project_.value("metadata").toObject().value("episode_title").toString().trimmed();
+    const auto defaultBase = episodeTitle.isEmpty() ? QStringLiteral("episode") : episodeTitle;
     if (path.isEmpty()) path = QFileDialog::getSaveFileName(this, "Save EnCap project",
-        project_.value("metadata").toObject().value("episode_title").toString() + ".encap", "EnCap projects (*.encap)");
+        defaultBase + ".encap", "EnCap projects (*.encap)");
     if (path.isEmpty()) { if (completed) completed(false); return; }
     auto onFailure = [completed] { if (completed) completed(false); };
     runEngine("Saving project…", {"save", "@payload", path}, [this, completed, onFailure](const QJsonValue& result) {
@@ -622,7 +632,8 @@ void MainWindow::removeChapter() {
     const int row = chapters_->currentRow();
     auto values = project_.value("chapters").toArray();
     if (row < 0 || row >= values.size()) return;
-    videoOrder_.removeAll(values[row].toObject().value("id").toString());
+    const auto removedId = values[row].toObject().value("id").toString();
+    videoOrder_.removeAll(removedId);
     values.removeAt(row);
     double start = 0;
     for (int i = 0; i < values.size(); ++i) {
@@ -632,6 +643,12 @@ void MainWindow::removeChapter() {
         values[i] = chapter;
     }
     project_.insert("chapters", values);
+    const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
+    QJsonArray cleanedSelected;
+    for (const auto& v : selected) {
+        if (v.toString() != removedId) cleanedSelected.append(v);
+    }
+    setField({"video", "export_settings", "selected_chapter_ids"}, cleanedSelected);
     refreshChapters();
     refreshVideo();
     markDirty();
@@ -673,8 +690,10 @@ void MainWindow::exportFile(const QString& kind) {
     }
     const QString extension = kind == "audio" ? (field({"export_settings", "output_format"}).toString() == "aac" ? "m4a" : "mp3")
         : kind == "video" ? "mp4" : kind;
+    const auto episodeTitle = field({"metadata", "episode_title"}).toString().trimmed();
+    const auto defaultBase = episodeTitle.isEmpty() ? QStringLiteral("episode") : episodeTitle;
     const auto path = QFileDialog::getSaveFileName(this, "Export " + kind,
-        field({"metadata", "episode_title"}).toString() + "." + extension,
+        defaultBase + "." + extension,
         QStringLiteral("%1 files (*.%2)").arg(extension.toUpper(), extension));
     if (path.isEmpty()) return;
     QStringList arguments;
@@ -774,7 +793,7 @@ void MainWindow::loadWaveformAt(const QJsonArray& paths, int row, int generation
     const auto path = paths[row].toObject().value("source_path").toString();
     waveformEngine_->run({"waveform", "--", path}, [this, paths, path, row, generation](const QJsonValue& result, const QString& error) {
         if (generation != waveformGeneration_) return;
-        if (!error.isEmpty()) { setStatus(error, true); return; }
+        if (!error.isEmpty()) { setStatus(error, true); loadWaveformAt(paths, row + 1, generation); return; }
         if (row < sources_->rowCount() && sources_->item(row, 0)->data(Qt::UserRole).toString() == path) {
             const auto peaks = result.toObject().value("peaks").toArray();
             QString bars;
@@ -792,6 +811,7 @@ void MainWindow::loadWaveformAt(const QJsonArray& paths, int row, int generation
 MainWindow::~MainWindow() {
     clock_.stop();
     updateTimer_.stop();
+    recoveryTimer_.stop();
     engine_->shutdown();
     previewEngine_->shutdown();
     waveformEngine_->shutdown();
@@ -1386,7 +1406,21 @@ void MainWindow::dropEvent(QDropEvent* event) {
         if (QFileInfo(path).isDir()) { importFolder(path); event->acceptProposedAction(); return; }
         if (isAudioFile(path)) audio.append(path);
     }
-    if (!audio.isEmpty()) { addFiles(audio); event->acceptProposedAction(); }
+    if (!audio.isEmpty()) {
+        if (!hasProject_) {
+            if (!confirmReplace()) return;
+            QStringList args = {"inspect-files"};
+            args.append(audio);
+            runEngine("Reading recordings…", args, [this](const QJsonValue& value) {
+                present(value.toObject(), true);
+                applyChapterNames();
+            });
+            event->acceptProposedAction();
+            return;
+        }
+        addFiles(audio);
+        event->acceptProposedAction();
+    }
 }
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     if (videoChapters_ && watched == videoChapters_->viewport() && event->type() == QEvent::Drop) {
