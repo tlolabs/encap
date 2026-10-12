@@ -198,11 +198,11 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Install Qt 6.11.2 Widgets for Windows x64
+      - name: Install Qt 6.10.3 Widgets for Windows x64
         shell: pwsh
         run: |
           python -m pip install aqtinstall==3.3.0
-          python -m aqt install-qt windows desktop 6.11.2 win64_msvc2022_64 --outputdir Qt
+          python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir Qt
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'x86_64-pc-windows-msvc'
@@ -270,7 +270,7 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
-          python script/build_qt.py --rid 'win-x64' --tools build/desktop-tools --qt-prefix 'Qt/6.11.2/msvc2022_64'
+          python script/build_qt.py --rid 'win-x64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
           python script/test_native_startup.py "$stage/EnCap.exe"
@@ -340,11 +340,11 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Install Qt 6.11.2 Widgets for Windows ARM64
+      - name: Install Qt 6.10.3 Widgets for Windows ARM64
         shell: pwsh
         run: |
           python -m pip install aqtinstall==3.3.0
-          python -m aqt install-qt windows_arm64 desktop 6.11.2 win64_msvc2022_arm64 --outputdir Qt
+          python -m aqt install-qt windows_arm64 desktop 6.10.3 win64_msvc2022_arm64 --outputdir Qt
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'aarch64-pc-windows-msvc'
@@ -412,7 +412,7 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
-          python script/build_qt.py --rid 'win-arm64' --tools build/desktop-tools --qt-prefix 'Qt/6.11.2/msvc2022_arm64'
+          python script/build_qt.py --rid 'win-arm64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_arm64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
           python script/test_native_startup.py "$stage/EnCap.exe"

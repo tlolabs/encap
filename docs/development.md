@@ -123,7 +123,7 @@ Gatekeeper acceptance, and recreates the ZIP containing the stapled app.
 ## Shared Windows/Linux and internal macOS frontend
 
 Use Qt 6.4+ Core, Gui and Widgets with CMake 3.20+ and a C++17 compiler.
-Windows CI installs Qt 6.11.2 for MSVC 2022; native Windows builds need the
+Windows CI installs Qt 6.10.3 for MSVC 2022; native Windows builds need the
 matching Visual Studio C++ workload and Windows SDK for SMTC. Linux needs
 GLib/GIO development files and the X11/fontconfig runtime libraries. The
 distributed package includes its required Qt libraries and plugins.

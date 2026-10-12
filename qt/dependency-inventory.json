@@ -1,6 +1,6 @@
 {
   "qt_version_minimum": "6.4",
-  "qt_ci_windows_version": "6.11.2",
+  "qt_ci_windows_version": "6.10.3",
   "qt_modules": ["Core", "Gui", "Widgets"],
   "qt_license_choice": "GPL-3.0-only",
   "qt_plugins_by_platform": {
