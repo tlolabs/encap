@@ -29204,6 +29204,7 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     int openMode;
     ma_snd_pcm_hw_params_t* pHWParams;
     ma_snd_pcm_sw_params_t* pSWParams;
+    ma_snd_pcm_uframes_t actualBufferSizeInFrames;
     ma_snd_pcm_uframes_t bufferBoundary;
     int pollDescriptorCount;
     struct pollfd* pPollDescriptors;
@@ -29393,7 +29394,6 @@ static ma_result ma_device_init_by_type__alsa(ma_device* pDevice, const ma_devic
     /* Buffer Size */
     {
         ma_uint64 calculatedBufferSizeInFrames = (ma_uint64)ma_calculate_buffer_size_in_frames_from_descriptor(pDescriptor, internalSampleRate, pConfig->performanceProfile) * internalPeriods;
-        ma_snd_pcm_uframes_t actualBufferSizeInFrames;
 
         if (calculatedBufferSizeInFrames > (ma_uint64)((ma_snd_pcm_uframes_t)~(ma_snd_pcm_uframes_t)0)) {
             ma_free(pHWParams, &pDevice->pContext->allocationCallbacks);

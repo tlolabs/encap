@@ -24,7 +24,7 @@ def check():
                 seen.add(key)
     assert seen == set(inventory), 'Remove obsolete dependency inventory entries'
     source = ROOT / 'desktop/vendor/miniaudio.h'
-    assert hashlib.sha256(source.read_bytes()).hexdigest() == '7852e150a86caa935605b37518526d1e4460a94466b2ca8f320d942ee3e4b433', 'miniaudio source changed'
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == 'e5cb323cec7932d068a225d7c84f8b895caa7027b6b052fe0085e825c323a730', 'miniaudio source changed'
     print(f'{len(seen)} locked NuGet packages and miniaudio match the reviewed inventory.')
 
 if __name__ == '__main__':
