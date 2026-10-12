@@ -271,6 +271,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
       - name: Assemble and verify portable package
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $stage = New-Item -ItemType Directory -Force build/desktop-tools
           Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
@@ -427,6 +429,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
       - name: Assemble and verify portable package
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $stage = New-Item -ItemType Directory -Force build/desktop-tools
           Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
@@ -541,6 +545,8 @@ jobs:
         continue-on-error: true
         run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
       - name: Build and assemble Avalonia AppImage
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           prefix="$PWD/build/desktop-tools"
           mkdir -p "$prefix/bin"
@@ -622,6 +628,8 @@ jobs:
         continue-on-error: true
         run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
       - name: Build and assemble Avalonia AppImage
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           prefix="$PWD/build/desktop-tools"
           mkdir -p "$prefix/bin"
