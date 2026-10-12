@@ -480,6 +480,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "encap-portable-update"
+version = "2.0.6"
+dependencies = [
+ "fs2",
+ "semver",
+ "serde_json",
+ "sha2",
+ "windows-sys 0.61.2",
+ "zip",
+]
+
+[[package]]
 name = "encap-release"
 version = "2.0.6"
 

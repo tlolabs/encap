@@ -335,23 +335,23 @@ https://github.com/sparkle-project/Sparkle
 The independent vendored `tlo-updater` component is GPL-3.0-or-later and has no AVID Core dependency. Its reviewed source digest is recorded in `runtime/updater-source.json`. It uses ring (ISC/MIT/OpenSSL), reqwest (MIT OR Apache-2.0), semver (MIT OR Apache-2.0), fs2 (MIT OR Apache-2.0), serde/serde_json (MIT OR Apache-2.0), base64 (MIT OR Apache-2.0), sha2 (MIT OR Apache-2.0), and tempfile (MIT OR Apache-2.0), with resolved versions in Cargo.lock. Sparkle retains its existing license and distribution notices. Python cryptography is build/release tooling, not a desktop runtime dependency.
 
 
-## Shared Avalonia desktop frontend
+## Shared Qt desktop frontend
 
-Windows/Linux and the internal Apple Silicon reference use Avalonia **12.1.3**
-(MIT), the self-contained .NET **10** runtime (MIT and its bundled third-party
-notices), SkiaSharp **3.119.4** (MIT, with Skia/dependency notices), HarfBuzzSharp
-**8.3.1.3** (MIT, with HarfBuzz notices), MicroCom.Runtime **0.11.6** (MIT), and
-Tmds.DBus.Protocol **0.94.1** (MIT). Avalonia's Windows ANGLE native package
-**2.1.27548.20260419** carries BSD-style and bundled third-party terms. These
-permissive notices are retained alongside this GPL-3.0-only application.
+Windows/Linux and the internal Apple Silicon reference link Qt 6 **Core, Gui,
+and Widgets** dynamically. Windows CI uses Qt **6.11.2**; other hosts record
+their installed Qt version at package qualification. The application chooses
+Qt's **GPL-3.0-only** option, compatible with EnCap's GPL-3.0-or-later source.
+Distributed Qt platform, style, image-format, and optional Linux integration
+plugins are inventoried in `qt/dependency-inventory.json`; each package is
+checked for its actual copied libraries and plugins before publication. No
+commercial Qt module or license is used.
 
-`desktop/licenses/inventory.json` lists all 27 direct/transitive/test NuGet
-packages with exact versions, registry content hashes and included notice files.
-`script/check_desktop_dependencies.py` rejects unreviewed changes. Those notices
-are copied into every shared desktop package; .NET's own runtime notices remain
-in the self-contained publish output. Avalonia.Headless is a test dependency.
-No commercial Avalonia components, subscription service or paid media player is
-used. Official framework license: <https://github.com/AvaloniaUI/Avalonia/blob/12.1.3/licence.md>.
+Qt and its deployed plugins retain their own copyright notices and source
+availability obligations. The exact Qt build and plugin provenance must travel
+with each verified package; see `docs/qt-licensing.md` for the corresponding
+source procedure and third-party plugin dependencies. Upstream source and
+license terms: <https://code.qt.io/cgit/qt/qtbase.git/> and
+<https://www.qt.io/licensing/open-source-lgpl-obligations>.
 
 The preview device adapter vendors miniaudio **0.11.23** from the upstream tag:
 <https://github.com/mackron/miniaudio/tree/0.11.23>. We select its MIT-0 option

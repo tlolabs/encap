@@ -12,16 +12,8 @@ dist/
 target/
 .DS_Store
 
-# Native .NET build outputs.
-windows/**/bin/
-windows/**/obj/
-
 __pycache__/
 
 # Xcode user preferences and transient UI state.
 xcuserdata/
 *.xcuserstate
-
-# Shared Avalonia build output.
-desktop/**/bin/
-desktop/**/obj/

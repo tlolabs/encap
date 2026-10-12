@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="EnCap.png">../assets/icons/png/EnCap-256.png</file>
+  </qresource>
+</RCC>

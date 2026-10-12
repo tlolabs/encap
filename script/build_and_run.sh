@@ -21,8 +21,8 @@ case "$NATIVE_ARCH" in
 esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ "$MODE" == "--avalonia-reference" ]]; then
-  exec python3 "$ROOT_DIR/script/build_desktop.py" --rid osx-arm64 --tools "$ROOT_DIR/dist/EnCap.app/Contents/MacOS" --dotnet "${DOTNET:-dotnet}" --run
+if [[ "$MODE" == "--qt-reference" ]]; then
+  exec python3 "$ROOT_DIR/script/build_qt.py" --rid osx-arm64 --tools "$ROOT_DIR/dist/EnCap.app/Contents/MacOS" --run
 fi
 "$ROOT_DIR/script/check_no_python.sh"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"

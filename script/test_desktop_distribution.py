@@ -22,7 +22,7 @@ class DesktopDistributionTests(unittest.TestCase):
             contents = Path(folder) / 'Reference.app/Contents'
             resources = contents / 'Resources'
             resources.mkdir(parents=True)
-            original = plistlib.dumps({'CFBundleIdentifier': 'com.tlolabs.encap.avalonia-reference',
+            original = plistlib.dumps({'CFBundleIdentifier': 'com.tlolabs.encap.qt-reference',
                                       'EnCapDistribution': 'internal-reference'})
             (contents / 'Info.plist').write_bytes(original)
             with self.assertRaisesRegex(ValueError, 'native production'):
@@ -41,7 +41,7 @@ class DesktopDistributionTests(unittest.TestCase):
             self.assertEqual(json.loads((resources / 'update-config.json').read_text())['target'], 'macos-arm64')
 
     def test_built_reference_archive_has_no_production_updater(self):
-        archives = list((ROOT / 'dist/internal').glob('*-INTERNAL-Avalonia-Reference-osx-arm64.zip'))
+        archives = list((ROOT / 'dist/internal').glob('*-INTERNAL-Qt-Reference-osx-arm64.zip'))
         if not archives:
             self.skipTest('Reference archive is only built on Apple Silicon')
         for path in archives:
@@ -49,10 +49,16 @@ class DesktopDistributionTests(unittest.TestCase):
                 names = archive.namelist()
                 info_name = next(n for n in names if n.endswith('.app/Contents/Info.plist'))
                 info = plistlib.loads(archive.read(info_name))
-                self.assertEqual(info['CFBundleIdentifier'], 'com.tlolabs.encap.avalonia-reference')
+                self.assertEqual(info['CFBundleIdentifier'], 'com.tlolabs.encap.qt-reference')
                 self.assertEqual(info['EnCapDistribution'], 'internal-reference')
                 self.assertFalse(any(k.startswith('SU') for k in info))
-                self.assertTrue(any(n.endswith('/EnCap.dll') for n in names))
+                self.assertTrue(any(n.endswith('/MacOS/EnCap') for n in names))
+                self.assertTrue(any(n.endswith('/Frameworks/QtCore.framework/Versions/A/QtCore') for n in names))
+                self.assertTrue(any(n.endswith('/PlugIns/platforms/libqcocoa.dylib') for n in names))
+                inventory_name = next(n for n in names if n.endswith('/MacOS/qt-runtime.json'))
+                inventory = json.loads(archive.read(inventory_name))
+                self.assertEqual(inventory['modules_linked'], ['Core', 'Gui', 'Widgets'])
+                self.assertGreater(len(inventory['files']), 3)
                 for forbidden in ('update-config.json', 'encap-update', 'encap-portable-update', 'Sparkle.framework'):
                     self.assertFalse(any(forbidden in n for n in names), forbidden)
 

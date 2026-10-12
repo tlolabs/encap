@@ -1,0 +1,14 @@
+{
+  "qt_version_minimum": "6.4",
+  "qt_ci_windows_version": "6.11.2",
+  "qt_modules": ["Core", "Gui", "Widgets"],
+  "qt_license_choice": "GPL-3.0-only",
+  "qt_plugins_by_platform": {
+    "windows": ["platforms/qwindows", "imageformats/qjpeg", "imageformats/qgif", "imageformats/qico"],
+    "linux": ["platforms/qxcb", "platforms/qwayland", "imageformats/qjpeg", "imageformats/qgif", "imageformats/qico"],
+    "macos_internal": ["platforms/qcocoa", "styles/qmacstyle", "imageformats/qjpeg", "imageformats/qgif", "imageformats/qico"]
+  },
+  "notice_files": ["LICENSE", "THIRD_PARTY_NOTICES.md", "desktop/vendor/miniaudio.LICENSE"],
+  "source": "https://code.qt.io/cgit/qt/qtbase.git/",
+  "license_source": "https://www.qt.io/licensing/open-source-lgpl-obligations"
+}

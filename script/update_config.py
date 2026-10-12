@@ -30,11 +30,7 @@ def configure(stage,target):
     return value
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--version',action='store_true');p.add_argument('--props',type=Path);p.add_argument('stage',type=Path,nargs='?');p.add_argument('target',nargs='?');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--version',action='store_true');p.add_argument('stage',type=Path,nargs='?');p.add_argument('target',nargs='?');a=p.parse_args()
     if a.version: print(version())
-    elif a.props:
-        a.props.parent.mkdir(parents=True,exist_ok=True)
-        a.props.with_name('encap.app.manifest').write_text((ROOT/'desktop/packaging/app.manifest').read_text().replace('@ENCAP_VERSION@',version()+'.0'))
-        a.props.write_text(f'<Project><PropertyGroup><Version>{version()}</Version><AssemblyVersion>{version()}.0</AssemblyVersion><FileVersion>{version()}.0</FileVersion></PropertyGroup></Project>\n')
     elif a.stage and a.target: configure(a.stage,a.target)
-    else: p.error('Specify --version, --props or stage and target')
+    else: p.error('Specify --version or stage and target')
