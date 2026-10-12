@@ -29,7 +29,7 @@ The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
 and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
 Video delegates media work to the pinned `avid-core` crate. A small
-JSON process boundary in `encap-engine` keeps the native SwiftUI application and shared Avalonia Windows/Linux application thin and crash-isolated. See
+JSON process boundary in `encap-engine` keeps the native SwiftUI application and shared Qt Widgets Windows/Linux application thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
 Video's timing, encoder selection, and composition rules are documented in
 [`docs/video-mode.md`](docs/video-mode.md).
@@ -108,7 +108,7 @@ EnCAP no longer compiles FFmpeg or owns its recipe. Build-time acquisition needs
 Python 3.12+, authenticated GitHub CLI, and network access; packaged tools run
 offline.
 See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
-Platform prerequisites are Xcode 26 on macOS, the pinned .NET 10 SDK and Visual Studio C++/Windows SDK on Windows, or .NET 10, CMake, X11/fontconfig and GLib development packages on Linux. First-time packaging also needs network access to
+Platform development prerequisites are Xcode 26 on macOS, Qt 6.4+ with CMake and the Visual Studio C++/Windows SDK on Windows, or Qt 6.4+, CMake, X11/fontconfig and GLib development packages on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
 
 On macOS, the project run action and the shell use the same entrypoint:
@@ -123,12 +123,12 @@ local transcription helpers, then bundles the Core-built FFmpeg/ffprobe pair
 at `dist/EnCap.app`. All modes use this verified pair with no production PATH
 fallback. Clean qualification uses the same normal application and packaging path.
 
-Windows/Linux use the single presentation implementation in `desktop/EnCap.Desktop`.
+Windows/Linux use the single Qt Widgets presentation implementation in `qt/`.
 The same UI is available on Apple Silicon as an **internal reference only**, via
-`./script/build_and_run.sh --avalonia-reference` after staging the normal native
+`./script/build_and_run.sh --qt-reference` after staging the normal native
 engine/media tools. It has a separate identity and recovery data, no production
 updater, and a separate CI artifact. The production macOS download remains SwiftUI.
-See [migration verification and parity](docs/avalonia-migration.md).
+See [Qt feature parity](docs/qt-feature-parity.md) and [Qt licensing](docs/qt-licensing.md).
 
 Shared checks:
 

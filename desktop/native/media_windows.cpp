@@ -15,7 +15,7 @@ static std::atomic<callback_t> callback{nullptr};
 static event_token buttons,position_request,rate_request;
 static bool owns_apartment=false;
 extern "C" __declspec(dllexport) int encap_media_open(void* window,callback_t handler){
-    // Balance our own WinRT initialization even when Avalonia already owns COM.
+    // Balance our own WinRT initialization when another desktop component owns COM.
     const HRESULT initialized=RoInitialize(RO_INIT_SINGLETHREADED);
     if(FAILED(initialized)&&initialized!=RPC_E_CHANGED_MODE)return -1;
     owns_apartment=SUCCEEDED(initialized);

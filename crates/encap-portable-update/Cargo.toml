@@ -1,0 +1,15 @@
+[package]
+name = "encap-portable-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+zip.workspace = true
+fs2 = "0.4.3"
+semver = "1.0.28"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }

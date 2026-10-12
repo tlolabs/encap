@@ -8,6 +8,7 @@ members = [
     "crates/encap-engine",
     "crates/encap-release",
     "crates/encap-update",
+    "crates/encap-portable-update",
     "updater",
 ]
 resolver = "2"

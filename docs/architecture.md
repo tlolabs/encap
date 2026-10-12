@@ -1,8 +1,8 @@
 # Native application architecture
 
 ```text
-SwiftUI (production macOS) ----------------> encap-engine (one JSON response)
-Avalonia AXAML -> EnCap.Application --------> |
+SwiftUI/AppKit (production macOS) ----------> encap-engine (one JSON response)
+Qt 6 Widgets (Windows/Linux/internal Mac) --> |
                         |-- encap-core: project model and ZIP persistence
                         |-- encap-audio / encap-transcript -> encap-ffmpeg
                         `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
@@ -32,7 +32,7 @@ Both presentation implementations use the `encap-engine` JSON process boundary.
 JSON keys use
 snake case, every invocation returns one JSON value on stdout, and failures
 return `{ "error": "plain-language explanation" }` with a nonzero status.
-Keeping the boundary identical makes the Avalonia and SwiftUI clients thin
+Keeping the boundary identical makes the Qt and SwiftUI clients thin
 and independently crash-isolated while the mode crates remain reusable.
 
 No UI layer owns persistence, media command construction, schema migration, or
@@ -52,20 +52,16 @@ appearance, drag/drop, playback, and lifecycle integration.
 
 ## Shared desktop presentation
 
-`desktop/EnCap.Application` owns observable presentation models, commands, dirty
-state, recovery coordination and the existing Rust JSON client. It has no UI
-framework dependency. `desktop/EnCap.Desktop` contains one AXAML tree, theme and
-input routing implementation for Windows x64/ARM64, Linux x64/ARM64 and the
-internal Apple Silicon reference. `desktop/EnCap.Tests` consumes the same shared
-chapter/shuttle fixtures and exercises headless input, bindings and lifecycle.
-
-`IEngineClient`, `IUserDialogs`, `IPlayback` and `IMediaSession` separate services
-from presentation. Native miniaudio supplies recording preview; authenticated
+`qt/` contains the Widgets view, interaction and lifecycle code for Windows
+x64/ARM64, Linux x64/ARM64 and the internal Apple Silicon reference. Its
+`EngineClient` invokes one JSON command per operation and keeps media work off
+the UI thread. Rust owns project validation, persistence, transcription and
+media production. Native miniaudio supplies recording preview; authenticated
 bundled FFmpeg decodes PCM formats unsupported by that decoder. Narrow C/C++
 adapters supply Linux MPRIS and Windows SMTC. GLib remains a Linux integration
 dependency; GTK, libadwaita, GStreamer and WinUI are removed.
 
-The reference bundle ID is `com.tlolabs.encap.avalonia-reference`. Avalonia running
+The reference bundle ID is `com.tlolabs.encap.qt-reference`. Qt running
 on any Mac disables production update operations, even outside the app bundle.
 Its updater executable/configuration and Sparkle are excluded from packaging.
 Production update identity generation rejects that bundle ID. CI uploads its ZIP

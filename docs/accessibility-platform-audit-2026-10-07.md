@@ -1,5 +1,9 @@
 # Accessibility and platform support audit — 7 October 2026
 
+**Historical audit:** This report describes the retired Avalonia implementation
+as it existed on 7 October 2026. Current Windows and Linux architecture and
+build instructions are in `README.md` and `docs/development.md`.
+
 This is a practical accessibility review, not a WCAG certification. The native
 SwiftUI/AppKit app remains the macOS reference. The Avalonia app remains the
 Windows/Linux interface and the internal macOS reference build.

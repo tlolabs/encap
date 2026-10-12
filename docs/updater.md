@@ -55,7 +55,7 @@ Windows Azure signing and macOS Developer ID signing retain their separate crede
 
 Manual `check` bypasses timing. `check-auto` records the last attempt and successful authentication, checks at most daily, and backs off for at least one hour after failure. A process lock serializes state/download/install operations and releases after a crash. High-water state prevents presenting an older authenticated release after seeing a newer one; installed-version comparison always rejects downgrade/same-version installs. Corrupt state fails closed instead of resetting trust history. Clock rollback does not suppress updates forever. A stale signed feed can withhold a new release; this protocol does not claim freeze-attack prevention or recovery after signing-key compromise.
 
-Avalonia on Windows and Linux exposes manual checks and persistent automatic-check preferences. Checks/downloads run off the UI thread. Automatic failures remain quiet. Windows refuses install during engine activity or with unsaved changes, checks again after download, and closes through the app's UI lifecycle. Sparkle automatic installation is disabled and its delegate postpones update checks/installation/relaunch while work is active; normal EnCAP termination protection prompts about unsaved work and defers termination safely. The Linux adapter never forces a relaunch; the user saves and restarts when ready.
+Qt on Windows and Linux exposes manual checks and persistent automatic-check preferences. Checks/downloads run off the UI thread. Automatic failures remain quiet. Windows refuses install during engine activity or with unsaved changes, checks again after download, and closes through the app's UI lifecycle. Sparkle automatic installation is disabled and its delegate postpones update checks/installation/relaunch while work is active; normal EnCAP termination protection prompts about unsaved work and defers termination safely. The Linux adapter never forces a relaunch; the user saves and restarts when ready.
 
 Windows stages beside the installation, rejects traversal/duplicate/oversized ZIP entries, authenticates the payload and validates the engine before waiting for the old process to exit. A complete backup is retained. Ordinary errors restore it. A recovery JSON file is flushed before directory moves. Power loss between the two directory renames can leave the installation path absent: use the journal's `previous` directory to restore it after confirming no helper is active. Do not delete backups until a real native upgrade has been checked. This recovery gap must be exercised on Windows before qualification; the app is not presently claimed to survive every interruption automatically.
 
@@ -68,8 +68,8 @@ EnCap 2.0.6 uses a manual-download release path described in the
 qualification steps below or publish signed updater metadata. These steps
 remain the evidence requirements for a future authenticated updater release.
 
-1. Change the workspace Cargo version once. Tag must equal `v` plus that stable SemVer. `script/update_config.py` writes package identity, macOS bundle versions and generated Windows properties. Linux Meson reads that version. No development/nightly source enters stable promotion.
-2. Build native packages using `build-platforms.yml`; test the shared protocol using `updater-contract.yml`. The macOS packaging script supplies authoritative Xcode version overrides; direct Xcode builds must set ENCAP_VERSION from Cargo. Local Windows builds first run `python script/update_config.py --props build/version.props`.
+1. Change the workspace Cargo version once. Tag must equal `v` plus that stable SemVer. `script/update_config.py` writes production package identity; `script/build_qt.py` passes the same version to CMake. No development/nightly source enters stable promotion.
+2. Build native packages using `build-platforms.yml`; test the shared protocol using `updater-contract.yml`. The macOS packaging script supplies authoritative Xcode version overrides; direct Xcode builds must set ENCAP_VERSION from Cargo.
 3. Run manual `sign-windows.yml`, `verify-linux.yml`, and `verify-macos.yml` gates. Developer ID/notary execution remains on the release Mac. Record final artifact identities, authenticated derivative runtime hashes and native evidence.
 4. Populate `runtime/application-qualification.json` only with real evidence. `application_release.py` requires the entire six-target EnCAP matrix, authenticates workflow/artifact origins and rejects missing native launch, media, lifecycle, Windows/macOS signing or Linux provenance, authenticated upgrade and manual acceptance evidence.
 5. Populate `runtime/updater-qualification.json` using actual older-build reports under `docs/updates`, including old package hash/trust configuration, final new package hash, host/time/reviewer and every native upgrade/failure case. Every entry is intentionally `not_run` now. Do not invent evidence or use the new manifest's key as an independent baseline.
@@ -112,9 +112,9 @@ A 404 before the first modern release means no schema-2 feed is published yet. D
 Validation performed in this checkout: 17 shared Rust contract tests passed in both EnCAP and ATIV; 9 shared release tests, 3 application promotion gate tests, 3 macOS package safety tests, and the upstream Sparkle feed signing/tamper test passed in EnCAP. EnCAP Swift compilation and GTK/Objective-C syntax checks passed. These results are not native installation evidence.
 
 
-The Avalonia migration adds a Windows installer readiness handshake and serializes
+The Qt migration retains the Windows installer readiness handshake and serializes
 installation with a directory-specific lock. The UI stays open during verification;
 the new app acknowledges opening its window before installation is considered
 successful. Native Windows A-to-B qualification remains required. The internal
-macOS Avalonia reference cannot execute update operations or receive production
-update identity; see `docs/avalonia-migration.md`.
+macOS Qt reference cannot execute update operations or receive production
+update identity; see `docs/qt-feature-parity.md`.

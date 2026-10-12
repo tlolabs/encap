@@ -17,7 +17,7 @@ class ApplicationReleaseControls(unittest.TestCase):
 
     def test_evidence_revision_cannot_change_application_inputs(self):
         self.assertTrue(release.qualification_only_path('runtime/updater-qualification.json'))
-        for path in ('desktop/EnCap.Desktop/App.axaml', 'global.json', 'runtime/core-runtime.json', '.github/workflows/build-platforms.yml'):
+        for path in ('qt/CMakeLists.txt', 'qt/src/main_window.cpp', 'runtime/core-runtime.json', '.github/workflows/build-platforms.yml'):
             self.assertFalse(release.qualification_only_path(path))
 
     def test_candidate_can_never_publish(self):

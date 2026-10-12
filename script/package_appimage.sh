@@ -21,12 +21,6 @@ DESKTOP="$(find "$APPDIR/usr/share/applications" -name '*.desktop' -print -quit)
 # The verified FFmpeg pair only links system libraries. Keep it out of
 # linuxdeploy's ELF rewriting, then restore the exact source-built bytes.
 rm "$APPDIR/usr/bin/ffmpeg" "$APPDIR/usr/bin/ffprobe"
-# .NET's optional LTTng provider targets the 2.12 ABI, unavailable on Ubuntu 24.
-# It is loaded only for opt-in tracing. Preserve it unchanged for compatible
-# hosts, but do not ask linuxdeploy to resolve optional tracing prerequisites.
-# https://learn.microsoft.com/dotnet/core/diagnostics/trace-perfcollect-lttng
-TRACE_PROVIDER=libcoreclrtraceptprovider.so
-if [[ -f "$APPDIR/usr/bin/$TRACE_PROVIDER" ]]; then rm "$APPDIR/usr/bin/$TRACE_PROVIDER"; fi
 # GLib/GIO remains a system dependency, as documented, rather than copying the
 # runner's desktop-integration stack into the self-contained application.
 SYSTEM_INTEGRATION=()
@@ -36,7 +30,6 @@ for pattern in 'libgio-2.0.so*' 'libgobject-2.0.so*' 'libglib-2.0.so*' 'libgmodu
 done
 linuxdeploy "${SYSTEM_INTEGRATION[@]}" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
 cp -p "$STAGE/bin/ffmpeg" "$STAGE/bin/ffprobe" "$APPDIR/usr/bin/"
-if [[ -f "$STAGE/bin/$TRACE_PROVIDER" ]]; then cp -p "$STAGE/bin/$TRACE_PROVIDER" "$APPDIR/usr/bin/"; fi
 # Retain distro license texts referenced by copied dependency copyright files.
 mkdir -p "$APPDIR/usr/share/common-licenses"
 cp -a /usr/share/common-licenses/. "$APPDIR/usr/share/common-licenses/"

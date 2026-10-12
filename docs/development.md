@@ -122,39 +122,42 @@ Gatekeeper acceptance, and recreates the ZIP containing the stapled app.
 
 ## Shared Windows/Linux and internal macOS frontend
 
-Use the pinned SDK in `global.json` (.NET 10.0.401) and Avalonia 12.1.3.
-There is one AXAML implementation and application layer under `desktop/`.
-Windows needs the Visual Studio C++ workload and Windows SDK for the SMTC adapter.
-Linux needs CMake, a C compiler, GLib/GIO and the X11/fontconfig runtime libraries.
-GTK, GStreamer, WinUI and Meson are no longer application dependencies.
+Use Qt 6.4+ Core, Gui and Widgets with CMake 3.20+ and a C++17 compiler.
+Windows CI installs Qt 6.10.3 for MSVC 2022; native Windows builds need the
+matching Visual Studio C++ workload and Windows SDK for SMTC. Linux needs
+GLib/GIO development files and the X11/fontconfig runtime libraries. The
+distributed package includes its required Qt libraries and plugins.
 
-Run the shared tests and dependency checks:
+Run the shared tests and dependency check:
 
 ```sh
-dotnet run --project desktop/EnCap.Tests -- tests/fixtures/chapter-times.tsv
+cmake -S qt -B build/qt-local -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/Qt
+cmake --build build/qt-local --config Release
+ctest --test-dir build/qt-local -C Release --output-on-failure
 python3 script/check_desktop_dependencies.py
 python3 script/test_desktop_distribution.py
 ```
 
-`script/build_desktop.py --rid <win-x64|win-arm64|linux-x64|linux-arm64|osx-arm64>
---tools <verified-helper-directory>` builds on the matching native host. The helper
+`script/build_qt.py --rid <win-x64|win-arm64|linux-x64|linux-arm64|osx-arm64>
+--tools <verified-helper-directory> [--qt-prefix <Qt-installation>]` builds on the matching native host. The helper
 directory must contain the Rust engine, verified FFmpeg/ffprobe metadata and
 Whisper, plus the updater on production platforms. The workflow stages these
 using the existing Core acquisition/verification path before invoking the script.
-Windows produces a self-contained portable ZIP; Linux produces an AppImage.
+Windows produces a portable ZIP with `windeployqt`; Linux produces an AppImage
+with Qt libraries and platform plugins; macOS internal uses `macdeployqt`.
 
-On Apple Silicon, `./script/build_and_run.sh --avalonia-reference` builds and
-launches `dist/internal/EnCap-Avalonia-Reference.app` using helpers already staged
-by the normal native build. Set `DOTNET` if the SDK executable is elsewhere.
+On Apple Silicon, `./script/build_and_run.sh --qt-reference` builds and
+launches `dist/internal/EnCap-Qt-Reference.app` using helpers already staged
+by the normal native build. Provide `--qt-prefix` to `build_qt.py` if Qt is not
+on the default CMake search path.
 The bundle is ad-hoc signed locally; it needs no Developer ID or notarization.
 The default Run action still builds the native SwiftUI application.
 
-See [the parity and validation report](avalonia-migration.md) for exact evidence
-and remaining platform checks. Old frontend sources are removed, not selectable.
+See [Qt feature parity](qt-feature-parity.md) for behavior and validation status.
 
 ## Recording list behavior
 
-The native macOS client retains its recording-row controls. Avalonia uses a
+The native macOS client retains its recording-row controls. Qt uses a
 shared recording list with playback buttons and a keyboard-operable seek slider. Each client owns
 one recording player and stops it before starting a different recording. The
 source column initially fits the shortest filename plus control/inset space,
@@ -206,7 +209,7 @@ Media session routing depends on the desktop and which application it selects
 as the current media player. Linux MPRIS works without X11 key grabs on Wayland.
 
 `SourcePlaybackTests` verifies actual macOS WAV pause/resume and reverse playback.
-Shared .NET tests consume `tests/fixtures/source-shuttle.tsv`. The optional real
+Rust and native tests consume `tests/fixtures/source-shuttle.tsv`. The optional real
 engine test arguments add import/save/recovery/export and native audio-device
 checks. `script/test_media_session.py` exercises actual MPRIS commands, metadata,
 seek and busy gating on a private D-Bus session; CI runs it on Linux.
@@ -243,12 +246,12 @@ may have numeric prefixes. Chapter # follows displayed order; it never changes
 the source references used for playback and export.
 
 All three episode editors reserve an artwork preview to the right of the fields
-and let the chapter area use the remaining window height. Avalonia uses editable chapter rows in a scrolling list. Recording previews retain pause/resume
+and let the chapter area use the remaining window height. Qt uses editable chapter rows in a scrolling list. Recording previews retain pause/resume
 behavior, with state-dependent tooltip text. Application actions and relevant
 settings expose native tooltips; system-managed dialogs keep native behavior.
 
 Shared timestamp cases live in `tests/fixtures/chapter-times.tsv`. Both native
-Swift and shared .NET tests consume them. The old duplicate C/C# frontend tests
+Swift and Rust tests consume them. The old duplicate frontend tests
 are replaced by the common test executable, retaining the naming and shuttle
 assertions. Screen-reader behavior, desktop media routing and drag/drop still
 require native Windows/Linux verification before release.

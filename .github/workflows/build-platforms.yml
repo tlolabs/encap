@@ -198,13 +198,11 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Compile native desktop adapters
+      - name: Install Qt 6.10.3 Widgets for Windows x64
         shell: pwsh
         run: |
-          cmake -S desktop/native -B 'build/desktop-native-win-x64' -A 'x64'
-          if ($LASTEXITCODE -ne 0) { throw 'Native adapter configuration failed' }
-          cmake --build 'build/desktop-native-win-x64' --config Release
-          if ($LASTEXITCODE -ne 0) { throw 'Native adapter compilation failed' }
+          python -m pip install aqtinstall==3.3.0
+          python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir Qt
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'x86_64-pc-windows-msvc'
@@ -245,30 +243,14 @@ jobs:
         run: |
           cargo test --workspace --all-features --locked --target 'x86_64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
-          cargo build --package encap-engine --package encap-update --release --locked --target 'x86_64-pc-windows-msvc'
+          cargo build --package encap-engine --package encap-update --package encap-portable-update --release --locked --target 'x86_64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target 'x86_64-pc-windows-msvc'
-      - name: Install pinned .NET SDK
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          global-json-file: EnCAP/global.json
-      - name: Test shared application and headless UI
+      - name: Verify portable update installer
         shell: pwsh
-        run: |
-          python script/update_config.py --props build/version.props
-          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-      - name: Informational Windows accessibility checks
-        shell: pwsh
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
-      - name: Publish portable update installer
-        shell: pwsh
-        run: |
-          python script/update_config.py --props build/version.props
-          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r 'win-x64' --self-contained true -o build/portable-update
-          if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
+        run: cargo test --locked --package encap-portable-update --target 'x86_64-pc-windows-msvc'
       - name: Assemble and verify portable package
         shell: pwsh
         env:
@@ -277,7 +259,7 @@ jobs:
           $stage = New-Item -ItemType Directory -Force build/desktop-tools
           Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
           Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-update.exe' "$stage/encap-update.exe"
-          Copy-Item 'build/portable-update/encap-portable-update.exe' "$stage/encap-portable-update.exe"
+          Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-portable-update.exe' "$stage/encap-portable-update.exe"
           python script/update_config.py $stage 'windows-x64'
           if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
           msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
@@ -288,7 +270,7 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
-          python script/build_desktop.py --rid 'win-x64' --tools build/desktop-tools
+          python script/build_qt.py --rid 'win-x64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
           python script/test_native_startup.py "$stage/EnCap.exe"
@@ -358,13 +340,11 @@ jobs:
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Compile native desktop adapters
+      - name: Install Qt 6.10.3 Widgets for Windows ARM64
         shell: pwsh
         run: |
-          cmake -S desktop/native -B 'build/desktop-native-win-arm64' -A 'ARM64'
-          if ($LASTEXITCODE -ne 0) { throw 'Native adapter configuration failed' }
-          cmake --build 'build/desktop-native-win-arm64' --config Release
-          if ($LASTEXITCODE -ne 0) { throw 'Native adapter compilation failed' }
+          python -m pip install aqtinstall==3.3.0
+          python -m aqt install-qt windows_arm64 desktop 6.10.3 win64_msvc2022_arm64 --outputdir Qt
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'aarch64-pc-windows-msvc'
@@ -405,30 +385,14 @@ jobs:
         run: |
           cargo test --workspace --all-features --locked --target 'aarch64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
-          cargo build --package encap-engine --package encap-update --release --locked --target 'aarch64-pc-windows-msvc'
+          cargo build --package encap-engine --package encap-update --package encap-portable-update --release --locked --target 'aarch64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
         shell: pwsh
         run: cargo check --locked -p encap-core --tests --target 'aarch64-pc-windows-msvc'
-      - name: Install pinned .NET SDK
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          global-json-file: EnCAP/global.json
-      - name: Test shared application and headless UI
+      - name: Verify portable update installer
         shell: pwsh
-        run: |
-          python script/update_config.py --props build/version.props
-          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-      - name: Informational Windows accessibility checks
-        shell: pwsh
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
-      - name: Publish portable update installer
-        shell: pwsh
-        run: |
-          python script/update_config.py --props build/version.props
-          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r 'win-arm64' --self-contained true -o build/portable-update
-          if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
+        run: cargo test --locked --package encap-portable-update --target 'aarch64-pc-windows-msvc'
       - name: Assemble and verify portable package
         shell: pwsh
         env:
@@ -437,7 +401,7 @@ jobs:
           $stage = New-Item -ItemType Directory -Force build/desktop-tools
           Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
           Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-update.exe' "$stage/encap-update.exe"
-          Copy-Item 'build/portable-update/encap-portable-update.exe' "$stage/encap-portable-update.exe"
+          Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-portable-update.exe' "$stage/encap-portable-update.exe"
           python script/update_config.py $stage 'windows-arm64'
           if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
           msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
@@ -448,7 +412,7 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
-          python script/build_desktop.py --rid 'win-arm64' --tools build/desktop-tools
+          python script/build_qt.py --rid 'win-arm64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_arm64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
           python script/test_native_startup.py "$stage/EnCap.exe"
@@ -521,7 +485,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq qt6-base-dev qt6-base-dev-tools qt6-wayland
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Acquire AVID Core FFmpeg
@@ -539,16 +503,7 @@ jobs:
           test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
           cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
-      - name: Install pinned .NET SDK
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          global-json-file: EnCAP/global.json
-      - name: Test shared application and headless UI
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-      - name: Informational Linux accessibility checks
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
-      - name: Build and assemble Avalonia AppImage
+      - name: Build and assemble Qt AppImage
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -568,7 +523,7 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
-          python3 script/build_desktop.py --rid 'linux-x64' --tools "$prefix/bin"
+          python3 script/build_qt.py --rid 'linux-x64' --tools "$prefix/bin"
           prefix="$PWD/dist/staging/EnCap"
           mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
           cp desktop/packaging/com.tlolabs.encap.desktop "$prefix/share/applications/"
@@ -604,7 +559,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq qt6-base-dev qt6-base-dev-tools qt6-wayland
       - name: Install pinned Rust toolchain
         run: rustup show
       - name: Acquire AVID Core FFmpeg
@@ -622,16 +577,7 @@ jobs:
           test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
           cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
-      - name: Install pinned .NET SDK
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          global-json-file: EnCAP/global.json
-      - name: Test shared application and headless UI
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-      - name: Informational Linux accessibility checks
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
-      - name: Build and assemble Avalonia AppImage
+      - name: Build and assemble Qt AppImage
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -651,7 +597,7 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
-          python3 script/build_desktop.py --rid 'linux-arm64' --tools "$prefix/bin"
+          python3 script/build_qt.py --rid 'linux-arm64' --tools "$prefix/bin"
           prefix="$PWD/dist/staging/EnCap"
           mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
           cp desktop/packaging/com.tlolabs.encap.desktop "$prefix/share/applications/"
@@ -719,22 +665,18 @@ jobs:
           path: EnCAP/dist
       - name: Extract verified native application
         run: ditto -x -k dist/EnCap-*-macos-arm64.zip dist
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
-        with:
-          global-json-file: EnCAP/global.json
-      - name: Test and package internal shared UI reference
+      - name: Install Qt Widgets and CMake
+        run: brew install qtbase cmake
+      - name: Test and package internal Qt reference
         run: |
-          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-          python3 script/build_desktop.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS
+          python3 script/build_qt.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS --qt-prefix /opt/homebrew/opt/qtbase
           python3 script/test_desktop_distribution.py
-      - name: Informational internal UI accessibility checks
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
+          python3 script/test_native_startup.py dist/internal/EnCap-Qt-Reference.app/Contents/MacOS/EnCap
       - name: Upload INTERNAL reference only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: EnCap-INTERNAL-Avalonia-Reference-osx-arm64
-          path: EnCAP/dist/internal/*-INTERNAL-Avalonia-Reference-osx-arm64.zip
+          name: EnCap-INTERNAL-Qt-Reference-osx-arm64
+          path: EnCAP/dist/internal/*-INTERNAL-Qt-Reference-osx-arm64.zip
           if-no-files-found: error
 
   linux_btrfs:
