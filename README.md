@@ -48,9 +48,9 @@ Video's timing, encoder selection, and composition rules are documented in
 | Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. The 2.0.6 Mac downloads are ad-hoc signed and have not
+to install media tools. The 2.0.7 Mac downloads are ad-hoc signed and have not
 been notarized; its Windows downloads are not Authenticode signed. See the
-[2.0.6 release notes](docs/releases/2.0.6.md) before installing. New direct
+[2.0.7 release notes](docs/releases/2.0.7.md) before installing. New direct
 downloads may be unsigned after target-platform functional verification.
 Authenticated application updates remain separately signed and are not
 generated for unsigned packages.
@@ -102,7 +102,7 @@ The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
 Cargo fetches AVID Core `v0.3.0` at immutable commit
 `25d19098a22936638b0e2a70616083d929fe409c`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
 AVID Core. Its six runtime and corresponding-source archives are checksum-pinned
-in `runtime/core-runtime.json`. Version 2.0.6 acquires the published Core release
+in `runtime/core-runtime.json`. Version 2.0.7 acquires the published Core release
 `ffmpeg-9.0.1-r7.1` using Core's shared verifier and authenticated manifest.
 EnCAP no longer compiles FFmpeg or owns its recipe. Build-time acquisition needs
 Python 3.12+, authenticated GitHub CLI, and network access; packaged tools run
@@ -146,11 +146,11 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.6` uses `v2.0.6`). Tagged CI builds
+version (for example, version `2.0.7` uses `v2.0.7`). Tagged CI builds
 and functionally verifies each target, then publishes each verified package
 independently to the GitHub release. A failure on one target does not hold
 back another target; failures remain visible in Actions and are eligible for
-bounded automatic retry. The 2.0.6 release is for manual downloads and has
+bounded automatic retry. The 2.0.7 release is for manual downloads and has
 no signed update metadata or macOS appcasts. Direct downloads may be unsigned
 and unnotarized. They are not added to authenticated updater feeds: Sparkle
 signatures, signed update manifests, and Windows Authenticode checks remain

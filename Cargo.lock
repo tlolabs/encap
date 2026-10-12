@@ -417,7 +417,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "encap-audio"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "avid-core",
  "directories",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "avid-core",
  "clap",
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "avid-core",
  "encap-core",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "encap-portable-update"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "fs2",
  "semver",
@@ -493,11 +493,11 @@ dependencies = [
 
 [[package]]
 name = "encap-release"
-version = "2.0.6"
+version = "2.0.7"
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "directories",
  "encap-core",
@@ -512,14 +512,14 @@ dependencies = [
 
 [[package]]
 name = "encap-update"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "tlo-updater",
 ]
 
 [[package]]
 name = "encap-video"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "avid-core",
  "encap-core",
