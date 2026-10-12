@@ -102,6 +102,8 @@ def record_qt_runtime(destination, output, host, qt_prefix):
 
 
 def build(args):
+    if args.qt_prefix:
+        args.qt_prefix = args.qt_prefix.resolve(strict=True)
     host = {'Darwin': 'osx', 'Windows': 'win', 'Linux': 'linux'}[platform.system()]
     machine = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x64'
     if args.rid != f'{host}-{machine}':
