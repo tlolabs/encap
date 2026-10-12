@@ -232,14 +232,19 @@ bash "$ROOT_DIR/script/ffmpeg/qualify.sh" "$ENGINE_BINARY"
 ENCAP_TEST_ENGINE="$ENGINE_BINARY" ENCAP_REQUIRE_CLONING=1 \
   "$CARGO" test --manifest-path "$ROOT_DIR/Cargo.toml" --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
 if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
-  # This Xcode's SwiftPM launcher may be host-only; XCTest itself is universal.
+  # SwiftPM's test helper launches as the host architecture. Run the compiled
+  # Intel XCTest bundle under Rosetta instead when cross-building locally.
   DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build --build-tests --arch "$NATIVE_ARCH" --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH"
   TEST_BIN_DIR="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build --show-bin-path --arch "$NATIVE_ARCH" --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH")"
-  arch -"$NATIVE_ARCH" "$XCODE_DEVELOPER_DIR/usr/bin/xctest" "$TEST_BIN_DIR/EnCapNativePackageTests.xctest"
+  test -d "$TEST_BIN_DIR/EnCapTests.xctest"
+  arch -"$NATIVE_ARCH" "$XCODE_DEVELOPER_DIR/usr/bin/xctest" "$TEST_BIN_DIR/EnCapTests.xctest"
 else
   DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --package-path "$ROOT_DIR/macos" --scratch-path "$ROOT_DIR/build/native-swift-$NATIVE_ARCH"
 fi
-! otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'
+if otool -L "$APP_MACOS/ffmpeg" "$APP_MACOS/ffprobe" | grep -E '/(opt|usr/local)/homebrew|/Cellar/'; then
+  echo "Packaged FFmpeg must not link Homebrew libraries." >&2
+  exit 1
+fi
 
 open_app() {
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

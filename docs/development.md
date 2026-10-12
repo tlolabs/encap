@@ -18,10 +18,11 @@ The earlier unsigned-history migration is historical. Preserve existing
 published history and tags; do not rewrite branches or force-push to remove
 old signatures. New commits may be unsigned.
 
-Release tags are annotated and must match the Cargo version and checked-out
-commit; they do not need a Git signature. Application signing and notarization
-are optional for direct downloads. Authenticated update metadata and upstream
-source verification retain their security checks.
+Stable release tags are annotated and must match the Cargo version and
+checked-out commit; they do not need a Git signature. Development releases
+create their own commit-bound tags automatically. Application signing and
+notarization are optional for direct downloads. Authenticated update metadata
+and upstream source verification retain their security checks.
 
 ## Workspace ownership
 
@@ -311,13 +312,21 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. For 2.0.5, tagged CI builds and tests
-six packages from the tag, checks their packaged identities, writes checksums,
-and publishes verified targets independently as manual downloads. The application
-and updater qualification ledgers do not gate this release. It does not generate
-authenticated update metadata. macOS notarization, Developer ID signing, and
-Windows Authenticode signing require external credentials and are not claimed
-for these packages.
+Do not commit signing credentials. Every push to main builds and tests the six
+platforms independently. After a platform passes its own package, dependency,
+and functional checks, its read-only build job uploads one artifact. A separate
+publisher with `contents: write` creates or reuses the prerelease tag
+`dev-v<VERSION>-<COMMIT_SHA>`, uploads that platform's direct-download package
+and SHA-256 sidecar, and verifies the downloaded bytes. Failed platforms remain
+unpublished. Reruns can fill missing platforms for the same source revision
+without replacing different assets. Other platforms, internal reference checks,
+security scans, and diagnostic tests are not publication dependencies.
+
+A matching annotated `v<VERSION>` push uses the same independent publishers
+for a stable release. Development prereleases never become GitHub's latest
+stable release. Direct-download releases do not generate authenticated update
+metadata. macOS notarization, Developer ID signing, and Windows Authenticode
+signing require external credentials and are not claimed for these packages.
 
 Each target package is published only after its build, package-integrity,
 dependency, and functional smoke checks pass. Failures remain diagnostic and

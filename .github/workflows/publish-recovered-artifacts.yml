@@ -12,27 +12,54 @@ permissions:
 jobs:
   publish:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.run_attempt > 1 &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.run_attempt > 1 || github.event.workflow_run.conclusion == 'failure') &&
+      (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out the exact verified source revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out trusted main-branch publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: main
           persist-credentials: false
-      - name: Download verified artifacts from the completed build
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
-          pattern: EnCap-*
-          path: release-inputs
-          merge-multiple: true
-          if-no-artifact-found: warn
-      - name: Publish missing verified packages without replacing existing assets
+      - name: Publish only successful missing platforms
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
-        run: python3 script/publish_verified_artifacts.py "$RELEASE_TAG" release-inputs
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if [[ "$SOURCE_BRANCH" == main ]]; then
+            source_ref=refs/heads/main
+          else
+            source_ref="refs/tags/$SOURCE_BRANCH"
+          fi
+          source_version="$(gh api "repos/$GITHUB_REPOSITORY/contents/Cargo.toml?ref=$SOURCE_SHA" --jq '.content' |
+            base64 -d |
+            python3 -c 'import sys,tomllib; print(tomllib.loads(sys.stdin.read())["workspace"]["package"]["version"])')"
+          jobs="$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs)"
+          failed=0
+          for target in macos-arm64 macos-intel windows-x64 windows-arm64 linux-x64 linux-arm64; do
+            case "$target" in
+              macos-arm64) job_name='macOS arm64' ;;
+              macos-intel) job_name='macOS intel' ;;
+              windows-x64) job_name='Windows x64' ;;
+              windows-arm64) job_name='Windows arm64' ;;
+              linux-x64) job_name='Linux x64' ;;
+              linux-arm64) job_name='Linux arm64' ;;
+            esac
+            if ! jq -e --arg name "$job_name" '.jobs | any(.name == $name and .conclusion == "success")' <<<"$jobs" >/dev/null; then
+              continue
+            fi
+            directory="release-inputs/$target"
+            mkdir -p "$directory"
+            if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "EnCap-$target" --dir "$directory"; then
+              failed=1
+              continue
+            fi
+            if ! python3 script/publish_verified_artifacts.py --source-ref "$source_ref" --source-sha "$SOURCE_SHA" --source-version "$source_version" --target "$target" "$directory"; then
+              failed=1
+            fi
+          done
+          exit "$failed"

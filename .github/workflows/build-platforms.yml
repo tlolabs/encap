@@ -50,30 +50,19 @@ jobs:
           python3 script/test_runtime_ownership.py
           python3 script/check_desktop_dependencies.py
           python3 script/test_desktop_distribution.py
+          python3 script/test_publish_verified_artifacts.py
       - name: Build native engine
         run: cargo build --package encap-engine --locked
 
-  macos:
+  macos_arm64:
     if: ${{ inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     defaults:
       run:
         working-directory: EnCAP
-    name: macOS ${{ matrix.label }}
+    name: macOS arm64
     permissions:
       contents: read
-      attestations: write
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            label: arm64
-            arch: arm64
-          - runner: macos-15-intel
-            label: intel
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -88,7 +77,7 @@ jobs:
         uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: macos
-          arch: ${{ matrix.arch }}
+          arch: arm64
       - name: Configure update verification key
         env:
           UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
@@ -122,80 +111,86 @@ jobs:
           codesign --verify --deep --strict dist/EnCap.app
       - name: Verify packaged application launch
         run: python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
-      - name: Attest verified package provenance
-        continue-on-error: true
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-macos-${{ matrix.label }}
-          path: EnCAP/dist/EnCap-*-macos-${{ matrix.label }}.zip
+          name: EnCap-macos-arm64
+          path: EnCAP/dist/EnCap-*-macos-arm64.zip
           if-no-files-found: error
 
-      - name: Install pinned .NET SDK for internal reference
-        if: matrix.arch == 'arm64'
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+  macos_intel:
+    if: ${{ inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos' }}
+    defaults:
+      run:
+        working-directory: EnCAP
+    name: macOS intel
+    permissions:
+      contents: read
+    runs-on: macos-15-intel
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          global-json-file: EnCAP/global.json
-      - name: Test and package internal shared UI reference
-        if: matrix.arch == 'arm64'
+          persist-credentials: false
+          path: EnCAP
+      - name: Install application build prerequisites
         run: |
-          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
-          python3 script/build_desktop.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS
-          python3 script/test_desktop_distribution.py
-      - name: Informational internal UI accessibility checks
-        if: matrix.arch == 'arm64'
-        continue-on-error: true
-        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
-      - name: Upload INTERNAL reference only
-        if: matrix.arch == 'arm64'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          brew install cmake jq
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), "Python 3.12+ required"'
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
-          name: EnCap-INTERNAL-Avalonia-Reference-osx-arm64
-          path: EnCAP/dist/internal/*-INTERNAL-Avalonia-Reference-osx-arm64.zip
+          platform: macos
+          arch: x86_64
+      - name: Configure update verification key
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+        run: |
+          if [[ -n "$UPDATE_PUBLIC_KEY" ]]; then
+            printf '%s\n' "$UPDATE_PUBLIC_KEY" > .encap-update-public-key
+          else
+            printf '%s\n' 'development-build-no-update-key' > .encap-update-public-key
+          fi
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Build, test, sign, and package native app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: ./script/build_and_run.sh --package
+      - name: Test complete native Rust workspace
+        if: ${{ !cancelled() }}
+        run: |
+          if [[ -x "$PWD/dist/EnCap.app/Contents/MacOS/encap-engine" ]]; then
+            export ENCAP_TEST_ENGINE="$PWD/dist/EnCap.app/Contents/MacOS/encap-engine"
+          fi
+          cargo test --workspace --locked --all-features --no-fail-fast
+      - name: Test native models
+        run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path macos --scratch-path build/native-swift
+      - name: Verify packaged media tools
+        run: |
+          dist/EnCap.app/Contents/MacOS/encap-engine validate-tools
+          dist/EnCap.app/Contents/MacOS/ffmpeg -hide_banner -version
+          if otool -L dist/EnCap.app/Contents/MacOS/ffmpeg | grep -E '/(opt|usr/local)/homebrew|/Cellar/'; then exit 1; fi
+          codesign --verify --deep --strict dist/EnCap.app
+      - name: Verify packaged application launch
+        run: python3 script/test_native_startup.py dist/EnCap.app/Contents/MacOS/EnCap
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-macos-intel
+          path: EnCAP/dist/EnCap-*-macos-intel.zip
           if-no-files-found: error
 
-  windows:
+  windows_x64:
     if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'windows'
     defaults:
       run:
         working-directory: EnCAP
-    name: Windows ${{ matrix.label }}
+    name: Windows x64
     permissions:
       contents: read
-      attestations: write
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: x64
-            runner: windows-2025
-            arch: x86_64
-            msystem: UCRT64
-            compiler: gcc
-            package_prefix: mingw-w64-ucrt-x86_64
-            rust_target: x86_64-pc-windows-msvc
-            runtime: win-x64
-            platform: x64
-            cmake_arch: x64
-            cmake_toolset: ""
-            pe_machine: "8664"
-          - label: arm64
-            runner: windows-11-arm
-            arch: arm64
-            msystem: CLANGARM64
-            compiler: clang
-            package_prefix: mingw-w64-clang-aarch64
-            rust_target: aarch64-pc-windows-msvc
-            runtime: win-arm64
-            platform: ARM64
-            cmake_arch: ARM64
-            cmake_toolset: ClangCL
-            pe_machine: "AA64"
-    runs-on: ${{ matrix.runner }}
+    runs-on: windows-2025
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,31 +200,31 @@ jobs:
       - name: Compile native desktop adapters
         shell: pwsh
         run: |
-          cmake -S desktop/native -B 'build/desktop-native-${{ matrix.runtime }}' -A '${{ matrix.platform }}'
+          cmake -S desktop/native -B 'build/desktop-native-win-x64' -A 'x64'
           if ($LASTEXITCODE -ne 0) { throw 'Native adapter configuration failed' }
-          cmake --build 'build/desktop-native-${{ matrix.runtime }}' --config Release
+          cmake --build 'build/desktop-native-win-x64' --config Release
           if ($LASTEXITCODE -ne 0) { throw 'Native adapter compilation failed' }
       - name: Install Rust target
         shell: pwsh
-        run: rustup target add '${{ matrix.rust_target }}'
+        run: rustup target add 'x86_64-pc-windows-msvc'
       - name: Install native packaging and Whisper build tools
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
-          msystem: ${{ matrix.msystem }}
+          msystem: UCRT64
           path-type: inherit # Core acquisition invokes the runner-provided GitHub CLI.
           update: true
           install: >-
             make curl tar xz git python
-            ${{ matrix.package_prefix }}-${{ matrix.compiler }}
-            ${{ matrix.package_prefix }}-cmake
-            ${{ matrix.package_prefix }}-jq
-            ${{ matrix.package_prefix }}-binutils
-            ${{ matrix.package_prefix }}-llvm
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-jq
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-llvm
       - name: Acquire AVID Core FFmpeg
         uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: windows
-          arch: ${{ matrix.arch }}
+          arch: x86_64
           shell: msys2 {0}
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
@@ -239,21 +234,21 @@ jobs:
         run: |
           git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
           if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
-          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', '${{ matrix.cmake_arch }}')
-          if ('${{ matrix.cmake_toolset }}') { $configure += @('-T', '${{ matrix.cmake_toolset }}') }
+          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', 'x64')
+          if ('') { $configure += @('-T', '') }
           $configure += @('-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DWHISPER_BUILD_TESTS=OFF', '-DWHISPER_BUILD_SERVER=OFF')
           cmake @configure
           cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
         run: |
-          cargo test --workspace --all-features --locked --target '${{ matrix.rust_target }}'
+          cargo test --workspace --all-features --locked --target 'x86_64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
-          cargo build --package encap-engine --package encap-update --release --locked --target '${{ matrix.rust_target }}'
+          cargo build --package encap-engine --package encap-update --release --locked --target 'x86_64-pc-windows-msvc'
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
       - name: Check portable persistence tests for target architecture
         shell: pwsh
-        run: cargo check --locked -p encap-core --tests --target '${{ matrix.rust_target }}'
+        run: cargo check --locked -p encap-core --tests --target 'x86_64-pc-windows-msvc'
       - name: Install pinned .NET SDK
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
@@ -271,16 +266,16 @@ jobs:
         shell: pwsh
         run: |
           python script/update_config.py --props build/version.props
-          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r '${{ matrix.runtime }}' --self-contained true -o build/portable-update
+          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r 'win-x64' --self-contained true -o build/portable-update
           if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
       - name: Assemble and verify portable package
         shell: pwsh
         run: |
           $stage = New-Item -ItemType Directory -Force build/desktop-tools
-          Copy-Item 'target/${{ matrix.rust_target }}/release/encap-engine.exe' "$stage/encap-engine.exe"
-          Copy-Item 'target/${{ matrix.rust_target }}/release/encap-update.exe' "$stage/encap-update.exe"
+          Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
+          Copy-Item 'target/x86_64-pc-windows-msvc/release/encap-update.exe' "$stage/encap-update.exe"
           Copy-Item 'build/portable-update/encap-portable-update.exe' "$stage/encap-portable-update.exe"
-          python script/update_config.py $stage 'windows-${{ matrix.label }}'
+          python script/update_config.py $stage 'windows-x64'
           if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
           msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
           if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
@@ -290,7 +285,7 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
-          python script/build_desktop.py --rid '${{ matrix.runtime }}' --tools build/desktop-tools
+          python script/build_desktop.py --rid 'win-x64' --tools build/desktop-tools
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
           python script/test_native_startup.py "$stage/EnCap.exe"
@@ -303,7 +298,7 @@ jobs:
             $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
             if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
           }
-          $expectedMachine = [Convert]::ToUInt16('${{ matrix.pe_machine }}', 16)
+          $expectedMachine = [Convert]::ToUInt16('8664', 16)
           foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
@@ -326,49 +321,188 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           $managed = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) })
           ConvertTo-Json -InputObject $managed | Set-Content -Encoding utf8 "$stage/portable-package-files.json"
-          Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-${{ matrix.label }}.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-x64.zip"
       - name: Verify portable package integrity
         shell: pwsh
         run: |
-          $package = Get-ChildItem dist/release -Filter "EnCap-*-windows-${{ matrix.label }}.zip"
+          $package = Get-ChildItem dist/release -Filter "EnCap-*-windows-x64.zip"
           if (!$package) { throw 'Portable package is missing' }
           python -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); bad=z.testzip(); assert bad is None, f'Corrupt ZIP member: {bad}'; assert z.namelist()" $package.FullName
       - name: Verify packaged runtime discovery and rejection
         shell: bash
         run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
-      - name: Attest verified package provenance
-        continue-on-error: true
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: EnCAP/dist/release/EnCap-*-windows-${{ matrix.label }}.zip
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-windows-${{ matrix.label }}
+          name: EnCap-windows-x64
           path: EnCAP/dist/release/*.zip
           if-no-files-found: error
 
-  linux:
+  windows_arm64:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'windows'
+    defaults:
+      run:
+        working-directory: EnCAP
+    name: Windows arm64
+    permissions:
+      contents: read
+    runs-on: windows-11-arm
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: EnCAP
+      - name: Compile native desktop adapters
+        shell: pwsh
+        run: |
+          cmake -S desktop/native -B 'build/desktop-native-win-arm64' -A 'ARM64'
+          if ($LASTEXITCODE -ne 0) { throw 'Native adapter configuration failed' }
+          cmake --build 'build/desktop-native-win-arm64' --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native adapter compilation failed' }
+      - name: Install Rust target
+        shell: pwsh
+        run: rustup target add 'aarch64-pc-windows-msvc'
+      - name: Install native packaging and Whisper build tools
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: CLANGARM64
+          path-type: inherit # Core acquisition invokes the runner-provided GitHub CLI.
+          update: true
+          install: >-
+            make curl tar xz git python
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-jq
+            mingw-w64-clang-aarch64-binutils
+            mingw-w64-clang-aarch64-llvm
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
+        with:
+          platform: windows
+          arch: arm64
+          shell: msys2 {0}
+      - name: Verify synthetic portrait pipeline
+        shell: msys2 {0}
+        run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
+      - name: Build local Whisper runtime
+        shell: pwsh
+        run: |
+          git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
+          if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
+          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', 'ARM64')
+          if ('ClangCL') { $configure += @('-T', 'ClangCL') }
+          $configure += @('-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DWHISPER_BUILD_TESTS=OFF', '-DWHISPER_BUILD_SERVER=OFF')
+          cmake @configure
+          cmake --build .whisper-cpp/build --config Release --target whisper-cli
+      - name: Build shared Rust engine
+        shell: pwsh
+        run: |
+          cargo test --workspace --all-features --locked --target 'aarch64-pc-windows-msvc'
+          if ($LASTEXITCODE -ne 0) { throw 'Native workspace tests failed' }
+          cargo build --package encap-engine --package encap-update --release --locked --target 'aarch64-pc-windows-msvc'
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed' }
+      - name: Check portable persistence tests for target architecture
+        shell: pwsh
+        run: cargo check --locked -p encap-core --tests --target 'aarch64-pc-windows-msvc'
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test shared application and headless UI
+        shell: pwsh
+        run: |
+          python script/update_config.py --props build/version.props
+          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Informational Windows accessibility checks
+        shell: pwsh
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
+      - name: Publish portable update installer
+        shell: pwsh
+        run: |
+          python script/update_config.py --props build/version.props
+          dotnet publish windows/PortableUpdate/PortableUpdate.csproj -c Release -r 'win-arm64' --self-contained true -o build/portable-update
+          if ($LASTEXITCODE -ne 0) { throw 'Updater bootstrapper build failed' }
+      - name: Assemble and verify portable package
+        shell: pwsh
+        run: |
+          $stage = New-Item -ItemType Directory -Force build/desktop-tools
+          Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-engine.exe' "$stage/encap-engine.exe"
+          Copy-Item 'target/aarch64-pc-windows-msvc/release/encap-update.exe' "$stage/encap-update.exe"
+          Copy-Item 'build/portable-update/encap-portable-update.exe' "$stage/encap-portable-update.exe"
+          python script/update_config.py $stage 'windows-arm64'
+          if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
+          msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
+          if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
+          $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
+          if (!$whisper) { throw 'whisper-cli build is missing' }
+          Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
+          Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
+          Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
+          (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
+          python script/build_desktop.py --rid 'win-arm64' --tools build/desktop-tools
+          if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
+          $stage = Resolve-Path dist/staging/EnCap
+          python script/test_native_startup.py "$stage/EnCap.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Native desktop startup failed' }
+          function Assert-PeMachine([string] $path, [uint16] $expected) {
+            $bytes = [IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "$path is not a PE executable" }
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length) { throw "$path has an invalid PE header" }
+            $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+            if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
+          }
+          $expectedMachine = [Convert]::ToUInt16('AA64', 16)
+          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
+            Assert-PeMachine "$stage/$executable" $expectedMachine
+          }
+          & {
+            $env:ENCAP_TEST_PACKAGED = "1"
+            $env:ENCAP_TEST_ENGINE = "$stage/encap-engine.exe"
+            $env:ENCAP_FFMPEG = "$stage/ffmpeg.exe"
+            $env:ENCAP_FFPROBE = "$stage/ffprobe.exe"
+            $env:PATH = "$stage;" + $env:PATH
+            cargo test --locked -p encap-core
+            if ($LASTEXITCODE -ne 0) { throw 'EnCAP persistence tests failed' }
+            cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+            if ($LASTEXITCODE -ne 0) { throw 'EnCAP packaged save tests failed' }
+            cargo test --locked -p encap-ffmpeg
+            if ($LASTEXITCODE -ne 0) { throw 'Media lifecycle tests failed' }
+            & "$stage/encap-engine.exe" validate-tools
+            & "$stage/ffmpeg.exe" -hide_banner -version
+          }
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $managed = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($stage, $_.FullName) })
+          ConvertTo-Json -InputObject $managed | Set-Content -Encoding utf8 "$stage/portable-package-files.json"
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/release/EnCap-$version-windows-arm64.zip"
+      - name: Verify portable package integrity
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem dist/release -Filter "EnCap-*-windows-arm64.zip"
+          if (!$package) { throw 'Portable package is missing' }
+          python -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); bad=z.testzip(); assert bad is None, f'Corrupt ZIP member: {bad}'; assert z.namelist()" $package.FullName
+      - name: Verify packaged runtime discovery and rejection
+        shell: bash
+        run: bash script/ffmpeg/qualify.sh dist/staging/EnCap/encap-engine.exe
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-windows-arm64
+          path: EnCAP/dist/release/*.zip
+          if-no-files-found: error
+
+  linux_x64:
     if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'linux'
     defaults:
       run:
         working-directory: EnCAP
-    name: Linux ${{ matrix.label }}
+    name: Linux x64
     permissions:
       contents: read
-      attestations: write
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            label: x64
-            arch: x86_64
-          - runner: ubuntu-24.04-arm
-            label: arm64
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -385,7 +519,7 @@ jobs:
         uses: ./EnCAP/.github/actions/core-ffmpeg
         with:
           platform: linux
-          arch: ${{ matrix.arch }}
+          arch: x86_64
       - name: Build shared engine and bundled media tools
         run: |
           cargo test --workspace --locked --all-features
@@ -412,7 +546,7 @@ jobs:
           ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
           cp target/release/encap-engine "$prefix/bin/encap-engine"
           cp target/release/encap-update "$prefix/bin/encap-update"
-          python3 script/update_config.py "$prefix/bin" 'linux-${{ matrix.label }}-appimage'
+          python3 script/update_config.py "$prefix/bin" 'linux-x64-appimage'
           bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
           cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
@@ -423,7 +557,7 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
-          python3 script/build_desktop.py --rid 'linux-${{ matrix.label }}' --tools "$prefix/bin"
+          python3 script/build_desktop.py --rid 'linux-x64' --tools "$prefix/bin"
           prefix="$PWD/dist/staging/EnCap"
           mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
           cp desktop/packaging/com.tlolabs.encap.desktop "$prefix/share/applications/"
@@ -433,28 +567,92 @@ jobs:
           mkdir -p dist/release
           version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
           bash script/package_appimage.sh "$(uname -m)" "$prefix" "$version"
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 script/test_native_startup.py "dist/release/EnCap-$version-linux-${{ matrix.label }}.AppImage"
-      - name: Attest verified package provenance
-        continue-on-error: true
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
-        with:
-          subject-path: EnCAP/dist/release/EnCap-*-linux-${{ matrix.label }}.AppImage
-      - name: Verify Linux cloning and mode-switch latency on Btrfs
-        run: |
-          image="$RUNNER_TEMP/encap-save-test.btrfs"
-          mount_dir="$RUNNER_TEMP/encap-save-volume"
-          truncate -s 3G "$image"
-          mkfs.btrfs -f "$image"
-          mkdir -p "$mount_dir"
-          sudo mount -o loop "$image" "$mount_dir"
-          trap 'sudo umount "$mount_dir"' EXIT
-          sudo chown "$(id -u):$(id -g)" "$mount_dir"
-          TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/dist/staging/EnCap/bin/encap-engine" \
-            cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 script/test_native_startup.py "dist/release/EnCap-$version-linux-x64.AppImage"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: EnCap-linux-${{ matrix.label }}
+          name: EnCap-linux-x64
+          path: EnCAP/dist/release/*.AppImage
+          if-no-files-found: error
+
+  linux_arm64:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'linux'
+    defaults:
+      run:
+        working-directory: EnCAP
+    name: Linux arm64
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: EnCAP
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes btrfs-progs build-essential cmake curl libglib2.0-dev libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev libxi-dev libxcursor-dev libasound2-dev ninja-build xvfb dbus-x11 xz-utils pkg-config jq
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Acquire AVID Core FFmpeg
+        uses: ./EnCAP/.github/actions/core-ffmpeg
+        with:
+          platform: linux
+          arch: arm64
+      - name: Build shared engine and bundled media tools
+        run: |
+          cargo test --workspace --locked --all-features
+          cargo build --package encap-engine --package encap-update --release --locked
+      - name: Build local Whisper runtime
+        run: |
+          git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
+          test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
+          cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          cmake --build .whisper-cpp/build --config Release --target whisper-cli
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test shared application and headless UI
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+      - name: Informational Linux accessibility checks
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
+      - name: Build and assemble Avalonia AppImage
+        run: |
+          prefix="$PWD/build/desktop-tools"
+          mkdir -p "$prefix/bin"
+          ffmpeg_prefix="$ENCAP_FFMPEG_RUNTIME"
+          cp target/release/encap-engine "$prefix/bin/encap-engine"
+          cp target/release/encap-update "$prefix/bin/encap-update"
+          python3 script/update_config.py "$prefix/bin" 'linux-arm64-appimage'
+          bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
+          cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
+          cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
+          cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
+          "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
+          ENCAP_TEST_ENGINE="$prefix/bin/encap-engine" cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+          bash script/ffmpeg/qualify.sh "$prefix/bin/encap-engine"
+          cargo test --locked -p encap-ffmpeg
+          "$prefix/bin/encap-engine" validate-tools
+          "$prefix/bin/ffmpeg" -hide_banner -version
+          python3 script/build_desktop.py --rid 'linux-arm64' --tools "$prefix/bin"
+          prefix="$PWD/dist/staging/EnCap"
+          mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
+          cp desktop/packaging/com.tlolabs.encap.desktop "$prefix/share/applications/"
+          cp assets/icons/png/EnCap-256.png "$prefix/share/icons/hicolor/256x256/apps/com.tlolabs.encap.png"
+          dbus-run-session -- python3 script/test_media_session.py "$prefix/bin/libencap-media.so"
+          xvfb-run -a python3 script/test_native_startup.py "$prefix/bin/EnCap"
+          mkdir -p dist/release
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          bash script/package_appimage.sh "$(uname -m)" "$prefix" "$version"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 script/test_native_startup.py "dist/release/EnCap-$version-linux-arm64.AppImage"
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: EnCap-linux-arm64
           path: EnCAP/dist/release/*.AppImage
           if-no-files-found: error
 
@@ -488,33 +686,307 @@ jobs:
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
 
-  release:
+  macos_reference:
+    name: Internal macOS UI reference diagnostics
+    needs: [macos_arm64]
+    runs-on: macos-15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: EnCAP
-    name: Publish GitHub release
-    needs: [quality, macos, windows, linux]
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      actions: read
     steps:
-      - name: Check out release publisher
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           path: EnCAP
-      - name: Download artifacts from successful platform jobs
-        id: artifacts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: EnCap-macos-arm64
+          path: EnCAP/dist
+      - name: Extract verified native application
+        run: ditto -x -k dist/EnCap-*-macos-arm64.zip dist
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: EnCAP/global.json
+      - name: Test and package internal shared UI reference
+        run: |
+          dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv
+          python3 script/build_desktop.py --rid osx-arm64 --tools dist/EnCap.app/Contents/MacOS
+          python3 script/test_desktop_distribution.py
+      - name: Informational internal UI accessibility checks
+        continue-on-error: true
+        run: dotnet run --project desktop/EnCap.Tests --configuration Release -- tests/fixtures/chapter-times.tsv --accessibility
+      - name: Upload INTERNAL reference only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: EnCap-INTERNAL-Avalonia-Reference-osx-arm64
+          path: EnCAP/dist/internal/*-INTERNAL-Avalonia-Reference-osx-arm64.zip
+          if-no-files-found: error
+
+  linux_btrfs:
+    name: Linux Btrfs save regression diagnostics
+    needs: [linux_x64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: EnCAP
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: EnCAP
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: EnCap-linux-x64
+          path: EnCAP/dist
+      - name: Exercise packaged engine on Btrfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes btrfs-progs
+          packages=(dist/EnCap-*-linux-x64.AppImage)
+          test "${#packages[@]}" -eq 1
+          chmod +x "${packages[0]}"
+          "${packages[0]}" --appimage-extract >/dev/null
+          image="$RUNNER_TEMP/encap-save-test.btrfs"
+          mount_dir="$RUNNER_TEMP/encap-save-volume"
+          truncate -s 3G "$image"
+          mkfs.btrfs -f "$image"
+          mkdir -p "$mount_dir"
+          sudo mount -o loop "$image" "$mount_dir"
+          trap 'sudo umount "$mount_dir"' EXIT
+          sudo chown "$(id -u):$(id -g)" "$mount_dir"
+          export PATH="$PWD/squashfs-root/usr/bin:$PATH"
+          TMPDIR="$mount_dir" ENCAP_REQUIRE_CLONING=1 ENCAP_TEST_ENGINE="$PWD/squashfs-root/usr/bin/encap-engine" \
+            cargo test --locked -p encap-engine --test save_protocol -- --nocapture
+
+
+  publish_macos_arm64:
+    name: Publish macos-arm64
+    needs: [macos_arm64]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.macos_arm64.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
         with:
-          pattern: EnCap-*
+          name: EnCap-macos-arm64
           path: EnCAP/release-inputs
-          merge-multiple: true
-          if-no-artifact-found: warn
-      - name: Publish each verified platform package independently
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-macos-arm64.zip
+      - name: Publish verified direct download
+        working-directory: EnCAP
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 script/publish_verified_artifacts.py "$GITHUB_REF_NAME" release-inputs
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target macos-arm64 release-inputs
+
+  publish_macos_intel:
+    name: Publish macos-intel
+    needs: [macos_intel]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.macos_intel.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
+        with:
+          name: EnCap-macos-intel
+          path: EnCAP/release-inputs
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-macos-intel.zip
+      - name: Publish verified direct download
+        working-directory: EnCAP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target macos-intel release-inputs
+
+  publish_windows_x64:
+    name: Publish windows-x64
+    needs: [windows_x64]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.windows_x64.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
+        with:
+          name: EnCap-windows-x64
+          path: EnCAP/release-inputs
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-windows-x64.zip
+      - name: Publish verified direct download
+        working-directory: EnCAP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target windows-x64 release-inputs
+
+  publish_windows_arm64:
+    name: Publish windows-arm64
+    needs: [windows_arm64]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.windows_arm64.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
+        with:
+          name: EnCap-windows-arm64
+          path: EnCAP/release-inputs
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-windows-arm64.zip
+      - name: Publish verified direct download
+        working-directory: EnCAP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target windows-arm64 release-inputs
+
+  publish_linux_x64:
+    name: Publish linux-x64
+    needs: [linux_x64]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.linux_x64.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
+        with:
+          name: EnCap-linux-x64
+          path: EnCAP/release-inputs
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-linux-x64.AppImage
+      - name: Publish verified direct download
+        working-directory: EnCAP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target linux-x64 release-inputs
+
+  publish_linux_arm64:
+    name: Publish linux-arm64
+    needs: [linux_arm64]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
+      needs.linux_arm64.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the exact verified revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: EnCAP
+      - name: Download only this successful platform package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4
+        with:
+          name: EnCap-linux-arm64
+          path: EnCAP/release-inputs
+      - name: Attest verified package provenance
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: EnCAP/release-inputs/EnCap-*-linux-arm64.AppImage
+      - name: Publish verified direct download
+        working-directory: EnCAP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 script/publish_verified_artifacts.py
+          --source-ref "$GITHUB_REF" --source-sha "$GITHUB_SHA"
+          --target linux-arm64 release-inputs
