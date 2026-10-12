@@ -69070,14 +69070,14 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__white(ma_noise* pNoise, voi
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_white(pNoise);
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_white(pNoise);
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         }
@@ -69189,14 +69189,14 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__pink(ma_noise* pNoise, void
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_pink(pNoise, 0);
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_pink(pNoise, iChannel);
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         }
@@ -69271,14 +69271,14 @@ static MA_INLINE ma_uint64 ma_noise_read_pcm_frames__brownian(ma_noise* pNoise, 
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 float s = ma_noise_f32_brownian(pNoise, 0);
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         } else {
             for (iFrame = 0; iFrame < frameCount; iFrame += 1) {
                 for (iChannel = 0; iChannel < channels; iChannel += 1) {
                     float s = ma_noise_f32_brownian(pNoise, iChannel);
-                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
+                    ma_pcm_convert(ma_offset_ptr(pFramesOut, iFrame*(ma_uint64)bpf + (ma_uint64)iChannel*bps), pNoise->config.format, &s, ma_format_f32, 1, ma_dither_mode_none);
                 }
             }
         }
@@ -74565,15 +74565,32 @@ static ma_result ma_node_get_heap_layout(ma_node_graph* pNodeGraph, const ma_nod
         cacheCapInFrames = ma_node_config_get_cache_size_in_frames(pConfig, pNodeGraph);
 
         for (iBus = 0; iBus < inputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]);
+            size_t busSizeInBytes;
+            if (!ma_size_mul(cacheCapInFrames, ma_get_bytes_per_frame(ma_format_f32, pConfig->pInputChannels[iBus]), &busSizeInBytes) ||
+                busSizeInBytes > MA_SIZE_MAX - cachedDataSizeInBytes) {
+                return MA_INVALID_ARGS;
+            }
+            cachedDataSizeInBytes += busSizeInBytes;
         }
 
         for (iBus = 0; iBus < outputBusCount; iBus += 1) {
-            cachedDataSizeInBytes += cacheCapInFrames * ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]);
+            size_t busSizeInBytes;
+            if (!ma_size_mul(cacheCapInFrames, ma_get_bytes_per_frame(ma_format_f32, pConfig->pOutputChannels[iBus]), &busSizeInBytes) ||
+                busSizeInBytes > MA_SIZE_MAX - cachedDataSizeInBytes) {
+                return MA_INVALID_ARGS;
+            }
+            cachedDataSizeInBytes += busSizeInBytes;
         }
 
         pHeapLayout->cachedDataOffset = pHeapLayout->sizeInBytes;
-        pHeapLayout->sizeInBytes += ma_align_64(cachedDataSizeInBytes);
+        if (cachedDataSizeInBytes > MA_SIZE_MAX - 63) {
+            return MA_INVALID_ARGS;
+        }
+        cachedDataSizeInBytes = ma_align_64(cachedDataSizeInBytes);
+        if (cachedDataSizeInBytes > MA_SIZE_MAX - pHeapLayout->sizeInBytes) {
+            return MA_INVALID_ARGS;
+        }
+        pHeapLayout->sizeInBytes += cachedDataSizeInBytes;
     }
 
 
@@ -82760,6 +82777,7 @@ MA_API ma_uint64 ma_dr_wav_read_pcm_frames_le(ma_dr_wav* pWav, ma_uint64 framesT
 {
     ma_uint32 bytesPerFrame;
     ma_uint64 bytesToRead;
+    size_t bytesToReadInSizeT;
     ma_uint64 framesRemainingInFile;
     if (pWav == NULL || framesToRead == 0) {
         return 0;
@@ -82776,10 +82794,12 @@ MA_API ma_uint64 ma_dr_wav_read_pcm_frames_le(ma_dr_wav* pWav, ma_uint64 framesT
         return 0;
     }
     if (framesToRead > MA_SIZE_MAX / bytesPerFrame) {
-        bytesToRead = (MA_SIZE_MAX / bytesPerFrame) * bytesPerFrame;
-    } else {
-        bytesToRead = (ma_uint64)framesToRead * bytesPerFrame;
+        framesToRead = MA_SIZE_MAX / bytesPerFrame;
     }
+    if (!ma_size_mul((size_t)framesToRead, bytesPerFrame, &bytesToReadInSizeT)) {
+        return 0;
+    }
+    bytesToRead = bytesToReadInSizeT;
     if (bytesToRead == 0) {
         return 0;
     }
