@@ -191,9 +191,7 @@ fn preview(reader: &mut (impl Read + Seek), length: u64) -> std::io::Result<Wave
         reader.seek(SeekFrom::Start(offset + start * format.stride as u64))?;
         let window = &mut buffer[..count * format.stride];
         reader.read_exact(window)?;
-        for frame in window.chunks_exact(format.stride) {
-            *peak = peak.max(sample(&frame[..format.bytes], format).abs());
-        }
+        *peak = peak.max(scan_peaks(window, format));
     }
     // Normalize the silhouette per recording. Preserve true silence and leave a
     // floor in the renderer rather than inventing signal in silent bins.
@@ -204,6 +202,46 @@ fn preview(reader: &mut (impl Read + Seek), length: u64) -> std::io::Result<Wave
         }
     }
     Ok(WaveformPreview { channel: 1, peaks })
+}
+
+fn scan_peaks(window: &[u8], format: Format) -> f32 {
+    let mut peak = 0_f32;
+    if format.little && !format.float && !format.unsigned && format.bytes == 2 {
+        for frame in window.chunks_exact(format.stride) {
+            let s = i16::from_le_bytes([frame[0], frame[1]]);
+            let v = (s.unsigned_abs() as f32) * (1.0 / 32768.0);
+            if v > peak {
+                peak = v;
+            }
+        }
+        return peak.min(1.0);
+    }
+    if !format.little && !format.float && !format.unsigned && format.bytes == 2 {
+        for frame in window.chunks_exact(format.stride) {
+            let s = i16::from_be_bytes([frame[0], frame[1]]);
+            let v = (s.unsigned_abs() as f32) * (1.0 / 32768.0);
+            if v > peak {
+                peak = v;
+            }
+        }
+        return peak.min(1.0);
+    }
+    if format.little && format.float && format.bytes == 4 {
+        for frame in window.chunks_exact(format.stride) {
+            let s = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
+            if s.is_finite() {
+                let v = s.abs().min(1.0);
+                if v > peak {
+                    peak = v;
+                }
+            }
+        }
+        return peak;
+    }
+    for frame in window.chunks_exact(format.stride) {
+        peak = peak.max(sample(&frame[..format.bytes], format).abs());
+    }
+    peak
 }
 
 fn sample(bytes: &[u8], format: Format) -> f32 {

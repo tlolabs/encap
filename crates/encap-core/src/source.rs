@@ -160,15 +160,17 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
         .len();
     let mut fmt: Option<(u16, u32, u16, u16)> = None;
     let mut data_bytes = None;
-    while file.stream_position().unwrap_or(length) + 8 <= length {
+    let mut pos = 12_u64;
+    while pos + 8 <= length {
         let mut chunk = [0_u8; 8];
         file.read_exact(&mut chunk)
             .map_err(|source| EncapError::Read {
                 path: path.to_path_buf(),
                 source,
             })?;
+        pos += 8;
         let size = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as u64;
-        let start = file.stream_position().unwrap_or(length);
+        let start = pos;
         if start.checked_add(size).is_none() || start + size > length {
             return Err(EncapError::UnsupportedAudio(format!(
                 "{} contains a truncated WAV chunk.",
@@ -182,8 +184,9 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
                         "The WAV format block is invalid.".into(),
                     ));
                 }
-                let mut raw = vec![0; size as usize];
-                file.read_exact(&mut raw)
+                let read_len = (size as usize).min(40);
+                let mut raw = [0_u8; 40];
+                file.read_exact(&mut raw[..read_len])
                     .map_err(|source| EncapError::Read {
                         path: path.to_path_buf(),
                         source,
@@ -200,6 +203,11 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     u16::from_le_bytes(raw[14..16].try_into().unwrap()),
                     u16::from_le_bytes(raw[12..14].try_into().unwrap()),
                 ));
+                file.seek(SeekFrom::Start(start + size))
+                    .map_err(|source| EncapError::Read {
+                        path: path.to_path_buf(),
+                        source,
+                    })?;
             }
             b"data" => {
                 data_bytes = Some(size);
@@ -217,12 +225,14 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     })?;
             }
         }
+        pos = start + size;
         if size % 2 == 1 {
             file.seek(SeekFrom::Current(1))
                 .map_err(|source| EncapError::Read {
                     path: path.to_path_buf(),
                     source,
                 })?;
+            pos += 1;
         }
     }
     let (channels, sample_rate, bits_per_sample, block_align) =
@@ -248,15 +258,17 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
         .len();
     let mut comm: Option<(u16, u32, u16, u32)> = None;
     let mut data_bytes = None;
-    while file.stream_position().unwrap_or(length) + 8 <= length {
+    let mut pos = 12_u64;
+    while pos + 8 <= length {
         let mut chunk = [0_u8; 8];
         file.read_exact(&mut chunk)
             .map_err(|source| EncapError::Read {
                 path: path.to_path_buf(),
                 source,
             })?;
+        pos += 8;
         let size = u32::from_be_bytes(chunk[4..8].try_into().unwrap()) as u64;
-        let start = file.stream_position().unwrap_or(length);
+        let start = pos;
         if start.checked_add(size).is_none() || start + size > length {
             return Err(EncapError::UnsupportedAudio(format!(
                 "{} contains a truncated AIFF chunk.",
@@ -269,7 +281,7 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     "The AIFF format block is invalid.".into(),
                 ));
             }
-            let mut raw = vec![0; size as usize];
+            let mut raw = [0_u8; 18];
             file.read_exact(&mut raw)
                 .map_err(|source| EncapError::Read {
                     path: path.to_path_buf(),
@@ -280,6 +292,11 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
             let bits = u16::from_be_bytes(raw[6..8].try_into().unwrap());
             let rate = decode_extended(&raw[8..18])?;
             comm = Some((channels, rate, bits, frames));
+            file.seek(SeekFrom::Start(start + size))
+                .map_err(|source| EncapError::Read {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
         } else if &chunk[0..4] == b"SSND" {
             if size < 8 {
                 return Err(EncapError::UnsupportedAudio(
@@ -299,12 +316,14 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     source,
                 })?;
         }
+        pos = start + size;
         if size % 2 == 1 {
             file.seek(SeekFrom::Current(1))
                 .map_err(|source| EncapError::Read {
                     path: path.to_path_buf(),
                     source,
                 })?;
+            pos += 1;
         }
     }
     let (channels, sample_rate, bits_per_sample, frames) = comm
@@ -351,31 +370,53 @@ fn decode_extended(raw: &[u8]) -> Result<u32> {
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
-    let mut a = left.chars().peekable();
-    let mut b = right.chars().peekable();
+    let mut a_chars = left.char_indices().peekable();
+    let mut b_chars = right.char_indices().peekable();
     loop {
-        match (a.peek(), b.peek()) {
+        match (a_chars.peek(), b_chars.peek()) {
             (None, None) => return Ordering::Equal,
             (None, _) => return Ordering::Less,
             (_, None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let an: String = std::iter::from_fn(|| a.next_if(|c| c.is_ascii_digit())).collect();
-                let bn: String = std::iter::from_fn(|| b.next_if(|c| c.is_ascii_digit())).collect();
+            (Some(&(ai, x)), Some(&(bi, y))) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                let a_start = ai;
+                while let Some(&(_, c)) = a_chars.peek() {
+                    if c.is_ascii_digit() {
+                        a_chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let a_end = a_chars.peek().map(|&(i, _)| i).unwrap_or(left.len());
+                let an = &left[a_start..a_end];
+
+                let b_start = bi;
+                while let Some(&(_, c)) = b_chars.peek() {
+                    if c.is_ascii_digit() {
+                        b_chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let b_end = b_chars.peek().map(|&(i, _)| i).unwrap_or(right.len());
+                let bn = &right[b_start..b_end];
+
                 let atrim = an.trim_start_matches('0');
                 let btrim = bn.trim_start_matches('0');
                 match atrim
                     .len()
                     .cmp(&btrim.len())
                     .then_with(|| atrim.cmp(btrim))
-                    .then_with(|| an.cmp(&bn))
+                    .then_with(|| an.cmp(bn))
                 {
                     Ordering::Equal => {}
                     order => return order,
                 }
             }
             _ => {
-                let ac = a.next().unwrap().to_ascii_lowercase();
-                let bc = b.next().unwrap().to_ascii_lowercase();
+                let (_, ac) = a_chars.next().unwrap();
+                let (_, bc) = b_chars.next().unwrap();
+                let ac = ac.to_ascii_lowercase();
+                let bc = bc.to_ascii_lowercase();
                 match ac.cmp(&bc) {
                     Ordering::Equal => {}
                     order => return order,

@@ -26,6 +26,8 @@ struct Cli {
 enum Commands {
     /// Report the compiled application and immutable AVID Core identity.
     BuildInfo,
+    /// Fast combined startup probe returning providers, video presets, and recovery state in one process.
+    Startup,
     Inspect {
         folder: PathBuf,
     },
@@ -109,7 +111,7 @@ struct RecoveryResponse {
 }
 
 fn main() {
-    let _log_guard = init_logging();
+    init_logging();
     let cancellation = CancellationToken::default();
     let signal_cancellation = cancellation.clone();
     let video_cancellation = cancellation.clone();
@@ -119,20 +121,32 @@ fn main() {
         tracing::warn!(%error, "could not install the cancellation signal handler");
     }
     match run(Cli::parse(), &cancellation, &video_cancellation) {
-        Ok(value) => match serde_json::to_writer(std::io::stdout(), &value) {
-            Ok(()) => println!(),
-            Err(error) => {
-                eprintln!("Failed to serialize engine response: {error}");
-                std::process::exit(1);
+        Ok(value) => {
+            let stdout = std::io::stdout();
+            let mut writer = std::io::BufWriter::new(stdout.lock());
+            match serde_json::to_writer(&mut writer, &value) {
+                Ok(()) => {
+                    use std::io::Write;
+                    let _ = writer.write_all(b"\n");
+                    let _ = writer.flush();
+                }
+                Err(error) => {
+                    eprintln!("Failed to serialize engine response: {error}");
+                    std::process::exit(1);
+                }
             }
-        },
+        }
         Err(error) => {
             tracing::error!(error = %error, "engine operation failed");
+            let stdout = std::io::stdout();
+            let mut writer = std::io::BufWriter::new(stdout.lock());
             let _ = serde_json::to_writer(
-                std::io::stdout(),
+                &mut writer,
                 &serde_json::json!({ "error": error.to_string() }),
             );
-            println!();
+            use std::io::Write;
+            let _ = writer.write_all(b"\n");
+            let _ = writer.flush();
             std::process::exit(1);
         }
     }
@@ -148,6 +162,13 @@ fn run(
             "encap_version": env!("CARGO_PKG_VERSION"),
             "avid_core": { "version": encap_core::CORE_VERSION,
                 "revision": encap_core::CORE_REVISION, "source": encap_core::CORE_SOURCE }
+        })),
+        Commands::Startup => Ok(serde_json::json!({
+            "providers": encap_transcript::providers(),
+            "presets": encap_video::PRESETS,
+            "recovery": RecoveryResponse {
+                project: load_recovery_at(&recovery_path()?)?,
+            },
         })),
         Commands::ValidateCoreRuntime { directory } => {
             let tools = avid_core::MediaTools::from_core_directory(&directory, cancellation)
@@ -366,27 +387,33 @@ fn json<T: Serialize>(value: T) -> Result<Value> {
     Ok(serde_json::to_value(value)?)
 }
 
-fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let directory = ProjectDirs::from("com", "TLO Labs", "EnCap")
-        .map(|dirs| dirs.data_local_dir().join("logs"))?;
-    fs::create_dir_all(&directory).ok()?;
-    let appender = tracing_appender::rolling::RollingFileAppender::builder()
+fn init_logging() {
+    let directory = match ProjectDirs::from("com", "TLO Labs", "EnCap")
+        .map(|dirs| dirs.data_local_dir().join("logs"))
+    {
+        Some(dir) => dir,
+        None => return,
+    };
+    if fs::create_dir_all(&directory).is_err() {
+        return;
+    }
+    let appender = match tracing_appender::rolling::RollingFileAppender::builder()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("engine")
         .filename_suffix("log")
         .max_log_files(14)
         .build(directory)
-        .ok()?;
-    let (writer, guard) = tracing_appender::non_blocking(appender);
-    tracing_subscriber::fmt()
+    {
+        Ok(appender) => appender,
+        Err(_) => return,
+    };
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
-        .with_writer(writer)
+        .with_writer(appender)
         .with_ansi(false)
-        .try_init()
-        .ok()?;
-    Some(guard)
+        .try_init();
 }
 
 #[cfg(test)]

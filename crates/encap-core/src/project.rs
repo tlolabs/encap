@@ -418,7 +418,7 @@ fn extract(archive: &mut zip::ZipArchive<File>, root: &Path) -> Result<()> {
                 source,
             })?;
         let copied =
-            std::io::copy(&mut member.take(MAX_MEMBER + 1), &mut output).map_err(|source| {
+            copy_buffered(&mut member.take(MAX_MEMBER + 1), &mut output).map_err(|source| {
                 EncapError::Write {
                     path: target.clone(),
                     source,
@@ -618,6 +618,25 @@ fn normalize_export(mut value: ExportSettings) -> ExportSettings {
     value
 }
 
+fn copy_buffered<R: Read + ?Sized, W: Write + ?Sized>(
+    reader: &mut R,
+    writer: &mut W,
+) -> std::io::Result<u64> {
+    let mut buffer = [0_u8; 128 * 1024];
+    let mut total = 0_u64;
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(total),
+            Ok(n) => {
+                writer.write_all(&buffer[..n])?;
+                total += n as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 fn add_file<W: Write + std::io::Seek>(
     archive: &mut zip::ZipWriter<W>,
     path: &Path,
@@ -629,7 +648,7 @@ fn add_file<W: Write + std::io::Seek>(
         path: path.to_path_buf(),
         source,
     })?;
-    std::io::copy(&mut input, archive).map_err(|source| EncapError::Write {
+    copy_buffered(&mut input, archive).map_err(|source| EncapError::Write {
         path: path.to_path_buf(),
         source,
     })?;

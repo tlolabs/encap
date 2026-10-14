@@ -126,7 +126,7 @@ MainWindow::MainWindow() {
             });
         else if (dirty_ && busy_) recoveryTimer_.start();
     });
-    clock_.setInterval(100);
+    clock_.setInterval(1000);
     connect(&clock_, &QTimer::timeout, this, &MainWindow::tick);
     clock_.start();
     updateTimer_.setInterval(60 * 60 * 1000);
@@ -144,34 +144,62 @@ MainWindow::MainWindow() {
             setStatus("System media controls are unavailable; playback controls remain available.");
     });
 #endif
-    runEngine("Loading local engines and recovery…", {"providers"}, [this](const QJsonValue& result) {
-        providers_ = result.toArray();
-        provider_->clear();
-        for (const auto& entry : providers_) provider_->addItem(entry.toObject().value("name").toString(), entry.toObject().value("id"));
-        runEngine("Loading video presets…", {"video-presets"}, [this](const QJsonValue& presets) {
-            presets_ = presets.toArray();
-            preset_->clear();
-            for (const auto& entry : presets_) {
-                const auto value = entry.toObject();
-                preset_->addItem(QStringLiteral("%1 — %2 — %3 × %4").arg(value.value("platform").toString(), value.value("aspect").toString())
-                    .arg(value.value("width").toInt()).arg(value.value("height").toInt()));
-            }
-            runEngine("Loading recovery…", {"load-recovery"}, [this](const QJsonValue& recovery) {
-                const auto previous = recovery.toObject().value("project");
-                if (previous.isObject()) {
-                    present(previous.toObject(), true);
-                    setStatus("Recovered unsaved work from the previous session.");
-                } else setStatus("Import an audio folder or open a project to begin.");
-#ifdef Q_OS_WIN
-                const auto acknowledgement = qEnvironmentVariable("ENCAP_UPDATE_STARTUP_ACK");
-                if (!acknowledgement.isEmpty()) {
-                    QFile ready(acknowledgement);
-                    if (ready.open(QIODevice::WriteOnly)) ready.write("ready");
+    auto runLegacy = [this] {
+        runEngine("Loading local engines and recovery…", {"providers"}, [this](const QJsonValue& result) {
+            providers_ = result.toArray();
+            provider_->clear();
+            for (const auto& entry : providers_) provider_->addItem(entry.toObject().value("name").toString(), entry.toObject().value("id"));
+            runEngine("Loading video presets…", {"video-presets"}, [this](const QJsonValue& presets) {
+                presets_ = presets.toArray();
+                preset_->clear();
+                for (const auto& entry : presets_) {
+                    const auto value = entry.toObject();
+                    preset_->addItem(QStringLiteral("%1 — %2 — %3 × %4").arg(value.value("platform").toString(), value.value("aspect").toString())
+                        .arg(value.value("width").toInt()).arg(value.value("height").toInt()));
                 }
+                runEngine("Loading recovery…", {"load-recovery"}, [this](const QJsonValue& recovery) {
+                    const auto previous = recovery.toObject().value("project");
+                    if (previous.isObject()) {
+                        present(previous.toObject(), true);
+                        setStatus("Recovered unsaved work from the previous session.");
+                    } else setStatus("Import an audio folder or open a project to begin.");
+#ifdef Q_OS_WIN
+                    const auto acknowledgement = qEnvironmentVariable("ENCAP_UPDATE_STARTUP_ACK");
+                    if (!acknowledgement.isEmpty()) {
+                        QFile ready(acknowledgement);
+                        if (ready.open(QIODevice::WriteOnly)) ready.write("ready");
+                    }
 #endif
+                });
             });
         });
-    });
+    };
+    runEngine("Loading engine and recovery…", {"startup"}, [this, runLegacy](const QJsonValue& initData) {
+        if (!initData.isObject()) { runLegacy(); return; }
+        const auto root = initData.toObject();
+        providers_ = root.value("providers").toArray();
+        provider_->clear();
+        for (const auto& entry : providers_) provider_->addItem(entry.toObject().value("name").toString(), entry.toObject().value("id"));
+        presets_ = root.value("presets").toArray();
+        preset_->clear();
+        for (const auto& entry : presets_) {
+            const auto value = entry.toObject();
+            preset_->addItem(QStringLiteral("%1 — %2 — %3 × %4").arg(value.value("platform").toString(), value.value("aspect").toString())
+                .arg(value.value("width").toInt()).arg(value.value("height").toInt()));
+        }
+        const auto previous = root.value("recovery").toObject().value("project");
+        if (previous.isObject()) {
+            present(previous.toObject(), true);
+            setStatus("Recovered unsaved work from the previous session.");
+        } else setStatus("Import an audio folder or open a project to begin.");
+#ifdef Q_OS_WIN
+        const auto acknowledgement = qEnvironmentVariable("ENCAP_UPDATE_STARTUP_ACK");
+        if (!acknowledgement.isEmpty()) {
+            QFile ready(acknowledgement);
+            if (ready.open(QIODevice::WriteOnly)) ready.write("ready");
+        }
+#endif
+    }, {}, runLegacy);
     if (!internalReference() && automaticUpdates_->isChecked())
         QTimer::singleShot(3000, this, [this] { checkUpdates(false); });
 }
@@ -785,7 +813,8 @@ void MainWindow::moveVideoTo(int next) {
     markDirty();
 }
 void MainWindow::loadWaveforms() {
-    if (!hasProject_ || waveformEngine_->busy()) return;
+    if (!hasProject_) return;
+    if (waveformEngine_->busy()) waveformEngine_->cancel();
     loadWaveformAt(project_.value("audio_sources").toArray(), 0, waveformGeneration_);
 }
 void MainWindow::loadWaveformAt(const QJsonArray& paths, int row, int generation) {
@@ -1317,11 +1346,16 @@ void MainWindow::adjacent(int delta) {
 }
 void MainWindow::refreshPlayback() {
     const bool playing = encap_audio_playing();
-    sourcePlay_->setText(playing ? "Pause" : "Play");
-    videoPlay_->setText(playing ? "Pause" : "Play");
+    const QString text = playing ? QStringLiteral("Pause") : QStringLiteral("Play");
+    if (sourcePlay_->text() != text) sourcePlay_->setText(text);
+    if (videoPlay_->text() != text) videoPlay_->setText(text);
 }
 void MainWindow::tick() {
     if (!hasProject_) return;
+    const bool playing = encap_audio_playing();
+    if (playing && clock_.interval() != 100) clock_.setInterval(100);
+    else if (!playing && clock_.interval() != 1000) clock_.setInterval(1000);
+
     const auto sourceList = project_.value("audio_sources").toArray();
     double duration = 0;
     for (int i = 0; i < sourceList.size(); ++i) {
@@ -1332,9 +1366,13 @@ void MainWindow::tick() {
         }
     }
     const double position = encap_audio_position();
-    if (!sourceSeek_->isSliderDown()) sourceSeek_->setValue(static_cast<int>(position));
-    sourceSeek_->setMaximum(std::max(1, static_cast<int>(duration)));
-    sourceTime_->setText(shownTime(position) + " / " + shownTime(duration));
+    if (!sourceSeek_->isSliderDown() && sourceSeek_->value() != static_cast<int>(position))
+        sourceSeek_->setValue(static_cast<int>(position));
+    if (sourceSeek_->maximum() != std::max(1, static_cast<int>(duration)))
+        sourceSeek_->setMaximum(std::max(1, static_cast<int>(duration)));
+    const QString sourceTimeText = shownTime(position) + " / " + shownTime(duration);
+    if (sourceTime_->text() != sourceTimeText) sourceTime_->setText(sourceTimeText);
+
     double videoDuration = 0, offset = 0, chapterDuration = 0;
     QString title = "EnCap";
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
@@ -1348,8 +1386,13 @@ void MainWindow::tick() {
         }
     }
     const double videoPosition = offset + std::min(position, chapterDuration);
-    if (!videoSeek_->isSliderDown()) videoSeek_->setValue(static_cast<int>(videoPosition));
-    videoTime_->setText(shownTime(videoPosition) + " / " + shownTime(videoDuration));
+    if (!videoSeek_->isSliderDown() && videoSeek_->value() != static_cast<int>(videoPosition))
+        videoSeek_->setValue(static_cast<int>(videoPosition));
+    if (videoSeek_->maximum() != std::max(1, static_cast<int>(videoDuration)))
+        videoSeek_->setMaximum(std::max(1, static_cast<int>(videoDuration)));
+    const QString videoTimeText = shownTime(videoPosition) + " / " + shownTime(videoDuration);
+    if (videoTime_->text() != videoTimeText) videoTime_->setText(videoTimeText);
+
     if (videoPlaying_ && chapterDuration > 0 && (position >= chapterDuration || (!encap_audio_playing() && position > 0))) {
         videoPlaying_ = false;
         encap_audio_pause();
