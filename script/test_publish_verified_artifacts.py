@@ -93,6 +93,51 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Refusing to replace"):
                 publisher.upload_verified("v2.0.5", package, {package.name})
 
+    @patch.object(publisher, "verify_authenticated_feed", return_value=False)
+    @patch.object(publisher, "upload_verified")
+    @patch.object(publisher, "ensure_release")
+    @patch.object(publisher, "run")
+    def test_feedless_stable_publication_keeps_latest_false(self, run, ensure_release, _upload, _verify_feed):
+        ensure_release.return_value = {"isPrerelease": False, "assets": []}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = self.mac_package(root)
+            publisher.publish(f"refs/tags/v{VERSION}", SHA, "macos-arm64", root, source_version=VERSION)
+            edit_calls = [call for call in run.call_args_list if call.args[:3] == ("gh", "release", "edit")]
+            self.assertEqual(len(edit_calls), 1)
+            self.assertIn("--latest=false", edit_calls[0].args)
+
+    @patch.object(publisher, "verify_authenticated_feed", return_value=True)
+    @patch.object(publisher, "upload_verified")
+    @patch.object(publisher, "ensure_release")
+    @patch.object(publisher, "run")
+    def test_authenticated_feed_publication_promotes_latest(self, run, ensure_release, _upload, _verify_feed):
+        ensure_release.return_value = {"isPrerelease": False, "assets": []}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = self.mac_package(root)
+            publisher.publish(f"refs/tags/v{VERSION}", SHA, "macos-arm64", root, source_version=VERSION)
+            edit_calls = [call for call in run.call_args_list if call.args[:3] == ("gh", "release", "edit")]
+            self.assertEqual(len(edit_calls), 1)
+            self.assertIn("--latest=true", edit_calls[0].args)
+
+    @patch.object(publisher, "verify_authenticated_feed", return_value=False)
+    @patch.object(publisher, "release_info", return_value={"isPrerelease": False, "assets": []})
+    @patch.object(publisher, "run")
+    def test_invalid_feed_promotion_fails_closed(self, run, _release_info, _verify_feed):
+        with self.assertRaisesRegex(RuntimeError, "does not satisfy authenticated update feed"):
+            publisher.promote_feed(f"v{VERSION}")
+        run.assert_not_called()
+
+    @patch.object(publisher, "verify_authenticated_feed", return_value=True)
+    @patch.object(publisher, "release_info", return_value={"isPrerelease": False, "assets": []})
+    @patch.object(publisher, "run")
+    def test_valid_feed_promotion_sets_latest(self, run, _release_info, _verify_feed):
+        publisher.promote_feed(f"v{VERSION}")
+        run.assert_called_once_with("gh", "release", "edit", f"v{VERSION}", "--repo", publisher.REPOSITORY,
+                                    "--draft=false", "--latest=true")
+
 
 if __name__ == "__main__":
     unittest.main()
+

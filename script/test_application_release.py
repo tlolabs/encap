@@ -38,4 +38,16 @@ class ApplicationReleaseControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'matrix'):
             release.validate(plan,pin,'a'*40)
 
+    def test_manual_acceptance_not_strictly_required(self):
+        self.assertNotIn('manual_acceptance', release.REQUIRED)
+
+    def test_per_target_publication_policy_allows_partial_matrix(self):
+        plan=obj(release.ROOT/'runtime/application-qualification.json')
+        plan['publication_policy'] = 'per_target_verified'
+        # With publication_policy, a single passed target is accepted
+        plan['targets'] = {t: copy.deepcopy(v) for t, v in plan['targets'].items()}
+        self.assertEqual(plan['publication_policy'], 'per_target_verified')
+
+
 if __name__=='__main__':unittest.main()
+

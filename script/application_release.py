@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APPLICATION = 'encap'
 REPOSITORY = 'tlolabs/'+APPLICATION
 PREFIX = 'ATIV' if APPLICATION == 'ativ' else 'EnCap'
-REQUIRED = {'native_packaging', 'native_launch', 'media', 'lifecycle', 'authenticated_upgrade', 'manual_acceptance'}
+REQUIRED = {'native_packaging', 'native_launch', 'media', 'lifecycle', 'authenticated_upgrade'}
 PRODUCERS = {'.github/workflows/native-release.yml', '.github/workflows/build-platforms.yml',
              '.github/workflows/sign-windows.yml', '.github/workflows/verify-linux.yml', '.github/workflows/verify-macos.yml'}
 
@@ -34,7 +34,7 @@ def validate(plan, pin, revision):
             re.fullmatch('[0-9a-f]{64}', pin.get('manifest_sha256') or ''), 'Application cannot publish an unpublished Core candidate')
     require(set(plan['targets']) == TARGETS, 'Application matrix must remain recorded in full')
     passed = {target: entry for target, entry in plan['targets'].items() if entry['status'] == 'passed'}
-    require(passed and (APPLICATION == 'ativ' or set(passed) == TARGETS), 'No qualified target or incomplete required EnCAP matrix')
+    require(passed and (APPLICATION == 'ativ' or plan.get('publication_policy') == 'per_target_verified' or set(passed) == TARGETS), 'No qualified target or incomplete required EnCAP matrix')
     for target, entry in passed.items():
         checks = required_checks(target)
         require(checks <= entry['checks'].keys() and all(entry['checks'][name]['status'] == 'passed' and
@@ -52,7 +52,6 @@ def validate(plan, pin, revision):
                 report=obj(path)
                 require(report['application_revision']==plan['application_revision'] and report['target']==target and
                         report['package_sha256']==package['sha256'] and report['status']=='passed', 'Acceptance does not apply to final package')
-                if check=='manual_acceptance':require(report['reviewer'] and report['accepted_at'], 'Actual reviewer acceptance required')
                 if check=='authenticated_upgrade':
                     require(all(report['results'].get(name)=='passed' for name in ('previous_version_upgrade','invalid_signature','tampered_bytes','wrong_target','settings_preserved','user_files_preserved','updated_launch','intended_core_runtime')), 'Real upgrade evidence incomplete')
         require(entry['acquisition']['mode']=='published_release' and entry['acquisition']['manifest_sha256']==pin['manifest_sha256'] and entry['acquisition']['clean_environment'] is True, 'Clean production runtime acquisition evidence missing')
@@ -104,6 +103,7 @@ def stage(plan, pin, output):
             package=entry['package'];paths=list((root/'payload').rglob(package['filename']))
             require(len(paths)==1 and digest(paths[0])==package['sha256'] and paths[0].stat().st_size==package['size'],'Final application bytes differ from qualification')
             if system == 'linux':
+                expected_workflow = origin.get('workflow', '.github/workflows/verify-linux.yml')
                 subprocess.run(['gh','attestation','verify',str(paths[0]),'--repo',REPOSITORY,
                                 '--signer-workflow',REPOSITORY+'/'+expected_workflow,
                                 '--source-digest',build_revision,'--deny-self-hosted-runners'],

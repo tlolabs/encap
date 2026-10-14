@@ -154,6 +154,148 @@ def upload_verified(tag, path, existing):
     print(f"Verified uploaded asset: {path.name} sha256={digest}")
 
 
+import os
+import xml.etree.ElementTree as ET
+
+
+def fetch_remote_text(tag, filename):
+    with tempfile.TemporaryDirectory(prefix="encap-release-") as temporary:
+        result = run("gh", "release", "download", tag, "--repo", REPOSITORY,
+                     "--pattern", filename, "--dir", temporary, check=False)
+        downloaded = Path(temporary) / filename
+        if result.returncode == 0 and downloaded.is_file():
+            return downloaded.read_text(encoding="utf-8")
+    return None
+
+
+def verify_authenticated_feed(tag, info, version, public_key_bytes=None):
+    """Verify that the release contains authentic signed update metadata matching its assets."""
+    if not info or not info.get("assets"):
+        return False
+    remote_assets = {a["name"]: a for a in info["assets"]}
+    if "update-manifest.json" not in remote_assets:
+        return False
+
+    manifest_text = fetch_remote_text(tag, "update-manifest.json")
+    if not manifest_text:
+        return False
+
+    try:
+        envelope = json.loads(manifest_text)
+        if not isinstance(envelope, dict) or "payload" not in envelope or "signature" not in envelope:
+            return False
+        import base64
+        payload_raw = base64.b64decode(envelope["payload"], validate=True)
+        sig_bytes = base64.b64decode(envelope["signature"], validate=True)
+
+        if public_key_bytes is None:
+            raw_key = os.environ.get("ENCAP_UPDATE_PUBLIC_KEY")
+            if raw_key:
+                public_key_bytes = base64.b64decode(raw_key.strip(), validate=True)
+            elif (ROOT / "runtime/updater-public-key.txt").is_file():
+                public_key_bytes = base64.b64decode((ROOT / "runtime/updater-public-key.txt").read_text().strip(), validate=True)
+
+        if not public_key_bytes or len(public_key_bytes) != 32:
+            return False
+
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+            Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(sig_bytes, payload_raw)
+        except Exception:
+            return False
+
+        payload = json.loads(payload_raw.decode("utf-8"))
+        if (payload.get("schema") != 2
+                or payload.get("application_id") != "com.tlolabs.encap"
+                or payload.get("repository") != REPOSITORY
+                or payload.get("version") != version
+                or payload.get("tag") != f"v{version}"
+                or payload.get("channel") != "stable"
+                or payload.get("draft")
+                or payload.get("prerelease")
+                or not payload.get("assets")):
+            return False
+
+        for target_name, asset in payload["assets"].items():
+            fname = asset.get("filename")
+            if not fname or fname not in remote_assets:
+                return False
+            if "size" in remote_assets[fname] and remote_assets[fname]["size"] != asset.get("size"):
+                return False
+            if asset.get("platform") == "macos":
+                appcast_name = f"appcast-{target_name}.xml"
+                if appcast_name not in remote_assets:
+                    return False
+                appcast_text = fetch_remote_text(tag, appcast_name)
+                if not appcast_text:
+                    return False
+                tree = ET.fromstring(appcast_text)
+                SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+                enclosure = tree.find(".//enclosure")
+                if (enclosure is None
+                        or enclosure.attrib.get("url") != asset.get("url")
+                        or int(enclosure.attrib.get("length", 0)) != asset.get("size")
+                        or tree.find(f".//{{{SPARKLE}}}version") is None
+                        or tree.find(f".//{{{SPARKLE}}}version").text != version):
+                    return False
+                sig = enclosure.attrib.get(f"{{{SPARKLE}}}edSignature")
+                if not sig:
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def promote_feed(tag, version=None, public_key_bytes=None):
+    """Promote an eligible release to latest only when its authenticated feeds satisfy contract."""
+    info = release_info(tag)
+    if not info:
+        raise RuntimeError(f"Release {tag} was not found on remote repository")
+    if version is None:
+        if not tag.startswith("v"):
+            raise ValueError(f"Tag {tag} is not a version tag")
+        version = tag[1:]
+    if not verify_authenticated_feed(tag, info, version, public_key_bytes):
+        raise RuntimeError(f"Release {tag} does not satisfy authenticated update feed requirements")
+    run("gh", "release", "edit", tag, "--repo", REPOSITORY,
+        "--draft=false", "--latest=true")
+    print(f"Successfully promoted {tag} to latest authenticated update release.")
+    return True
+
+
+def prepare_distribution_record(path, version, target, sha):
+    """Associate package with source commit, Qt/FFmpeg provenance and license notices."""
+    digest = sha256(path)
+    record = {
+        "schema": 1,
+        "application": "EnCap",
+        "version": version,
+        "target": target,
+        "source_commit": sha,
+        "package_filename": path.name,
+        "package_sha256": digest,
+        "package_size": path.stat().st_size,
+        "notices": [
+            "THIRD_PARTY_NOTICES.md",
+            "LICENSE",
+            "desktop/vendor/miniaudio.LICENSE",
+            "docs/qt-licensing.md"
+        ],
+        "corresponding_sources": {
+            "encap_source_commit": sha,
+            "miniaudio": {
+                "upstream_version": "0.11.23",
+                "pristine_sha256": "7e4f3f13c8fe66df2080ac3dd12a89193e3c2463cb7f067c798abd7331cd8ee6",
+                "vendored_sha256": "e5cb323cec7932d068a225d7c84f8b895caa7027b6b052fe0085e825c323a730",
+                "local_patches": "Overflow hardening in sample/frame allocation and buffer parsing"
+            }
+        }
+    }
+    provenance_path = path.parent / f"{path.name}.provenance.json"
+    provenance_path.write_text(json.dumps(record, indent=2) + "\n")
+    return provenance_path
+
+
 def publish(ref, sha, target, directory, source_version=None):
     if target not in TARGETS:
         raise ValueError(f"Unsupported target {target}")
@@ -174,33 +316,46 @@ def publish(ref, sha, target, directory, source_version=None):
         raise ValueError("Expected a stable Cargo SemVer version")
     tag, prerelease = publication_identity(ref, sha, version)
     path = directory / f"EnCap-{version}-{target}.{TARGETS[target]}"
-    if {item.name for item in directory.iterdir()} != {path.name}:
-        raise ValueError(f"Expected one verified {target} artifact in {directory}")
+    if not path.is_file():
+        raise ValueError(f"Expected verified {target} artifact {path.name} in {directory}")
     verify_package(path, version, target)
     digest = sha256(path)
     checksum = directory / f"{path.name}.sha256"
     checksum.write_text(f"{digest}  {path.name}\n")
+    provenance = prepare_distribution_record(path, version, target, sha)
     info = ensure_release(tag, sha, prerelease)
     existing = {asset["name"] for asset in info["assets"]}
     upload_verified(tag, path, existing)
     upload_verified(tag, checksum, existing)
+    upload_verified(tag, provenance, existing)
+    info = release_info(tag) or info
+    promoted = False if prerelease else verify_authenticated_feed(tag, info, version)
     run("gh", "release", "edit", tag, "--repo", REPOSITORY,
-        "--draft=false", f"--latest={'false' if prerelease else 'true'}")
-    print(f"Published {target} to {tag}")
+        "--draft=false", f"--latest={'true' if promoted else 'false'}")
+    print(f"Published {target} to {tag} (latest_promoted={promoted})")
     return tag
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-ref", required=True)
-    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--source-ref")
+    parser.add_argument("--source-sha")
     parser.add_argument("--source-version")
-    parser.add_argument("--target", required=True, choices=sorted(TARGETS))
-    parser.add_argument("artifact_directory", type=Path)
+    parser.add_argument("--target", choices=sorted(TARGETS))
+    parser.add_argument("--promote-feed", action="store_true", help="Promote qualified release to latest")
+    parser.add_argument("--tag")
+    parser.add_argument("artifact_directory", nargs="?", type=Path)
     args = parser.parse_args()
     try:
-        publish(args.source_ref, args.source_sha, args.target, args.artifact_directory,
-                args.source_version)
+        if args.promote_feed:
+            if not args.tag:
+                parser.error("--promote-feed requires --tag")
+            promote_feed(args.tag, args.source_version)
+        else:
+            if not (args.source_ref and args.source_sha and args.target and args.artifact_directory):
+                parser.error("--source-ref, --source-sha, --target, and artifact_directory required for publish")
+            publish(args.source_ref, args.source_sha, args.target, args.artifact_directory,
+                    args.source_version)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"Release publication failed: {error}", file=sys.stderr)
         raise SystemExit(1)

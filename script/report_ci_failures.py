@@ -20,6 +20,7 @@ MONITORED_WORKFLOWS = {
     "Verify locally notarized Mac qualification packages",
     "CodeQL",
     "Retry failed verification workflows",
+    "Publish recovered platform artifacts",
 }
 
 
@@ -65,19 +66,31 @@ def current_run_failures():
 
     failures = []
     for (workflow, branch), run in sorted(grouped.items()):
-        if run["status"] != "completed" or run["conclusion"] in ("success", "skipped", "cancelled"):
+        if run["status"] != "completed" or run["conclusion"] in ("skipped", "cancelled"):
             continue
-        if run["conclusion"] not in ("failure", "timed_out", "action_required", "startup_failure"):
-            continue
+        is_failed_run = run["conclusion"] in ("failure", "timed_out", "action_required", "startup_failure")
+        failed_job_names = []
+        has_failed_steps = False
         try:
             details = json.loads(gh("run", "view", str(run["databaseId"]), "--json", "jobs").stdout)
-            jobs = [
-                job for job in details["jobs"]
-                if job.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required")
-            ]
-            job_names = ", ".join(job["name"] for job in jobs) or "workflow failed; job detail unavailable"
+            for job in details.get("jobs", []):
+                if job.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required"):
+                    failed_job_names.append(job.get("name", "unnamed job"))
+                else:
+                    for step in job.get("steps", []):
+                        if step.get("conclusion") in ("failure", "timed_out"):
+                            has_failed_steps = True
+                            failed_job_names.append(f"{job.get('name', 'unnamed')}: {step.get('name', 'unnamed step')} (continued)")
         except (subprocess.CalledProcessError, json.JSONDecodeError):
-            job_names = "workflow failed; job detail unavailable"
+            if is_failed_run:
+                failed_job_names = ["workflow failed; job detail unavailable"]
+            else:
+                continue
+
+        if not is_failed_run and not has_failed_steps:
+            continue
+
+        job_names = ", ".join(failed_job_names) or "workflow failed; job detail unavailable"
         failures.append({
             "key": f"{workflow}|{branch}",
             "workflow": workflow,
@@ -88,6 +101,7 @@ def current_run_failures():
             "created": run["createdAt"],
         })
     return failures
+
 
 
 def security_findings():

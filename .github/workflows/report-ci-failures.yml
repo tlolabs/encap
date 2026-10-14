@@ -10,6 +10,7 @@ on:
       - Verify locally notarized Mac qualification packages
       - CodeQL
       - Retry failed verification workflows
+      - Publish recovered platform artifacts
     types: [completed]
   schedule:
     - cron: "17 6 * * *"

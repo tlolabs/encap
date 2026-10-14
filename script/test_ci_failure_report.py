@@ -63,6 +63,88 @@ class CurrentRunFailuresTests(unittest.TestCase):
         self.assertEqual({item["branch"] for item in failures}, {"main", "open-pr"})
         self.assertTrue(all(item["jobs"] == "Linux arm64" for item in failures))
 
+    def test_successful_run_with_failed_continued_step_is_reported(self):
+        runs = [self.run_record("main", "completed", "success", "2026-10-14T10:00:00Z")]
+
+        def fake_gh(*args, **_kwargs):
+            if args[:2] == ("run", "list"):
+                return SimpleNamespace(stdout=json.dumps(runs))
+            self.assertEqual(args[:2], ("run", "view"))
+            return SimpleNamespace(stdout=json.dumps({
+                "jobs": [{
+                    "name": "Publish macos-arm64",
+                    "conclusion": "success",
+                    "steps": [
+                        {"name": "Check out", "conclusion": "success"},
+                        {"name": "Attest verified package provenance", "conclusion": "failure"},
+                        {"name": "Publish verified direct download", "conclusion": "success"},
+                    ]
+                }]
+            }))
+
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/repo"}), \
+             patch.object(report_ci_failures, "fetch_json", side_effect=lambda path: [{"name": "main"}] if "/branches?" in path else []), \
+             patch.object(report_ci_failures, "gh", side_effect=fake_gh):
+            failures = report_ci_failures.current_run_failures()
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Attest verified package provenance", failures[0]["jobs"])
+        self.assertIn("continued", failures[0]["jobs"])
+
+    def test_recovery_publication_workflow_monitored_and_reported(self):
+        run = {
+            "databaseId": 456,
+            "workflowName": "Publish recovered platform artifacts",
+            "status": "completed",
+            "conclusion": "failure",
+            "createdAt": "2026-10-14T11:00:00Z",
+            "headBranch": "main",
+            "headSha": "def456",
+            "url": "https://github.com/example/repo/actions/runs/456",
+            "event": "workflow_run",
+        }
+
+        def fake_gh(*args, **_kwargs):
+            if args[:2] == ("run", "list"):
+                return SimpleNamespace(stdout=json.dumps([run]))
+            self.assertEqual(args[:2], ("run", "view"))
+            return SimpleNamespace(stdout=json.dumps({"jobs": [{"name": "recover-macos-arm64", "conclusion": "failure"}]}))
+
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/repo"}), \
+             patch.object(report_ci_failures, "fetch_json", side_effect=lambda path: [{"name": "main"}] if "/branches?" in path else []), \
+             patch.object(report_ci_failures, "gh", side_effect=fake_gh):
+            failures = report_ci_failures.current_run_failures()
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["workflow"], "Publish recovered platform artifacts")
+        self.assertEqual(failures[0]["jobs"], "recover-macos-arm64")
+
+    def test_subsequent_fully_green_run_resolves_failure(self):
+        runs = [
+            self.run_record("main", "completed", "success", "2026-10-14T12:00:00Z"),
+        ]
+
+        def fake_gh(*args, **_kwargs):
+            if args[:2] == ("run", "list"):
+                return SimpleNamespace(stdout=json.dumps(runs))
+            self.assertEqual(args[:2], ("run", "view"))
+            return SimpleNamespace(stdout=json.dumps({
+                "jobs": [{
+                    "name": "Publish macos-arm64",
+                    "conclusion": "success",
+                    "steps": [
+                        {"name": "Check out", "conclusion": "success"},
+                        {"name": "Attest verified package provenance", "conclusion": "success"},
+                        {"name": "Publish verified direct download", "conclusion": "success"},
+                    ]
+                }]
+            }))
+
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/repo"}), \
+             patch.object(report_ci_failures, "fetch_json", side_effect=lambda path: [{"name": "main"}] if "/branches?" in path else []), \
+             patch.object(report_ci_failures, "gh", side_effect=fake_gh):
+            failures = report_ci_failures.current_run_failures()
+        self.assertEqual(failures, [])
+
 
 if __name__ == "__main__":
     unittest.main()
+

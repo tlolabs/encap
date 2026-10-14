@@ -22,7 +22,7 @@ if __name__ == '__main__':
     require(run['repository']['full_name']==repo and run['head_repository']['full_name']==repo and
             run['head_sha']==revision and run['event']=='workflow_dispatch' and run['path']==expected and
             run['status']=='completed' and run['conclusion'] in ('success','failure'),'Untrusted native input origin')
-    require(not a.allow_partial or repo=='tlolabs/ativ','Partial publication policy is ATIV-only')
+    require(not a.allow_partial or repo in ('tlolabs/ativ', 'tlolabs/encap'), 'Unexpected repository for partial publication')
     prefix=('ATIV' if repo.endswith('/ativ') else 'EnCap')+'-'+a.platform+'-'
     labels=['arm64','x86_64'] if a.platform=='macos' and repo.endswith('/ativ') else ['arm64','intel'] if a.platform=='macos' else ['x64','ARM64'] if a.platform=='windows' and repo.endswith('/ativ') else ['x86_64','aarch64'] if a.platform=='linux' and repo.endswith('/ativ') else ['x64','arm64']
     artifacts=gh_json(f'repos/{repo}/actions/runs/{a.run}/artifacts?per_page=100')['artifacts']
