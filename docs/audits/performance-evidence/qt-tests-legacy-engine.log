@@ -1,0 +1,13 @@
+Test project /Users/tlothian/Documents/Projects/EnCAP/build/performance-remediation/qt
+    Start 1: encap-qt-engine-contract
+1/4 Test #1: encap-qt-engine-contract ...........   Passed    0.03 sec
+    Start 2: encap-qt-widgets-accessibility
+2/4 Test #2: encap-qt-widgets-accessibility .....   Passed    0.81 sec
+    Start 3: encap-qt-performance-regressions
+3/4 Test #3: encap-qt-performance-regressions ...   Passed    0.51 sec
+    Start 4: miniaudio-security-regressions
+4/4 Test #4: miniaudio-security-regressions .....   Passed    0.00 sec
+
+100% tests passed out of 4
+
+Total Test time (real) =   1.35 sec

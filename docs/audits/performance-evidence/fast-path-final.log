@@ -1,0 +1,9 @@
+   Compiling encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.41s
+     Running unittests src/lib.rs (target/debug/deps/encap_core-cde3aff96ccce4e7)
+
+running 1 test
+test waveform::fast_path_equivalence::scan_matches_generic_for_encodings_channels_padding_and_edge_values ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.02s
+

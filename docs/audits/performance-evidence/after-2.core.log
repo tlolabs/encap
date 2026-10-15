@@ -1,0 +1,34 @@
+
+running 1 test
+
+=======================================================
+      EnCAP Core Comprehensive Performance Benchmark    
+=======================================================
+
+BENCH: natural_sort_200_files              | Median: 341.541µs | P95: 383.250µs | Min: 322.875µs | Max: 415.833µs | Ops/sec:     2881.2
+BENCH: natural_sort_200_mixed_unicode      | Median: 452.791µs | P95: 737.709µs | Min: 430.042µs | Max: 742.000µs | Ops/sec:     2068.8
+BENCH: inspect_wav_10s_audio               | Median:  9.250µs | P95: 12.458µs | Min:  8.708µs | Max: 13.417µs | Ops/sec:   105116.0
+BENCH: inspect_aiff_10s_audio              | Median:  9.708µs | P95: 10.583µs | Min:  9.541µs | Max: 12.500µs | Ops/sec:   101751.3
+BENCH: inspect_wav_odd_metadata            | Median:  9.625µs | P95: 12.208µs | Min:  9.458µs | Max: 35.166µs | Ops/sec:    96989.4
+BENCH: waveform_preview_2min_wav           | Median: 51.458µs | P95: 61.208µs | Min: 48.833µs | Max: 89.958µs | Ops/sec:    18813.8
+BENCH: waveform_preview_pcm24_stereo       | Median: 83.709µs | P95: 87.417µs | Min: 78.333µs | Max: 88.958µs | Ops/sec:    12097.3
+BENCH: waveform_preview_float32_stereo     | Median: 54.000µs | P95: 56.750µs | Min: 50.917µs | Max: 58.667µs | Ops/sec:    18708.8
+BENCH: project_first_save_11mb             | Median: 14.847ms | P95: 16.546ms | Min: 11.317ms | Max: 16.546ms | Ops/sec:       68.5
+BENCH: project_incremental_metadata_save   | Median: 10.822ms | P95: 12.484ms | Min:  9.488ms | Max: 12.643ms | Ops/sec:       92.6
+BENCH: project_load_and_extract            | Median:  4.737ms | P95:  5.240ms | Min:  4.488ms | Max:  5.240ms | Ops/sec:      209.3
+BENCH: audio_edit_triage_cut               | Median:  1.500µs | P95:  1.792µs | Min:  1.458µs | Max:  4.875µs | Ops/sec:   612602.5
+BENCH: render_transcript_text_1000_segments | Median: 15.208µs | P95: 15.375µs | Min: 15.041µs | Max: 15.417µs | Ops/sec:    65822.2
+BENCH: render_srt_1000_segments            | Median: 108.084µs | P95: 113.583µs | Min: 107.416µs | Max: 117.791µs | Ops/sec:     9188.0
+BENCH: render_transcript_unicode_variable  | Median: 10.917µs | P95: 12.333µs | Min: 10.833µs | Max: 13.417µs | Ops/sec:    90130.9
+BENCH: render_srt_unicode_variable         | Median: 110.500µs | P95: 117.375µs | Min: 110.083µs | Max: 121.250µs | Ops/sec:     8937.9
+
+=======================================================
+                Benchmark Suite Complete               
+=======================================================
+
+test run_comprehensive_benchmarks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running tests/benchmarks.rs (build/performance-remediation/after-target/release/deps/benchmarks-c4e76ce7a6ea37fe)

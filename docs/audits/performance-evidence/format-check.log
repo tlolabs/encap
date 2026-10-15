@@ -1,0 +1,97 @@
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-audio/src/lib.rs:352:
+         }
+     }
+ }
+-
+ 
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/file_ops.rs:79:
+     Ok(())
+ }
+ 
+-
+ fn normalize_path(path: &Path) -> PathBuf {
+     use std::path::Component;
+     let mut components = Vec::new();
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/file_ops.rs:106:
+     let src_lex = normalize_path(source);
+ 
+     // 1. Direct equality after canonicalization
+-    let dest_canon = fs::canonicalize(&dest_lex).or_else(|_| fs::canonicalize(destination)).ok();
+-    let src_canon = fs::canonicalize(&src_lex).or_else(|_| fs::canonicalize(source)).ok();
++    let dest_canon = fs::canonicalize(&dest_lex)
++        .or_else(|_| fs::canonicalize(destination))
++        .ok();
++    let src_canon = fs::canonicalize(&src_lex)
++        .or_else(|_| fs::canonicalize(source))
++        .ok();
+ 
+     if let (Some(dc), Some(sc)) = (&dest_canon, &src_canon) {
+         if dc == sc {
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/file_ops.rs:239:
+         assert_eq!(fs::read(&source).unwrap(), b"original audio bytes");
+     }
+ }
+-
+ 
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/model.rs:298:
+         for source in &self.audio_sources {
+             if !is_valid_duration(source.duration_seconds) {
+                 return Err(crate::EncapError::Message(
+-                    "Audio source duration is invalid or exceeds maximum permitted duration.".into(),
++                    "Audio source duration is invalid or exceeds maximum permitted duration."
++                        .into(),
+                 ));
+             }
+         }
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/model.rs:316:
+             let end_time = chapter.start_time_seconds + chapter.duration_seconds;
+             if !end_time.is_finite() || end_time > MAX_DURATION_SECONDS {
+                 return Err(crate::EncapError::Message(
+-                    "Chapter timing or total project duration exceeds maximum permitted bounds.".into(),
++                    "Chapter timing or total project duration exceeds maximum permitted bounds."
++                        .into(),
+                 ));
+             }
+             previous = chapter.start_time_seconds;
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-core/src/model.rs:344:
+                     || word.end_time_seconds > segment.end_time_seconds
+                 {
+                     return Err(crate::EncapError::Message(
+-                        "Word-level transcript timing is invalid or exceeds permitted bounds.".into(),
++                        "Word-level transcript timing is invalid or exceeds permitted bounds."
++                            .into(),
+                     ));
+                 }
+             }
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-ffmpeg/src/runtime.rs:177:
+         return Err(unavailable());
+     }
+     for name in [&ffmpeg_name, &ffprobe_name] {
+-        let base_name = name.strip_suffix(std::env::consts::EXE_SUFFIX).unwrap_or(name);
++        let base_name = name
++            .strip_suffix(std::env::consts::EXE_SUFFIX)
++            .unwrap_or(name);
+         let expected_original = files.get(name).ok_or_else(unavailable)?;
+         if signed["original_binary_sha256"][name] != *expected_original {
+             return Err(unavailable());
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-ffmpeg/src/runtime.rs:184:
+         }
+-        if let Some(pin_hash) = record["binary_sha256"].get(base_name).and_then(|v| v.as_str()) {
++        if let Some(pin_hash) = record["binary_sha256"]
++            .get(base_name)
++            .and_then(|v| v.as_str())
++        {
+             if pin_hash != *expected_original {
+                 return Err(unavailable());
+             }
+Diff in /Users/tlothian/Documents/Projects/EnCAP/crates/encap-transcript/src/lib.rs:672:
+ fn get_process_cached_verification(key: &str, current: &VerificationRecord) -> Option<bool> {
+     let lock = PROCESS_VERIFICATION_CACHE.lock().ok()?;
+     let map = lock.as_ref()?;
+-    map.get(key).filter(|r| r.same_file(current)).map(|r| r.valid)
++    map.get(key)
++        .filter(|r| r.same_file(current))
++        .map(|r| r.valid)
+ }
+ 
+ fn put_process_cached_verification(key: String, record: VerificationRecord) {

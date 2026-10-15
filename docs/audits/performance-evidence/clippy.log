@@ -1,0 +1,18 @@
+   Compiling encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-core)
+    Checking encap-portable-update v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-portable-update)
+    Checking encap-release v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-release)
+    Checking tlo-updater v0.1.0 (/Users/tlothian/Documents/Projects/EnCAP/updater)
+    Checking encap-update v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-update)
+error: manual `RangeInclusive::contains` implementation
+  --> crates/encap-core/src/model.rs:19:28
+   |
+19 |     seconds.is_finite() && seconds >= 0.0 && seconds <= MAX_DURATION_SECONDS
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.0..=MAX_DURATION_SECONDS).contains(&seconds)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_range_contains
+   = note: `-D clippy::manual-range-contains` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_range_contains)]`
+
+error: could not compile `encap-core` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `encap-core` (lib test) due to 1 previous error

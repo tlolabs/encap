@@ -1,0 +1,253 @@
+   Compiling encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-core)
+   Compiling encap-ffmpeg v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-ffmpeg)
+   Compiling encap-video v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-video)
+   Compiling encap-transcript v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-transcript)
+   Compiling encap-audio v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-audio)
+   Compiling encap-engine v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-engine)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.34s
+     Running unittests src/lib.rs (target/debug/deps/encap_audio-c61080d96aa5c130)
+
+running 3 tests
+test tests::metadata_contains_chapters ... ok
+test tests::command_arguments_do_not_use_a_shell ... ok
+test tests::test_export_rejects_source_conflict_and_preserves_bytes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/encap_core-ffcedcc7b7e6caf9)
+
+running 41 tests
+test project::incremental::tests::benchmark_large_project_saves ... ignored, writes a 256 MiB fixture; run in release mode to measure save latency
+test model::tests::test_exceeding_max_duration_rejected ... ok
+test model::tests::test_negative_or_nan_duration_rejected ... ok
+test model::tests::test_valid_project_duration ... ok
+test model::tests::test_huge_duration_rejected ... ok
+test model::tests::test_max_duration_boundary ... ok
+test audio_editing::tests::unknown_removal_and_duplicate_addition_are_noops ... ok
+test audio_editing::tests::triage_preserves_source_mapping_custom_metadata_and_transcript_timing ... ok
+test audio_editing::tests::multiple_removal_and_all_removal_leave_no_dangling_chapters ... ok
+test archive_copy::tests::failed_clone_discards_partial_stage_before_copying ... ok
+test project::incremental::tests::save_cache_respects_env_override ... ok
+test file_ops::tests::replaces_existing_file_after_staging_completes ... ok
+test project::tests::rejects_traversal ... ok
+test file_ops::tests::detects_conflicting_paths_with_symlinks_and_aliases ... ok
+test project::incremental::tests::changing_media_during_save_is_rejected_before_commit ... ok
+test source::performance_regressions::natural_order_is_consistent_for_unicode_long_numbers_and_leading_zeros ... ok
+test source::tests::natural_sort_orders_recording_numbers ... ok
+test archive_copy::tests::staged_copy_preserves_partial_tail_and_isolates_writes ... ok
+test transcript::equivalence_tests::text_and_srt_preserve_established_unicode_trimming_numbering_and_rounding ... ok
+test waveform::tests::aiff_big_endian_and_sound_offset ... ok
+test source::tests::selected_files_preserve_order_and_ignore_unselected_invalid_audio ... ok
+test waveform::tests::sample_encodings_and_non_finite_values ... ok
+test source::performance_regressions::extensible_wav_validates_subformat_and_keeps_trailing_fmt_alignment ... ok
+test waveform::tests::truncated_input_is_rejected ... ok
+test waveform::fast_path_equivalence::scan_matches_generic_for_encodings_channels_padding_and_edge_values ... ok
+test waveform::tests::first_channel_in_mono_stereo_and_surround ... ok
+test source::performance_regressions::aiff_skips_comm_tail_and_accounts_for_sound_offset ... ok
+test source::performance_regressions::wav_bounded_fmt_reads_preserve_alignment_and_reject_bad_lengths ... ok
+test waveform::tests::sampling_io_is_bounded_for_large_recordings ... ok
+ZipWriter drop failed: Io(Custom { kind: Other, error: "Project operation cancelled safely." })test project::incremental::tests::missing_media_does_not_replace_previous_save ... ok
+test project::tests::saves_and_loads_schema_one_compatible_project ... ok
+test source::performance_regressions::aifc_supported_encodings_preserve_offsets_frames_and_previews ... ok
+test project::cancellation_regressions::cancelled_full_incremental_and_extract_work_preserves_valid_archives_and_cleans_scratch ... ok
+test project::tests::native_client_round_trip_preserves_unknown_manifest_fields ... ok
+test project::incremental::tests::changed_artwork_preserves_existing_compressed_audio_without_reencoding ... ok
+test project::tests::migrates_schema_one_without_losing_embedded_project_data ... ok
+test project::incremental::tests::reopening_populates_index_even_when_native_client_drops_stored_paths ... ok
+test project::incremental::tests::cache_loss_and_external_archive_replacement_fall_back_to_complete_save ... ok
+test project::tests::native_client_round_trip_preserves_extensions_when_reordered_or_inserted ... ok
+test project::incremental::tests::same_length_media_edits_and_removed_artwork_are_saved ... ok
+test project::incremental::tests::repeated_metadata_saves_reopen_and_do_not_accumulate_old_manifests ... ok
+
+test result: ok. 40 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/benchmarks.rs (target/debug/deps/benchmarks-d44b00a05d817ad1)
+
+running 1 test
+test run_comprehensive_benchmarks ... ignored, diagnostic timings; run explicitly in release mode
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/video_persistence.rs (target/debug/deps/video_persistence-579435b2499b8615)
+
+running 1 test
+test schema_one_two_video_roundtrips_preserve_opaque_state_and_audio_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/main.rs (target/debug/deps/encap_engine-f2880d9c5a1150b9)
+
+running 2 tests
+test response_regressions::buffered_response_reports_write_and_flush_failures ... ok
+test tests::recovery_is_lightweight_atomic_and_non_destructive ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/audio_edit_protocol.rs (target/debug/deps/audio_edit_protocol-9e37ac1bf88a8e4b)
+
+running 1 test
+test add_remove_and_save_reopen_keep_sources_and_chapters_in_sync ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/build_identity.rs (target/debug/deps/build_identity-43732707d92ee2db)
+
+running 3 tests
+test normal_engine_reports_the_resolved_core_pin_without_media_tools ... ok
+test engine_startup_probe_returns_providers_presets_and_recovery ... ok
+test startup_matches_legacy_commands_and_preserves_recovery_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cbc5a2f35af05290)
+
+running 5 tests
+test artwork_flips_and_real_media_failures_preserve_sources ... ignored, requires the explicit approved FFmpeg/ffprobe release pair
+test real_ffmpeg_cancellation_reaps_child ... ignored, requires the packaged source runtime
+test release_pair_has_complete_audio_transcript_video_capabilities ... ignored, requires the explicit approved FFmpeg/ffprobe release pair
+test transcript_mode_uses_packaged_ffmpeg_and_real_whisper ... ignored, requires packaged Whisper and the checksum-verified Base English model
+test whole_engine_media_persistence_recovery_and_reference_contract ... ignored, requires the explicit approved FFmpeg/ffprobe release pair
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/save_protocol.rs (target/debug/deps/save_protocol-d409cf106af274b7)
+
+running 2 tests
+test mode_saves_across_engine_processes_keep_one_portable_document ... ok
+test mode_switch_save_latency_does_not_scale_with_existing_media ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+     Running tests/video_protocol.rs (target/debug/deps/video_protocol-69491f723640eeec)
+
+running 4 tests
+test host_resolution_rejects_invalid_overrides_and_path_fallback ... ok
+test audio_and_transcript_signals_cancel_shared_pair_validation ... ok
+test shared_validation_rejects_partial_mismatched_and_unidentified_pairs ... ok
+test one_signal_handler_cancels_video_validation_capabilities_probes_and_encoding ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+     Running unittests src/lib.rs (target/debug/deps/encap_ffmpeg-c0ad2fd025631240)
+
+running 2 tests
+test tests::precancelled_operation_does_not_spawn ... ok
+test tests::cancellation_terminates_the_owned_child ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running unittests src/main.rs (target/debug/deps/encap_portable_update-3626a753b6ad594a)
+
+running 2 tests
+test tests::rejects_unsafe_archive_names ... ok
+test tests::hash_rejects_changed_bytes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/encap_release-3aed65808a6f297d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/encap_transcript-a4eb50fda544d7af)
+
+running 3 tests
+test tests::trusted_catalog_has_unique_ids_and_bounded_downloads ... ok
+test tests::file_hashing_is_streamed_and_deterministic ... ok
+test tests::whisperkit_reuse_requires_complete_local_packages ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/encap_update-65dccf9ba910232a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/encap_video-a903f5384f700762)
+
+running 5 tests
+test tests::selection_order_is_video_only_and_maps_canonical_sources ... ok
+test tests::shared_selection_and_execution_settings_preserve_host_policy ... ok
+test tests::processes::graph_uses_shared_reference_and_automatic_fallback ... ok
+test tests::processes::main_artwork_empty_selection_and_all_protected_aliases ... ok
+test tests::processes::failure_cancellation_timeout_and_artwork_preflight_preserve_files ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.32s
+
+     Running unittests src/lib.rs (target/debug/deps/tlo_updater-f28f957b6f7bbf84)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tlo-qualify.rs (target/debug/deps/tlo_qualify-3d5d1cba1fbe4825)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contract.rs (target/debug/deps/contract-9735de960565d812)
+
+running 21 tests
+test daily_policy_failure_backoff_and_clock_change ... ok
+test malformed_and_nonstable_versions ... ok
+test no_matching_target ... ok
+test same_version ... ok
+test older_version ... ok
+test replay_below_high_water ... ok
+test interrupted_download ... ok
+test corruption_truncation_overflow_and_checksum_mismatch ... ok
+test minimum_os_and_libc ... ok
+test malformed_manifest_and_payload_are_rejected ... ok
+test appimage_symlink_rejected ... ok
+test unable_to_install_preserves_image_and_cleans_staging ... ok
+test unavailable_endpoint_is_an_error ... ok
+test invalid_signature_and_wrong_key ... ok
+test valid_newer_semver ... ok
+test service_failure_and_interrupted_download_can_retry ... ok
+test local_release_discovery_authentication_and_download ... ok
+test manifest_artifact_mismatch ... ok
+test metadata_substitution_rejected_even_with_valid_signature ... ok
+test failed_authentication_cleans_install_staging_before_retry ... ok
+test interrupted_install_retains_old_image_and_success_keeps_backup ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests encap_audio
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests encap_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests encap_ffmpeg
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests encap_transcript
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests encap_video
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tlo_updater
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

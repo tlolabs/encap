@@ -1,0 +1,13 @@
+   Compiling encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running unittests src/lib.rs (target/debug/deps/encap_core-cde3aff96ccce4e7)
+
+running 5 tests
+test source::performance_regressions::extensible_wav_validates_subformat_and_keeps_trailing_fmt_alignment ... ok
+test source::performance_regressions::wav_bounded_fmt_reads_preserve_alignment_and_reject_bad_lengths ... ok
+test source::performance_regressions::aiff_skips_comm_tail_and_accounts_for_sound_offset ... ok
+test source::performance_regressions::natural_order_is_consistent_for_unicode_long_numbers_and_leading_zeros ... ok
+test source::performance_regressions::aifc_supported_encodings_preserve_offsets_frames_and_previews ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.01s
+

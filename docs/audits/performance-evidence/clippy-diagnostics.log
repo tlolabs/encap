@@ -1,0 +1,14 @@
+warning: manual `RangeInclusive::contains` implementation
+  --> crates/encap-core/src/model.rs:19:28
+   |
+19 |     seconds.is_finite() && seconds >= 0.0 && seconds <= MAX_DURATION_SECONDS
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.0..=MAX_DURATION_SECONDS).contains(&seconds)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_range_contains
+   = note: `#[warn(clippy::manual_range_contains)]` on by default
+
+warning: `encap-core` (lib) generated 1 warning (run `cargo clippy --fix --lib -p encap-core -- ` to apply 1 suggestion)
+    Checking encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-core)
+warning: `encap-core` (lib test) generated 1 warning (1 duplicate)
+    Checking encap-engine v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-engine)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.34s

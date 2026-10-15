@@ -1,0 +1,35 @@
+** BUILD SUCCEEDED **
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.43s
+Packaged discovery, all-mode contracts, and no-fallback rejection passed.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+Test Suite 'All tests' started at 2026-10-14 20:38:06.256.
+Test Suite 'EnCapTests.xctest' started at 2026-10-14 20:38:06.257.
+Test Suite 'AudioSourceRemovalTests' started at 2026-10-14 20:38:06.257.
+Test Suite 'AudioSourceRemovalTests' passed at 2026-10-14 20:38:06.302.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.045 (0.045) seconds
+Test Suite 'ChapterNamingStyleTests' started at 2026-10-14 20:38:06.302.
+Test Suite 'ChapterNamingStyleTests' passed at 2026-10-14 20:38:06.304.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'PerformanceEngineTests' started at 2026-10-14 20:38:06.304.
+Test Case '-[EnCapTests.PerformanceEngineTests testProductionClientImportsPreviewsSavesAndReopensWithCurrentEngine]' started.
+Test Case '-[EnCapTests.PerformanceEngineTests testProductionClientImportsPreviewsSavesAndReopensWithCurrentEngine]' passed (0.039 seconds).
+Test Suite 'PerformanceEngineTests' passed at 2026-10-14 20:38:06.343.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.039 (0.039) seconds
+Test Suite 'ProjectDocumentTests' started at 2026-10-14 20:38:06.343.
+Test Suite 'ProjectDocumentTests' passed at 2026-10-14 20:38:06.344.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ReviewRegressionTests' started at 2026-10-14 20:38:06.344.
+Test Suite 'ReviewRegressionTests' passed at 2026-10-14 20:38:06.354.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.010 (0.010) seconds
+Test Suite 'SourcePlaybackTests' started at 2026-10-14 20:38:06.354.
+Test Case '-[EnCapTests.SourcePlaybackTests testRealWAVPauseResumeReverseAndSwitch]' started.
+Test Case '-[EnCapTests.SourcePlaybackTests testRealWAVPauseResumeReverseAndSwitch]' passed (0.896 seconds).
+Test Case '-[EnCapTests.SourcePlaybackTests testShuttleConventionAcrossPlatforms]' started.
+Test Case '-[EnCapTests.SourcePlaybackTests testShuttleConventionAcrossPlatforms]' passed (0.005 seconds).
+Test Suite 'SourcePlaybackTests' passed at 2026-10-14 20:38:07.255.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.901 (0.901) seconds
+Test Suite 'EnCapTests.xctest' passed at 2026-10-14 20:38:07.255.
+	 Executed 30 tests, with 0 failures (0 unexpected) in 0.997 (0.999) seconds
+Test Suite 'All tests' passed at 2026-10-14 20:38:07.255.
+	 Executed 30 tests, with 0 failures (0 unexpected) in 0.997 (0.999) seconds

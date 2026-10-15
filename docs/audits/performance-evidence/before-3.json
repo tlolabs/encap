@@ -1,0 +1,235 @@
+{
+  "schema": 2,
+  "timestamp": "2026-10-15T03:41:50Z",
+  "revision": "3cf5b2b4efc3072a9ac8ab3657395069e1b6fb03",
+  "dirty_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "profile": "workspace release; RUSTFLAGS=",
+  "engine_sha256": "19beb22d62bbcefbd16dd83449c8a6ce68ac1b5c65d4816221789269d5577921",
+  "engine_bytes": 6849952,
+  "benchmark_source_sha256": "69d0b3fc5d840ddcb1b1e5f365b840435188098195c57d88162ba92d0aff14da",
+  "cpu": "Apple M5 Max",
+  "logical_cpus": 18,
+  "workload": {
+    "project_seconds_per_source": "15",
+    "fixture": "pcm16-stereo-48k-pattern-v2",
+    "cache": "warm OS/filesystem; no eviction",
+    "waveform": "64 bins x at most 256 first-channel frames; 65536 sample bytes for this fixture",
+    "core_scope": "see benchmarks.rs: includes assertions and output destruction; archives include cleanup"
+  },
+  "engine": {
+    "first_invocation_ms": 103.48029199667508,
+    "identity": {
+      "avid_core": {
+        "revision": "25d19098a22936638b0e2a70616083d929fe409c",
+        "source": "git+https://github.com/tlolabs/avid-core?rev=25d19098a22936638b0e2a70616083d929fe409c#25d19098a22936638b0e2a70616083d929fe409c",
+        "version": "0.3.0"
+      },
+      "encap_version": "2.0.7"
+    },
+    "build_info": {
+      "n": 30,
+      "median_ms": 4.083145999175031,
+      "p95_ms": 4.718874995887745,
+      "min_ms": 3.8524580013472587,
+      "max_ms": 4.854457998590078,
+      "samples_ms": [
+        4.854457998590078,
+        4.364417000033427,
+        4.058833001181483,
+        4.067333000421058,
+        4.135542003496084,
+        4.489582999667618,
+        4.718874995887745,
+        4.262665999704041,
+        4.320041996834334,
+        4.076375000295229,
+        4.157957999268547,
+        4.245124997396488,
+        3.8524580013472587,
+        4.150332999415696,
+        4.14954199368367,
+        3.9475830053561367,
+        3.923333002603613,
+        4.1624590012361296,
+        4.055917001096532,
+        4.029208997962996,
+        4.222083996864967,
+        3.8678749988321215,
+        3.9670839978498407,
+        4.07983399782097,
+        3.912457999831531,
+        4.1157910018227994,
+        3.891375003149733,
+        4.086458000529092,
+        4.049000002851244,
+        3.864459002215881
+      ]
+    },
+    "legacy_three_processes": {
+      "n": 30,
+      "median_ms": 17.925333500897978,
+      "p95_ms": 20.661999995354563,
+      "min_ms": 16.554249996261206,
+      "max_ms": 22.05191700340947,
+      "samples_ms": [
+        22.05191700340947,
+        18.579999996291008,
+        18.532166002842132,
+        17.85504200233845,
+        19.71899999625748,
+        20.060540999111254,
+        20.661999995354563,
+        18.310540996026248,
+        18.538542004534975,
+        18.792916998791043,
+        17.597374993783887,
+        17.464417003793642,
+        18.164208995585795,
+        18.2280409935629,
+        17.135667003458366,
+        17.29841699852841,
+        16.554249996261206,
+        17.85020800161874,
+        17.79487499879906,
+        17.123208999691997,
+        16.89562499814201,
+        17.4370419990737,
+        17.995624999457505,
+        18.674041995836888,
+        17.248791999008972,
+        17.044583000824787,
+        17.511124999145977,
+        18.217000004369766,
+        17.245167000510264,
+        18.464458000380546
+      ]
+    },
+    "build_info_peak_rss_bytes": {
+      "samples": [
+        11862016,
+        11862016,
+        11829248,
+        11829248,
+        11845632
+      ],
+      "median": 11845632
+    }
+  },
+  "core": {
+    "natural_sort_200_files": {
+      "median_us": 384.458,
+      "p95_us": 440.25,
+      "min_us": 366.125,
+      "max_us": 450.166,
+      "ops_per_sec": 2568.2
+    },
+    "natural_sort_200_mixed_unicode": {
+      "median_us": 487.666,
+      "p95_us": 549.333,
+      "min_us": 456.417,
+      "max_us": 558.291,
+      "ops_per_sec": 2037.2
+    },
+    "inspect_wav_10s_audio": {
+      "median_us": 10.291,
+      "p95_us": 10.75,
+      "min_us": 9.583,
+      "max_us": 19.792,
+      "ops_per_sec": 96633.7
+    },
+    "inspect_aiff_10s_audio": {
+      "median_us": 10.584,
+      "p95_us": 12.541,
+      "min_us": 10.208,
+      "max_us": 13.209,
+      "ops_per_sec": 92897.3
+    },
+    "inspect_wav_odd_metadata": {
+      "median_us": 11.458,
+      "p95_us": 12.542,
+      "min_us": 10.792,
+      "max_us": 15.084,
+      "ops_per_sec": 86761.5
+    },
+    "waveform_preview_2min_wav": {
+      "median_us": 72.459,
+      "p95_us": 84.042,
+      "min_us": 70.458,
+      "max_us": 104.042,
+      "ops_per_sec": 13416.1
+    },
+    "waveform_preview_pcm24_stereo": {
+      "median_us": 79.708,
+      "p95_us": 82.375,
+      "min_us": 75.291,
+      "max_us": 88.625,
+      "ops_per_sec": 12597.2
+    },
+    "waveform_preview_float32_stereo": {
+      "median_us": 80.208,
+      "p95_us": 85.208,
+      "min_us": 74.958,
+      "max_us": 89.875,
+      "ops_per_sec": 12517.1
+    },
+    "project_first_save_11mb": {
+      "median_us": 18127.0,
+      "p95_us": 18867.0,
+      "min_us": 16934.0,
+      "max_us": 18867.0,
+      "ops_per_sec": 55.6
+    },
+    "project_incremental_metadata_save": {
+      "median_us": 10858.0,
+      "p95_us": 11379.0,
+      "min_us": 9744.0,
+      "max_us": 11477.0,
+      "ops_per_sec": 92.5
+    },
+    "project_load_and_extract": {
+      "median_us": 9721.0,
+      "p95_us": 10075.0,
+      "min_us": 9285.0,
+      "max_us": 10075.0,
+      "ops_per_sec": 102.9
+    },
+    "audio_edit_triage_cut": {
+      "median_us": 1.459,
+      "p95_us": 2.125,
+      "min_us": 1.417,
+      "max_us": 3.166,
+      "ops_per_sec": 630930.7
+    },
+    "render_transcript_text_1000_segments": {
+      "median_us": 18.125,
+      "p95_us": 23.709,
+      "min_us": 16.916,
+      "max_us": 24.417,
+      "ops_per_sec": 54207.8
+    },
+    "render_srt_1000_segments": {
+      "median_us": 174.833,
+      "p95_us": 186.333,
+      "min_us": 172.125,
+      "max_us": 193.208,
+      "ops_per_sec": 5671.0
+    },
+    "render_transcript_unicode_variable": {
+      "median_us": 12.583,
+      "p95_us": 13.291,
+      "min_us": 12.334,
+      "max_us": 15.041,
+      "ops_per_sec": 78667.4
+    },
+    "render_srt_unicode_variable": {
+      "median_us": 177.5,
+      "p95_us": 200.25,
+      "min_us": 172.875,
+      "max_us": 219.708,
+      "ops_per_sec": 5532.5
+    }
+  }
+}

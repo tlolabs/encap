@@ -1,0 +1,35 @@
+
+running 1 test
+
+=======================================================
+      EnCAP Core Comprehensive Performance Benchmark    
+=======================================================
+
+BENCH: natural_sort_200_files              | Median: 480.250µs | P95:  1.057ms | Min: 450.834µs | Max:  1.071ms | Ops/sec:     1872.2
+BENCH: natural_sort_200_mixed_unicode      | Median: 516.667µs | P95: 599.625µs | Min: 500.333µs | Max: 612.000µs | Ops/sec:     1910.2
+BENCH: inspect_wav_10s_audio               | Median: 11.000µs | P95: 13.084µs | Min: 10.792µs | Max: 34.958µs | Ops/sec:    85779.0
+BENCH: inspect_aiff_10s_audio              | Median: 10.542µs | P95: 12.916µs | Min: 10.000µs | Max: 28.166µs | Ops/sec:    91512.2
+BENCH: inspect_wav_odd_metadata            | Median: 11.583µs | P95: 13.167µs | Min: 11.167µs | Max: 23.584µs | Ops/sec:    84125.3
+BENCH: waveform_preview_2min_wav           | Median: 75.042µs | P95: 83.041µs | Min: 71.500µs | Max: 94.708µs | Ops/sec:    13157.5
+BENCH: waveform_preview_pcm24_stereo       | Median: 84.125µs | P95: 92.375µs | Min: 78.791µs | Max: 113.500µs | Ops/sec:    11715.0
+BENCH: waveform_preview_float32_stereo     | Median: 80.917µs | P95: 87.041µs | Min: 74.917µs | Max: 87.459µs | Ops/sec:    12426.7
+BENCH: project_first_save_11mb             | Median: 17.945ms | P95: 19.753ms | Min: 17.118ms | Max: 19.753ms | Ops/sec:       55.9
+BENCH: project_incremental_metadata_save   | Median: 10.644ms | P95: 11.521ms | Min:  9.627ms | Max: 11.589ms | Ops/sec:       94.3
+BENCH: project_load_and_extract            | Median:  9.850ms | P95: 10.843ms | Min:  8.942ms | Max: 10.843ms | Ops/sec:      101.4
+BENCH: audio_edit_triage_cut               | Median:  1.458µs | P95:  2.416µs | Min:  1.375µs | Max: 11.292µs | Ops/sec:   569528.0
+BENCH: render_transcript_text_1000_segments | Median: 16.708µs | P95: 19.000µs | Min: 16.125µs | Max: 28.250µs | Ops/sec:    57926.4
+BENCH: render_srt_1000_segments            | Median: 177.167µs | P95: 192.333µs | Min: 169.375µs | Max: 207.333µs | Ops/sec:     5610.3
+BENCH: render_transcript_unicode_variable  | Median: 12.667µs | P95: 13.042µs | Min: 11.833µs | Max: 19.125µs | Ops/sec:    78298.0
+BENCH: render_srt_unicode_variable         | Median: 177.625µs | P95: 191.208µs | Min: 164.125µs | Max: 204.542µs | Ops/sec:     5630.2
+
+=======================================================
+                Benchmark Suite Complete               
+=======================================================
+
+test run_comprehensive_benchmarks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+   Compiling encap-core v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/build/performance-remediation/before/crates/encap-core)
+    Finished `release` profile [optimized] target(s) in 3.44s
+     Running tests/benchmarks.rs (target/release/deps/benchmarks-c4e76ce7a6ea37fe)

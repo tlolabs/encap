@@ -1,0 +1,11 @@
+   Compiling encap-engine v2.0.7 (/Users/tlothian/Documents/Projects/EnCAP/crates/encap-engine)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running tests/build_identity.rs (target/debug/deps/build_identity-20e429a0328e5d83)
+
+running 3 tests
+test normal_engine_reports_the_resolved_core_pin_without_media_tools ... ok
+test engine_startup_probe_returns_providers_presets_and_recovery ... ok
+test startup_matches_legacy_commands_and_preserves_recovery_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+

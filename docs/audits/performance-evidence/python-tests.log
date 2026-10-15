@@ -1,0 +1,9 @@
+test_compare_does_not_run_or_build (test_benchmark.BenchmarkTests.test_compare_does_not_run_or_build) ... ok
+test_exact_unknown_command_fallback_only (test_benchmark.BenchmarkTests.test_exact_unknown_command_fallback_only) ... ok
+test_rejects_failed_commands_and_missing_metrics (test_benchmark.BenchmarkTests.test_rejects_failed_commands_and_missing_metrics) ... ok
+test_statistics_and_units (test_benchmark.BenchmarkTests.test_statistics_and_units) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+OK
