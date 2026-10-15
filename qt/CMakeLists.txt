@@ -59,3 +59,13 @@ if(BUILD_TESTING)
     add_test(NAME encap-qt-widgets-accessibility COMMAND encap-qt-ui-tests)
     set_tests_properties(encap-qt-widgets-accessibility PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 35)
 endif()
+
+if(BUILD_TESTING)
+    add_executable(encap-qt-performance-tests tests/performance_test.cpp src/main_window.cpp
+        src/main_window.h src/engine_client.cpp src/engine_client.h assets.qrc)
+    target_include_directories(encap-qt-performance-tests PRIVATE src ../desktop/native)
+    target_link_libraries(encap-qt-performance-tests PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+    add_test(NAME encap-qt-performance-regressions COMMAND encap-qt-performance-tests)
+    set_tests_properties(encap-qt-performance-regressions PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 35)
+endif()

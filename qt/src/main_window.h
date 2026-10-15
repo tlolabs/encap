@@ -40,6 +40,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    friend class MainWindowPerformanceTest;
     using Result = std::function<void(const QJsonValue&)>;
     void buildUi();
     QWidget* buildAudioPage();

@@ -119,6 +119,9 @@ MainWindow::MainWindow() {
     waveformEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     buildUi();
     buildMenus();
+    connect(sources_, &QTableWidget::currentCellChanged, this, [this] {
+        if (hasProject_ && !loading_) tick();
+    });
     QFile naming(preferencePath("chapter-naming.txt"));
     if (naming.open(QIODevice::ReadOnly)) {
         const auto saved = QString::fromUtf8(naming.readAll()).trimmed();
@@ -197,8 +200,23 @@ MainWindow::MainWindow() {
             });
         });
     };
-    runEngine("Loading engine and recovery…", {"startup"}, [this, runLegacy](const QJsonValue& initData) {
-        if (!initData.isObject()) { runLegacy(); return; }
+    setBusy(true);
+    setStatus("Loading engine and recovery…");
+    engine_->run({"startup"}, [this, runLegacy](const QJsonValue& initData, const QString& error) {
+        setBusy(false);
+        if (!error.isEmpty()) {
+            if (engine_->unsupportedStartup()) runLegacy();
+            else fail(error);
+            return;
+        }
+        const auto data = initData.toObject();
+        if (!initData.isObject() || !data.value("providers").isArray() ||
+            !data.value("presets").isArray() || !data.value("recovery").isObject() ||
+            !(data.value("recovery").toObject().value("project").isNull() ||
+              data.value("recovery").toObject().value("project").isObject())) {
+            fail("The EnCap engine returned an invalid startup response.");
+            return;
+        }
         const auto root = initData.toObject();
         providers_ = root.value("providers").toArray();
         provider_->clear();
@@ -222,7 +240,7 @@ MainWindow::MainWindow() {
             if (ready.open(QIODevice::WriteOnly)) ready.write("ready");
         }
 #endif
-    }, {}, runLegacy);
+    });
     if (!internalReference() && automaticUpdates_->isChecked())
         QTimer::singleShot(3000, this, [this] { checkUpdates(false); });
 }
@@ -302,11 +320,12 @@ void MainWindow::setBusy(bool busy) {
     if (saveAction_) saveAction_->setEnabled(!busy && hasProject_);
 }
 void MainWindow::setStatus(const QString& message, bool error) {
-    if (status_->text() == message && !error) return;
+    const auto description = error ? "Error: " + message : message;
+    if (status_->text() == message && status_->accessibleDescription() == description) return;
     status_->setText(message);
     const bool dark = palette().color(QPalette::Window).lightness() < 128;
     status_->setStyleSheet(error ? (dark ? "color: #f87171;" : "color: #b91c1c;") : "");
-    status_->setAccessibleDescription(error ? "Error: " + message : message);
+    status_->setAccessibleDescription(description);
     if (error) {
         QAccessibleEvent alert(status_, QAccessible::Alert);
         QAccessible::updateAccessibility(&alert);
@@ -355,7 +374,6 @@ void MainWindow::present(const QJsonObject& project, bool changed) {
     previewIndex_ = 0;
     recoveryTimer_.stop();
     project_ = project;
-    ++waveformGeneration_;
     hasProject_ = true;
     dirty_ = changed;
     videoOrder_.clear();
@@ -376,6 +394,7 @@ void MainWindow::present(const QJsonObject& project, bool changed) {
     if (changed) recoveryTimer_.start();
     setStatus(QStringLiteral("Loaded %1 recordings.").arg(project_.value("audio_sources").toArray().size()));
     loadWaveforms();
+    tick();
 }
 void MainWindow::refreshUi() {
     if (!hasProject_) return;
@@ -855,14 +874,21 @@ void MainWindow::moveVideoTo(int next) {
 }
 void MainWindow::loadWaveforms() {
     if (!hasProject_) return;
-    if (waveformEngine_->busy()) waveformEngine_->cancel();
+    ++waveformGeneration_;
+    if (waveformEngine_->busy()) {
+        waveformEngine_->cancel();
+        return; // The obsolete completion starts the newest generation once idle.
+    }
     loadWaveformAt(project_.value("audio_sources").toArray(), 0, waveformGeneration_);
 }
 void MainWindow::loadWaveformAt(const QJsonArray& paths, int row, int generation) {
     if (generation != waveformGeneration_ || row >= paths.size()) return;
     const auto path = paths[row].toObject().value("source_path").toString();
     waveformEngine_->run({"waveform", "--", path}, [this, paths, path, row, generation](const QJsonValue& result, const QString& error) {
-        if (generation != waveformGeneration_) return;
+        if (generation != waveformGeneration_) {
+            loadWaveformAt(project_.value("audio_sources").toArray(), 0, waveformGeneration_);
+            return;
+        }
         if (!error.isEmpty()) { setStatus(error, true); loadWaveformAt(paths, row + 1, generation); return; }
         if (row < sources_->rowCount() && sources_->item(row, 0)->data(Qt::UserRole).toString() == path) {
             const auto peaks = result.toObject().value("peaks").toArray();
@@ -1383,7 +1409,7 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
 void MainWindow::pausePlayback() {
     videoPlaying_ = false;
     encap_audio_pause();
-    refreshPlayback();
+    tick();
 }
 void MainWindow::togglePlayback() {
     if (!hasProject_ || busy_) return;
@@ -1402,7 +1428,7 @@ void MainWindow::togglePlayback() {
             if (source < 0 || source >= sources.size()) { fail("Chapter refers to a missing recording."); return; }
             const auto path = sources[source].toObject().value("source_path").toString();
             if (path == playingPath_) { encap_audio_play(1); videoPlaying_ = true; }
-            else openPlayback(path, [this](bool ready) { if (ready) { encap_audio_play(1); videoPlaying_ = true; refreshPlayback(); } });
+            else openPlayback(path, [this](bool ready) { if (ready) { encap_audio_play(1); videoPlaying_ = true; tick(); } });
             break;
         }
     } else {
@@ -1410,15 +1436,15 @@ void MainWindow::togglePlayback() {
         if (row < 0) return;
         const auto path = sources_->item(row, 0)->data(Qt::UserRole).toString();
         if (path == playingPath_) encap_audio_play(rate_);
-        else openPlayback(path, [this](bool ready) { if (ready) encap_audio_play(1); });
+        else openPlayback(path, [this](bool ready) { if (ready) { encap_audio_play(1); tick(); } });
     }
-    refreshPlayback();
+    tick();
 }
 void MainWindow::seekPlayback(double seconds, bool play) {
     if (!hasProject_) return;
     if (modes_->currentIndex() != 2) {
         encap_audio_seek(seconds);
-        refreshPlayback();
+        tick();
         return;
     }
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
@@ -1442,9 +1468,10 @@ void MainWindow::seekPlayback(double seconds, bool play) {
             if (!ready) return;
             encap_audio_seek(seconds - start);
             if (resume) { encap_audio_play(1); videoPlaying_ = true; }
-            refreshPlayback();
+            tick();
         });
         refreshVideo();
+        tick();
         break;
     }
 }
@@ -1471,15 +1498,14 @@ void MainWindow::adjacent(int delta) {
 }
 void MainWindow::refreshPlayback() {
     const bool playing = encap_audio_playing();
+    const int interval = playing ? 100 : 1000;
+    if (clock_.interval() != interval) clock_.setInterval(interval);
     const QString text = playing ? QStringLiteral("Pause") : QStringLiteral("Play");
     if (sourcePlay_->text() != text) sourcePlay_->setText(text);
     if (videoPlay_->text() != text) videoPlay_->setText(text);
 }
 void MainWindow::tick() {
     if (!hasProject_) return;
-    const bool playing = encap_audio_playing();
-    if (playing && clock_.interval() != 100) clock_.setInterval(100);
-    else if (!playing && clock_.interval() != 1000) clock_.setInterval(1000);
 
     const auto sourceList = project_.value("audio_sources").toArray();
     double duration = 0;
@@ -1493,13 +1519,13 @@ void MainWindow::tick() {
     const double position = encap_audio_position();
     const int posInt = safeSecondsToInt(position);
     const int durInt = std::max(1, safeSecondsToInt(duration, 1));
-    if (!sourceSeek_->isSliderDown() && sourceSeek_->value() != posInt) {
-        const QSignalBlocker blocker(sourceSeek_);
-        sourceSeek_->setValue(posInt);
-    }
     if (sourceSeek_->maximum() != durInt) {
         const QSignalBlocker blocker(sourceSeek_);
         sourceSeek_->setMaximum(durInt);
+    }
+    if (!sourceSeek_->isSliderDown() && sourceSeek_->value() != posInt) {
+        const QSignalBlocker blocker(sourceSeek_);
+        sourceSeek_->setValue(posInt);
     }
     const QString sourceTimeText = shownTime(position) + " / " + shownTime(duration);
     if (sourceTime_->text() != sourceTimeText) sourceTime_->setText(sourceTimeText);
@@ -1519,13 +1545,13 @@ void MainWindow::tick() {
     const double videoPosition = offset + std::min(position, chapterDuration);
     const int videoPosInt = safeSecondsToInt(videoPosition);
     const int videoDurInt = std::max(1, safeSecondsToInt(videoDuration, 1));
-    if (!videoSeek_->isSliderDown() && videoSeek_->value() != videoPosInt) {
-        const QSignalBlocker blocker(videoSeek_);
-        videoSeek_->setValue(videoPosInt);
-    }
     if (videoSeek_->maximum() != videoDurInt) {
         const QSignalBlocker blocker(videoSeek_);
         videoSeek_->setMaximum(videoDurInt);
+    }
+    if (!videoSeek_->isSliderDown() && videoSeek_->value() != videoPosInt) {
+        const QSignalBlocker blocker(videoSeek_);
+        videoSeek_->setValue(videoPosInt);
     }
     const QString videoTimeText = shownTime(videoPosition) + " / " + shownTime(videoDuration);
     if (videoTime_->text() != videoTimeText) videoTime_->setText(videoTimeText);
@@ -1557,7 +1583,7 @@ void MainWindow::mediaAction(int action, double value) {
         case 5: owner->adjacent(-1); break;
         case 6: owner->seekPlayback(value); break;
         case 7: owner->activateWindow(); break;
-        case 8: encap_audio_play(value); owner->rate_ = value; break;
+        case 8: encap_audio_play(value); owner->rate_ = value; owner->tick(); break;
         case 9: encap_audio_volume(value); owner->volume_ = value; break;
         case 10: owner->togglePlayback(); break;
         }
@@ -1637,8 +1663,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         const int direction = event->key() == Qt::Key_J ? -1 : 1;
         const double next = slow_ ? direction * 0.5 : direction * (rate_ * direction > 0 ? std::min(32.0, std::max(1.0, std::abs(rate_) * 2)) : 1.0);
         const auto path = sources_->item(sources_->currentRow(), 0)->data(Qt::UserRole).toString();
-        if (path == playingPath_) { rate_ = next; encap_audio_play(rate_); }
-        else openPlayback(path, [this, next](bool ready) { if (ready) { rate_ = next; encap_audio_play(rate_); } });
+        if (path == playingPath_) { rate_ = next; encap_audio_play(rate_); tick(); }
+        else openPlayback(path, [this, next](bool ready) { if (ready) { rate_ = next; encap_audio_play(rate_); tick(); } });
         return;
     }
     QMainWindow::keyPressEvent(event);

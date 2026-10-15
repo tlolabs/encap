@@ -31,11 +31,17 @@ QJsonValue EngineClient::parseResponse(const QByteArray& output, QString* error)
     return {};
 }
 
+bool EngineClient::isUnsupportedStartup(int code, QProcess::ExitStatus status, const QString& diagnostics) {
+    return status == QProcess::NormalExit && code == 2 &&
+        diagnostics.startsWith(QStringLiteral("error: unrecognized subcommand 'startup'\n"));
+}
+
 void EngineClient::run(const QStringList& arguments, Completion completed) {
     if (busy()) {
         completed({}, QStringLiteral("Finish the current operation first."));
         return;
     }
+    unsupportedStartup_ = false;
     completed_ = std::move(completed);
     process_ = new QProcess(this);
     process_->setProgram(executable_);
@@ -45,11 +51,12 @@ void EngineClient::run(const QStringList& arguments, Completion completed) {
     process_->setProcessEnvironment(environment);
     auto* active = process_;
     connect(active, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-            [this, active](int code, QProcess::ExitStatus status) {
+            [this, active, arguments](int code, QProcess::ExitStatus status) {
         if (process_ != active) return;
         auto* finished = active;
         const QByteArray output = finished->readAllStandardOutput();
         const QString diagnostics = QString::fromUtf8(finished->readAllStandardError()).trimmed();
+        unsupportedStartup_ = arguments == QStringList{"startup"} && isUnsupportedStartup(code, status, diagnostics);
         QString error;
         QJsonValue result = parseResponse(output, &error);
         if (status != QProcess::NormalExit || code != 0) {
