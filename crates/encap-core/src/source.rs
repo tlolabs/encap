@@ -648,4 +648,71 @@ mod performance_regressions {
         out.pop(); // missing odd-chunk pad
         assert!(inspect(&out).is_err());
     }
+    #[test]
+    fn aifc_supported_encodings_preserve_offsets_frames_and_previews() {
+        for (encoding, bits, sample) in [
+            (*b"NONE", 16_u16, i16::MIN.to_be_bytes().to_vec()),
+            (*b"twos", 16, i16::MIN.to_be_bytes().to_vec()),
+            (*b"sowt", 16, i16::MIN.to_le_bytes().to_vec()),
+            (*b"fl32", 32, 1_f32.to_be_bytes().to_vec()),
+            (*b"FL32", 32, 1_f32.to_be_bytes().to_vec()),
+            (*b"fl64", 64, 1_f64.to_be_bytes().to_vec()),
+            (*b"FL64", 64, 1_f64.to_be_bytes().to_vec()),
+        ] {
+            let mut out = b"FORM\0\0\0\0AIFC".to_vec();
+            let mut comm = Vec::new();
+            comm.extend_from_slice(&1_u16.to_be_bytes());
+            comm.extend_from_slice(&2_u32.to_be_bytes());
+            comm.extend_from_slice(&bits.to_be_bytes());
+            comm.extend_from_slice(&[0x40, 0x0e, 0xbb, 0x80, 0, 0, 0, 0, 0, 0]);
+            comm.extend_from_slice(&encoding);
+            comm.extend_from_slice(&[0, 0]); // empty Pascal compression name and padding
+            chunk(&mut out, b"COMM", &comm, false);
+            chunk(&mut out, b"ANNO", &[1, 2, 3], false);
+            let mut sound = Vec::new();
+            sound.extend_from_slice(&3_u32.to_be_bytes());
+            sound.extend_from_slice(&0_u32.to_be_bytes());
+            sound.extend_from_slice(&[0xff; 3]);
+            sound.extend_from_slice(&sample);
+            sound.resize(sound.len() + sample.len(), 0);
+            chunk(&mut out, b"SSND", &sound, false);
+            assert_eq!(inspect(&out).unwrap(), 2.0 / 48000.0);
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("source.aifc");
+            std::fs::write(&path, &out).unwrap();
+            let preview = crate::waveform_preview(&path).unwrap();
+            let mut expected = vec![0.0; 64];
+            expected[31] = 1.0;
+            assert_eq!(preview.peaks, expected, "encoding={encoding:?}");
+            // Unsupported compression must not be interpreted as raw PCM.
+            out[38..42].copy_from_slice(b"ima4");
+            assert!(inspect(&out).is_err());
+            out[38..42].copy_from_slice(&encoding);
+            out.pop(); // SSND is odd: removing its required pad is malformed
+            assert!(inspect(&out).is_err());
+        }
+    }
+
+    #[test]
+    fn extensible_wav_validates_subformat_and_keeps_trailing_fmt_alignment() {
+        let mut fmt = vec![0; 42];
+        fmt[..2].copy_from_slice(&0xfffe_u16.to_le_bytes());
+        fmt[2..4].copy_from_slice(&1_u16.to_le_bytes());
+        fmt[4..8].copy_from_slice(&48000_u32.to_le_bytes());
+        fmt[12..14].copy_from_slice(&2_u16.to_le_bytes());
+        fmt[14..16].copy_from_slice(&16_u16.to_le_bytes());
+        fmt[16..18].copy_from_slice(&22_u16.to_le_bytes());
+        fmt[18..20].copy_from_slice(&16_u16.to_le_bytes());
+        fmt[24..40].copy_from_slice(&[1, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113]);
+        let build = |fmt: &[u8]| {
+            let mut out = b"RIFF\0\0\0\0WAVE".to_vec();
+            chunk(&mut out, b"fmt ", fmt, true);
+            chunk(&mut out, b"data", &[0, 0], true);
+            out
+        };
+        assert_eq!(inspect(&build(&fmt)).unwrap(), 1.0 / 48000.0);
+        fmt[39] ^= 1;
+        assert!(inspect(&build(&fmt)).is_err());
+        assert!(inspect(&build(&fmt[..16])).is_err());
+    }
 }
