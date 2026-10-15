@@ -15,7 +15,10 @@ pub use audio_editing::{edit_audio, AudioEdits};
 pub use error::{EncapError, Result};
 pub use file_ops::{conflicts_with_path, replace_staged_file};
 pub use model::*;
-pub use project::{load_project, save_project, PROJECT_SCHEMA_VERSION};
+pub use project::{
+    load_project, load_project_cancellable, save_project, save_project_cancellable,
+    PROJECT_SCHEMA_VERSION,
+};
 pub use source::{discover_audio_files, inspect_files, inspect_folder, inspect_source};
 pub use transcript::{render_srt, render_transcript_text};
 

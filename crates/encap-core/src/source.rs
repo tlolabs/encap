@@ -77,7 +77,7 @@ pub fn inspect_source(path: &Path) -> Result<f64> {
     let format = if &header[0..4] == b"RIFF" && &header[8..12] == b"WAVE" {
         inspect_wave(&mut file, path)?
     } else if &header[0..4] == b"FORM" && matches!(&header[8..12], b"AIFF" | b"AIFC") {
-        inspect_aiff(&mut file, path)?
+        inspect_aiff(&mut file, path, &header[8..12] == b"AIFC")?
     } else {
         return Err(EncapError::UnsupportedAudio(format!(
             "{} is not a WAV or AIFF file.",
@@ -171,7 +171,7 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
         pos += 8;
         let size = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as u64;
         let start = pos;
-        if start.checked_add(size).is_none() || start + size > length {
+        if start.checked_add(size + (size & 1)).is_none() || start + size + (size & 1) > length {
             return Err(EncapError::UnsupportedAudio(format!(
                 "{} contains a truncated WAV chunk.",
                 path.display()
@@ -195,6 +195,16 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
                 if !matches!(encoding, 1 | 3 | 0xfffe) {
                     return Err(EncapError::UnsupportedAudio(
                         "Only PCM and IEEE-float WAV files are supported.".into(),
+                    ));
+                }
+                if encoding == 0xfffe
+                    && (size < 40
+                        || u16::from_le_bytes(raw[16..18].try_into().unwrap()) < 22
+                        || !matches!(u16::from_le_bytes(raw[24..26].try_into().unwrap()), 1 | 3)
+                        || raw[26..40] != [0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113])
+                {
+                    return Err(EncapError::UnsupportedAudio(
+                        "The extensible WAV format is invalid.".into(),
                     ));
                 }
                 fmt = Some((
@@ -235,6 +245,11 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
             pos += 1;
         }
     }
+    if pos != length {
+        return Err(EncapError::UnsupportedAudio(
+            "The WAV chunk header is truncated.".into(),
+        ));
+    }
     let (channels, sample_rate, bits_per_sample, block_align) =
         fmt.ok_or_else(|| EncapError::UnsupportedAudio("The WAV format block is missing.".into()))?;
     Ok(AudioFormat {
@@ -248,7 +263,7 @@ fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {
     })
 }
 
-fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
+fn inspect_aiff(file: &mut File, path: &Path, compressed_container: bool) -> Result<AudioFormat> {
     let length = file
         .metadata()
         .map_err(|source| EncapError::Read {
@@ -269,7 +284,7 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
         pos += 8;
         let size = u32::from_be_bytes(chunk[4..8].try_into().unwrap()) as u64;
         let start = pos;
-        if start.checked_add(size).is_none() || start + size > length {
+        if start.checked_add(size + (size & 1)).is_none() || start + size + (size & 1) > length {
             return Err(EncapError::UnsupportedAudio(format!(
                 "{} contains a truncated AIFF chunk.",
                 path.display()
@@ -281,8 +296,14 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     "The AIFF format block is invalid.".into(),
                 ));
             }
-            let mut raw = [0_u8; 18];
-            file.read_exact(&mut raw)
+            let mut raw = [0_u8; 22];
+            if compressed_container && size < 22 {
+                return Err(EncapError::UnsupportedAudio(
+                    "The AIFC compression type is missing.".into(),
+                ));
+            }
+            let read_len = if compressed_container { 22 } else { 18 };
+            file.read_exact(&mut raw[..read_len])
                 .map_err(|source| EncapError::Read {
                     path: path.to_path_buf(),
                     source,
@@ -291,6 +312,16 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
             let frames = u32::from_be_bytes(raw[2..6].try_into().unwrap());
             let bits = u16::from_be_bytes(raw[6..8].try_into().unwrap());
             let rate = decode_extended(&raw[8..18])?;
+            if compressed_container
+                && !matches!(
+                    &raw[18..22],
+                    b"NONE" | b"twos" | b"sowt" | b"fl32" | b"FL32" | b"fl64" | b"FL64"
+                )
+            {
+                return Err(EncapError::UnsupportedAudio(
+                    "Compressed AIFC samples are unsupported.".into(),
+                ));
+            }
             comm = Some((channels, rate, bits, frames));
             file.seek(SeekFrom::Start(start + size))
                 .map_err(|source| EncapError::Read {
@@ -303,7 +334,19 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
                     "The AIFF sound block is invalid.".into(),
                 ));
             }
-            data_bytes = Some(size - 8);
+            let mut sound = [0_u8; 8];
+            file.read_exact(&mut sound)
+                .map_err(|source| EncapError::Read {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+            let offset = u32::from_be_bytes(sound[..4].try_into().unwrap()) as u64;
+            if offset > size - 8 {
+                return Err(EncapError::UnsupportedAudio(
+                    "The AIFF sound offset is invalid.".into(),
+                ));
+            }
+            data_bytes = Some(size - 8 - offset);
             file.seek(SeekFrom::Start(start + size))
                 .map_err(|source| EncapError::Read {
                     path: path.to_path_buf(),
@@ -325,6 +368,11 @@ fn inspect_aiff(file: &mut File, path: &Path) -> Result<AudioFormat> {
                 })?;
             pos += 1;
         }
+    }
+    if pos != length {
+        return Err(EncapError::UnsupportedAudio(
+            "The AIFF chunk header is truncated.".into(),
+        ));
     }
     let (channels, sample_rate, bits_per_sample, frames) = comm
         .ok_or_else(|| EncapError::UnsupportedAudio("The AIFF format block is missing.".into()))?;
@@ -482,5 +530,122 @@ mod tests {
                 "part10.wav"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod performance_regressions {
+    use super::*;
+
+    #[test]
+    fn natural_order_is_consistent_for_unicode_long_numbers_and_leading_zeros() {
+        let names = [
+            "",
+            "a",
+            "A",
+            "a0",
+            "a00",
+            "a01",
+            "a1",
+            "a2",
+            "a10",
+            "a1x2",
+            "a1x10",
+            "é2",
+            "é10",
+            "音02",
+            "音2",
+            "音10",
+            "a18446744073709551616",
+            "a999999999999999999999",
+            "a00000000000000000000000000000000000000000001",
+            "a/",
+            "a:",
+        ];
+        for a in names {
+            for b in names {
+                assert_eq!(natural_cmp(a, b), natural_cmp(b, a).reverse());
+                for c in names {
+                    if natural_cmp(a, b).is_le() && natural_cmp(b, c).is_le() {
+                        assert!(natural_cmp(a, c).is_le(), "{a:?} {b:?} {c:?}");
+                    }
+                }
+            }
+        }
+        assert!(natural_cmp("音02", "音2").is_lt());
+        assert!(natural_cmp("a18446744073709551616", "a999999999999999999999").is_lt());
+        assert!(natural_cmp("a00000000000000000000000000000000000000000001", "a2").is_lt());
+    }
+
+    fn chunk(out: &mut Vec<u8>, id: &[u8; 4], data: &[u8], little: bool) {
+        out.extend_from_slice(id);
+        out.extend_from_slice(&if little {
+            (data.len() as u32).to_le_bytes()
+        } else {
+            (data.len() as u32).to_be_bytes()
+        });
+        out.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            out.push(0);
+        }
+    }
+    fn inspect(bytes: &[u8]) -> Result<f64> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fixture");
+        std::fs::write(&path, bytes).unwrap();
+        inspect_source(&path)
+    }
+    fn aiff(offset: u32, padding: usize, frames: u32) -> Vec<u8> {
+        let mut out = b"FORM\0\0\0\0AIFF".to_vec();
+        chunk(&mut out, b"JUNK", &[1, 2, 3], false);
+        let mut comm = Vec::new();
+        comm.extend_from_slice(&1_u16.to_be_bytes());
+        comm.extend_from_slice(&frames.to_be_bytes());
+        comm.extend_from_slice(&16_u16.to_be_bytes());
+        comm.extend_from_slice(&[0x40, 0x0e, 0xbb, 0x80, 0, 0, 0, 0, 0, 0]);
+        comm.extend_from_slice(&[0; 15]); // unread COMM tail and odd padding
+        chunk(&mut out, b"COMM", &comm, false);
+        let mut sound = Vec::new();
+        sound.extend_from_slice(&offset.to_be_bytes());
+        sound.extend_from_slice(&0_u32.to_be_bytes());
+        sound.resize(8 + padding + 2, 0);
+        chunk(&mut out, b"SSND", &sound, false);
+        out
+    }
+    #[test]
+    fn aiff_skips_comm_tail_and_accounts_for_sound_offset() {
+        assert_eq!(inspect(&aiff(5, 5, 1)).unwrap(), 1.0 / 48000.0);
+        assert!(inspect(&aiff(5, 5, 3)).is_err()); // offset bytes are not sample frames
+        assert!(inspect(&aiff(u32::MAX, 0, 1)).is_err());
+        let mut bytes = aiff(0, 0, 1);
+        bytes.extend_from_slice(b"BAD");
+        assert!(inspect(&bytes).is_err());
+        let mut bytes = aiff(0, 0, 1);
+        bytes.truncate(bytes.len() - 1);
+        assert!(inspect(&bytes).is_err());
+    }
+    #[test]
+    fn wav_bounded_fmt_reads_preserve_alignment_and_reject_bad_lengths() {
+        let mut out = b"RIFF\0\0\0\0WAVE".to_vec();
+        chunk(&mut out, b"JUNK", &[1, 2, 3], true);
+        let mut fmt = vec![0; 81];
+        fmt[..2].copy_from_slice(&1_u16.to_le_bytes());
+        fmt[2..4].copy_from_slice(&1_u16.to_le_bytes());
+        fmt[4..8].copy_from_slice(&48000_u32.to_le_bytes());
+        fmt[12..14].copy_from_slice(&2_u16.to_le_bytes());
+        fmt[14..16].copy_from_slice(&16_u16.to_le_bytes());
+        chunk(&mut out, b"fmt ", &fmt, true);
+        chunk(&mut out, b"data", &[0, 0], true);
+        assert_eq!(inspect(&out).unwrap(), 1.0 / 48000.0);
+        out.extend_from_slice(b"JUNK");
+        out.extend_from_slice(&u32::MAX.to_le_bytes());
+        assert!(inspect(&out).is_err());
+        out.truncate(out.len() - 4);
+        assert!(inspect(&out).is_err());
+        let mut out = b"RIFF\0\0\0\0WAVE".to_vec();
+        chunk(&mut out, b"fmt ", &fmt, true);
+        chunk(&mut out, b"data", &[0], true);
+        out.pop(); // missing odd-chunk pad
+        assert!(inspect(&out).is_err());
     }
 }

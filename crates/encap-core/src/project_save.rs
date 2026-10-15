@@ -216,7 +216,9 @@ pub(super) fn write_archive(
     json: &[u8],
     plan: &MediaPlan<'_>,
     previous: Option<&SaveCache>,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
+    super::check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     let write_error = |source| EncapError::Write {
         path: staged.into(),
         source,
@@ -273,7 +275,10 @@ pub(super) fn write_archive(
             .open(staged)
             .map_err(write_error)?;
         let mut cursor = file.try_clone().map_err(write_error)?;
-        let mut writer = zip::ZipWriter::new_append(file)?;
+        let mut writer = zip::ZipWriter::new_append(super::CancellationWriter {
+            inner: file,
+            cancelled,
+        })?;
         writer.abort_file()?;
         // Parsed ZIP entries do not always let abort_file rewind. The cloned
         // File shares the writer's cursor; explicitly reset/truncate the staged
@@ -289,7 +294,10 @@ pub(super) fn write_archive(
             use std::os::unix::fs::OpenOptionsExt;
             create.mode(0o600);
         }
-        let mut writer = zip::ZipWriter::new(create.open(staged).map_err(write_error)?);
+        let mut writer = zip::ZipWriter::new(super::CancellationWriter {
+            inner: create.open(staged).map_err(write_error)?,
+            cancelled,
+        });
         // Audio and artwork are already encoded. Storing them avoids expensive
         // deflate passes on first save or when a source actually changes.
         let options =
@@ -318,7 +326,7 @@ pub(super) fn write_archive(
         SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
     )?;
     writer.write_all(json).map_err(write_error)?;
-    let mut file = writer.finish()?;
+    let mut file = writer.finish()?.inner;
     // A shorter manifest must not leave the previous end-of-directory record
     // behind, or ZIP readers can reopen the stale manifest.
     let end = file.stream_position().map_err(write_error)?;
@@ -559,7 +567,7 @@ mod tests {
             .unwrap()
             .set_modified(changed_at)
             .unwrap();
-        assert!(write_archive(&root.path().join("staged"), b"{}", &plan, None).is_err());
+        assert!(write_archive(&root.path().join("staged"), b"{}", &plan, None, &|| false).is_err());
     }
 
     #[test]

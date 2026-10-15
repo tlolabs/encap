@@ -121,6 +121,16 @@ fn untitled() -> String {
 }
 
 pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<PathBuf> {
+    save_project_cancellable(project, requested_path, &|| false)
+}
+
+/// Cancellation is checked on archive writes and before atomic replacement.
+pub fn save_project_cancellable(
+    project: &ProjectDocument,
+    requested_path: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf> {
+    check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     project.validate()?;
     let preserved = project
         .compatibility_payload
@@ -283,8 +293,9 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
             extensions: merged_extensions(Some(&preserved.top_level), &project.extensions),
         };
         let json = serde_json::to_vec_pretty(&manifest)?;
-        incremental::write_archive(&staged, &json, &media, previous.as_ref())?;
+        incremental::write_archive(&staged, &json, &media, previous.as_ref(), cancelled)?;
     }
+    check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     replace_staged_file(&staged, &target)?;
     incremental::SaveCache::record(&target, media.files);
     Ok(target)
@@ -294,6 +305,16 @@ pub fn load_project(
     project_path: &Path,
     extraction_parent: Option<&Path>,
 ) -> Result<ProjectDocument> {
+    load_project_cancellable(project_path, extraction_parent, &|| false)
+}
+
+/// Extraction remains private and is removed on cancellation or failure.
+pub fn load_project_cancellable(
+    project_path: &Path,
+    extraction_parent: Option<&Path>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<ProjectDocument> {
+    check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     let original_stamp = incremental::FileStamp::read(project_path).ok();
     let file = File::open(project_path).map_err(|source| EncapError::Read {
         path: project_path.to_path_buf(),
@@ -317,7 +338,8 @@ pub fn load_project(
             .to_path_buf(),
         source,
     })?;
-    extract(&mut archive, temporary.path())?;
+    extract(&mut archive, temporary.path(), cancelled)?;
+    check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     let root = temporary.keep();
     let result = load_manifest(&root, project_path);
     if let Ok(project) = &result {
@@ -397,7 +419,11 @@ fn preflight(archive: &mut zip::ZipArchive<File>) -> Result<()> {
     Ok(())
 }
 
-fn extract(archive: &mut zip::ZipArchive<File>, root: &Path) -> Result<()> {
+fn extract(
+    archive: &mut zip::ZipArchive<File>,
+    root: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
     let mut total = 0_u64;
     for index in 0..archive.len() {
         let member = archive.by_index(index)?;
@@ -416,7 +442,7 @@ fn extract(archive: &mut zip::ZipArchive<File>, root: &Path) -> Result<()> {
                 source,
             })?;
         }
-        let mut output = OpenOptions::new()
+        let output = OpenOptions::new()
             .create_new(true)
             .write(true)
             .open(&target)
@@ -424,6 +450,10 @@ fn extract(archive: &mut zip::ZipArchive<File>, root: &Path) -> Result<()> {
                 path: target.clone(),
                 source,
             })?;
+        let mut output = CancellationWriter {
+            inner: output,
+            cancelled,
+        };
         let copied =
             copy_buffered(&mut member.take(MAX_MEMBER + 1), &mut output).map_err(|source| {
                 EncapError::Write {
@@ -630,6 +660,40 @@ fn normalize_export(mut value: ExportSettings) -> ExportSettings {
     }
     .to_string();
     value
+}
+
+fn check_cancelled(cancelled: &dyn Fn() -> bool) -> std::io::Result<()> {
+    if cancelled() {
+        Err(std::io::Error::other("Project operation cancelled safely."))
+    } else {
+        Ok(())
+    }
+}
+
+struct CancellationWriter<'a, W> {
+    inner: W,
+    cancelled: &'a dyn Fn() -> bool,
+}
+impl<W: Read> Read for CancellationWriter<'_, W> {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        check_cancelled(self.cancelled)?;
+        self.inner.read(bytes)
+    }
+}
+impl<W: Write> Write for CancellationWriter<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        check_cancelled(self.cancelled)?;
+        self.inner.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        check_cancelled(self.cancelled)?;
+        self.inner.flush()
+    }
+}
+impl<W: std::io::Seek> std::io::Seek for CancellationWriter<'_, W> {
+    fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(position)
+    }
 }
 
 fn copy_buffered<R: Read + ?Sized, W: Write + ?Sized>(
@@ -1092,5 +1156,63 @@ mod tests {
         zip.write_all(b"{}").unwrap();
         zip.finish().unwrap();
         assert!(load_project(&target, Some(temp.path())).is_err());
+    }
+}
+
+#[cfg(test)]
+mod cancellation_regressions {
+    use super::*;
+    use std::cell::Cell;
+    #[test]
+    fn cancelled_full_incremental_and_extract_work_preserves_valid_archives_and_cleans_scratch() {
+        let root = tempfile::tempdir().unwrap();
+        let media = root.path().join("audio.wav");
+        fs::write(&media, vec![13_u8; 2 * 1024 * 1024]).unwrap();
+        let mut project = ProjectDocument::default();
+        project.audio_sources.push(AudioSource {
+            source_path: media,
+            display_name: "audio".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        let target = root.path().join("valid.encap");
+        save_project(&project, &target).unwrap();
+        let original = fs::read(&target).unwrap();
+        for incremental in [false, true] {
+            let calls = Cell::new(0);
+            let cancelled = || {
+                calls.set(calls.get() + 1);
+                calls.get() > 8
+            };
+            let destination = if incremental {
+                target.clone()
+            } else {
+                root.path().join("new.encap")
+            };
+            assert!(save_project_cancellable(&project, &destination, &cancelled).is_err());
+            assert_eq!(fs::read(&target).unwrap(), original);
+            if !incremental {
+                assert!(!destination.exists());
+            }
+            assert!(!fs::read_dir(root.path()).unwrap().any(|p| p
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".encap-save-")));
+        }
+        let extraction = root.path().join("extract");
+        let calls = Cell::new(0);
+        let cancelled = || {
+            calls.set(calls.get() + 1);
+            calls.get() > 3
+        };
+        assert!(load_project_cancellable(&target, Some(&extraction), &cancelled).is_err());
+        assert_eq!(fs::read_dir(&extraction).unwrap().count(), 0);
+        let loaded = load_project(&target, Some(&extraction)).unwrap();
+        assert_eq!(
+            fs::read(&loaded.audio_sources[0].source_path).unwrap(),
+            vec![13; 2 * 1024 * 1024]
+        );
     }
 }

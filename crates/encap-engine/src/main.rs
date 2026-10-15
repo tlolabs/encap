@@ -1,8 +1,7 @@
 use clap::{Parser, Subcommand};
 use directories::ProjectDirs;
 use encap_core::{
-    load_project, replace_staged_file, save_project, EncapError, ProjectDocument, Result,
-    PROJECT_SCHEMA_VERSION,
+    replace_staged_file, EncapError, ProjectDocument, Result, PROJECT_SCHEMA_VERSION,
 };
 use encap_ffmpeg::{CancellationToken, MediaTools};
 use serde::Serialize;
@@ -120,36 +119,28 @@ fn main() {
     }) {
         tracing::warn!(%error, "could not install the cancellation signal handler");
     }
-    match run(Cli::parse(), &cancellation, &video_cancellation) {
-        Ok(value) => {
-            let stdout = std::io::stdout();
-            let mut writer = std::io::BufWriter::new(stdout.lock());
-            match serde_json::to_writer(&mut writer, &value) {
-                Ok(()) => {
-                    use std::io::Write;
-                    let _ = writer.write_all(b"\n");
-                    let _ = writer.flush();
-                }
-                Err(error) => {
-                    eprintln!("Failed to serialize engine response: {error}");
-                    std::process::exit(1);
-                }
-            }
-        }
+    let (value, failed) = match run(Cli::parse(), &cancellation, &video_cancellation) {
+        Ok(value) => (value, false),
         Err(error) => {
             tracing::error!(error = %error, "engine operation failed");
-            let stdout = std::io::stdout();
-            let mut writer = std::io::BufWriter::new(stdout.lock());
-            let _ = serde_json::to_writer(
-                &mut writer,
-                &serde_json::json!({ "error": error.to_string() }),
-            );
-            use std::io::Write;
-            let _ = writer.write_all(b"\n");
-            let _ = writer.flush();
-            std::process::exit(1);
+            (serde_json::json!({ "error": error.to_string() }), true)
         }
+    };
+    if let Err(error) = write_response(std::io::stdout().lock(), &value) {
+        eprintln!("Failed to write engine response: {error}");
+        std::process::exit(1);
     }
+    if failed {
+        std::process::exit(1);
+    }
+}
+
+fn write_response(writer: impl std::io::Write, value: &Value) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut writer = std::io::BufWriter::new(writer);
+    serde_json::to_writer(&mut writer, value).map_err(std::io::Error::other)?;
+    writer.write_all(b"\n")?;
+    writer.flush()
 }
 
 fn run(
@@ -192,14 +183,20 @@ fn run(
         Commands::Open {
             project,
             extraction_parent,
-        } => json(load_project(&project, extraction_parent.as_deref())?),
+        } => json(encap_core::load_project_cancellable(
+            &project,
+            extraction_parent.as_deref(),
+            &|| cancellation.is_cancelled(),
+        )?),
         Commands::Save {
             payload,
             project: destination,
         } => {
             let project = read_payload(&payload)?;
             json(PathResponse {
-                path: save_project(&project, &destination)?,
+                path: encap_core::save_project_cancellable(&project, &destination, &|| {
+                    cancellation.is_cancelled()
+                })?,
             })
         }
         Commands::Export { payload, output } => {
@@ -441,5 +438,37 @@ mod tests {
         assert!(path.exists(), "invalid recovery must be preserved");
         clear_recovery_at(&path).unwrap();
         assert!(!path.exists());
+    }
+}
+
+#[cfg(test)]
+mod response_regressions {
+    use super::*;
+    #[test]
+    fn buffered_response_reports_write_and_flush_failures() {
+        struct Fail(bool);
+        impl std::io::Write for Fail {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    Err(std::io::ErrorKind::BrokenPipe.into())
+                } else {
+                    Ok(data.len())
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+        }
+        for fail_write in [true, false] {
+            assert_eq!(
+                write_response(Fail(fail_write), &serde_json::json!({"ok":true}))
+                    .unwrap_err()
+                    .kind(),
+                std::io::ErrorKind::BrokenPipe
+            );
+        }
+        let mut bytes = Vec::new();
+        write_response(&mut bytes, &serde_json::json!({"ok":true})).unwrap();
+        assert_eq!(bytes, b"{\"ok\":true}\n");
     }
 }

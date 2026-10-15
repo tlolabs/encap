@@ -392,3 +392,82 @@ mod tests {
         assert!(counted.bytes <= BINS * WINDOW_BYTES + 100);
     }
 }
+
+#[cfg(test)]
+mod fast_path_equivalence {
+    use super::*;
+    #[test]
+    fn scan_matches_generic_for_encodings_channels_padding_and_edge_values() {
+        for bytes in [1, 2, 3, 4, 8] {
+            for float in [false, true] {
+                if (float && !matches!(bytes, 4 | 8)) || (!float && bytes == 8) {
+                    continue;
+                }
+                for little in [false, true] {
+                    for channels in [1, 2, 8] {
+                        let format = Format {
+                            stride: bytes * channels + 2,
+                            bytes,
+                            float,
+                            little,
+                            unsigned: bytes == 1 && little,
+                            frames: None,
+                        };
+                        let mut data = Vec::new();
+                        let mut seed = 31_u64;
+                        for i in 0..513 {
+                            let raw = if float {
+                                let value = [
+                                    0.0_f64,
+                                    -0.0,
+                                    1.0,
+                                    -1.0,
+                                    2.0,
+                                    -2.0,
+                                    f64::NAN,
+                                    f64::INFINITY,
+                                    f64::NEG_INFINITY,
+                                    f64::MIN_POSITIVE,
+                                ][i % 10];
+                                if bytes == 4 {
+                                    (value as f32).to_le_bytes().to_vec()
+                                } else {
+                                    value.to_le_bytes().to_vec()
+                                }
+                            } else {
+                                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                                let n = [0, u64::MAX, 1_u64 << (bytes * 8 - 1), seed][i % 4];
+                                n.to_le_bytes()[..bytes].to_vec()
+                            };
+                            let mut raw = raw;
+                            if !little {
+                                raw.reverse();
+                            }
+                            let mut frame = raw;
+                            frame.resize(format.stride, 255);
+                            assert_eq!(scan_peaks(&frame, format), sample(&frame[..bytes], format).abs(),
+                                "single edge sample: bytes={bytes},float={float},little={little},channels={channels},index={i}");
+                            data.extend(frame);
+                        }
+                        for size in [
+                            0,
+                            1,
+                            format.stride - 1,
+                            format.stride,
+                            data.len() - 1,
+                            data.len(),
+                        ] {
+                            let input = &data[..size];
+                            let reference = input
+                                .chunks_exact(format.stride)
+                                .fold(0_f32, |peak, frame| {
+                                    peak.max(sample(&frame[..bytes], format).abs())
+                                });
+                            assert_eq!(scan_peaks(input, format), reference, "bytes={bytes},float={float},little={little},channels={channels},size={size}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
