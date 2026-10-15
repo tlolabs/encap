@@ -144,4 +144,74 @@ final class AudioSourceRemovalTests: XCTestCase {
         XCTAssertNil(store.playingSourceID)
         XCTAssertFalse(store.isPlaying)
     }
+
+    @MainActor
+    func testSelectNoneThenSelectOneChapter() {
+        let store = AppStore()
+        store.project = fixture()
+        let chapters = store.project!.chapters
+
+        // Select all
+        store.selectAllVideoChapters(true)
+        XCTAssertEqual(store.selectedVideoChapters.count, 4)
+
+        // Select none
+        store.selectAllVideoChapters(false)
+        XCTAssertTrue(store.selectedVideoChapters.isEmpty)
+        XCTAssertTrue(store.project!.video.exportSettings.selectedChapterIds.isEmpty)
+        XCTAssertTrue(store.project!.video.exportSettings.selectionInitialized)
+
+        // Select one chapter after Select None
+        store.setVideoChapter(chapters[1], selected: true)
+        XCTAssertEqual(store.selectedVideoChapters.map(\.id), [chapters[1].id])
+
+        // Deselect that chapter -> empty
+        store.setVideoChapter(chapters[1], selected: false)
+        XCTAssertTrue(store.selectedVideoChapters.isEmpty)
+
+        // Select one again
+        store.setVideoChapter(chapters[2], selected: true)
+        XCTAssertEqual(store.selectedVideoChapters.map(\.id), [chapters[2].id])
+    }
+
+    @MainActor
+    func testVideoSeekEndpointAndInteriorMapping() {
+        let store = AppStore()
+        var proj = fixture()
+        // Select chapters 0 (10s), 1 (20s) -> total 30s
+        proj.video.exportSettings.selectedChapterIds = ["a", "b"]
+        proj.video.exportSettings.selectionInitialized = true
+        store.project = proj
+
+        XCTAssertEqual(store.selectedVideoDuration, 30.0)
+
+        // Seek to 0
+        store.seekVideo(to: 0, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 0.0)
+        XCTAssertEqual(store.currentVideoChapterIndex, 0)
+
+        // Seek to interior boundary (10s)
+        store.seekVideo(to: 10.0, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 10.0)
+        XCTAssertEqual(store.currentVideoChapterIndex, 1)
+
+        // Seek just before end (29.5s)
+        store.seekVideo(to: 29.5, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 29.5)
+        XCTAssertEqual(store.currentVideoChapterIndex, 1)
+
+        // Seek exact end (30.0s)
+        store.seekVideo(to: 30.0, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 30.0)
+        XCTAssertEqual(store.currentVideoChapterIndex, 1)
+
+        // Seek beyond end (50.0s) clamps to total
+        store.seekVideo(to: 50.0, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 30.0)
+
+        // Non-finite value is safely ignored
+        store.seekVideo(to: Double.nan, autoplay: false)
+        XCTAssertEqual(store.videoCurrentTime, 30.0)
+    }
 }
+

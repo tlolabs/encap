@@ -152,6 +152,13 @@ pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<
             source,
         })?;
     let staged = temporary.path().join("project.encap");
+    for source in &project.audio_sources {
+        if crate::file_ops::conflicts_with_path(&target, &source.source_path) {
+            return Err(EncapError::Message(
+                "The save destination must not overwrite source media.".into(),
+            ));
+        }
+    }
     {
         let mut audio_records = Vec::with_capacity(project.audio_sources.len());
         for (index, source) in project.audio_sources.iter().enumerate() {
@@ -516,9 +523,9 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
     };
     let mut audio_sources = Vec::with_capacity(manifest.audio_sources.len());
     for item in manifest.audio_sources {
-        if !item.duration_seconds.is_finite() || item.duration_seconds < 0.0 {
+        if !crate::model::is_valid_duration(item.duration_seconds) {
             return Err(EncapError::Message(
-                "Project audio duration is invalid.".into(),
+                "Project audio duration is invalid or exceeds maximum permitted duration.".into(),
             ));
         }
         let source_path = resolve(&item.stored_path)?;
@@ -538,6 +545,13 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
         .transpose()?;
     let mut chapters = Vec::with_capacity(manifest.chapters.len());
     for item in manifest.chapters {
+        if !crate::model::is_valid_duration(item.start_time_seconds)
+            || !crate::model::is_valid_chapter_duration(item.duration_seconds)
+        {
+            return Err(EncapError::Message(
+                "Project chapter duration is invalid or exceeds maximum permitted duration.".into(),
+            ));
+        }
         let image_path = item.image_stored_path.as_deref().map(resolve).transpose()?;
         chapters.push(Chapter {
             id: item.id,

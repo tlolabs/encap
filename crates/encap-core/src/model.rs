@@ -8,6 +8,22 @@ fn default_schema() -> u64 {
     2
 }
 
+/// Maximum permitted duration for any audio source, chapter, segment, or aggregate project timeline.
+/// Bounded to 1 year (31,536,000 seconds), which protects 32-bit integer conversions (max ~2.14B seconds),
+/// microsecond scaling (Linux MPRIS), and 100ns scaling (Windows SMTC) while accommodating legitimate
+/// recordings and multi-day projects without arbitrary truncation.
+pub const MAX_DURATION_SECONDS: f64 = 86_400.0 * 365.0;
+
+#[inline]
+pub fn is_valid_duration(seconds: f64) -> bool {
+    seconds.is_finite() && seconds >= 0.0 && seconds <= MAX_DURATION_SECONDS
+}
+
+#[inline]
+pub fn is_valid_chapter_duration(seconds: f64) -> bool {
+    seconds.is_finite() && seconds > 0.0 && seconds <= MAX_DURATION_SECONDS
+}
+
 pub use avid_core::{VideoProjectState, VideoSettings};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -279,38 +295,56 @@ impl ProjectDocument {
                 "The selected bitrate is unsupported for this format and channel layout.".into(),
             ));
         }
+        for source in &self.audio_sources {
+            if !is_valid_duration(source.duration_seconds) {
+                return Err(crate::EncapError::Message(
+                    "Audio source duration is invalid or exceeds maximum permitted duration.".into(),
+                ));
+            }
+        }
         let mut previous = 0.0;
+        let mut total_duration = 0.0;
         for chapter in &self.chapters {
-            if !chapter.start_time_seconds.is_finite()
-                || !chapter.duration_seconds.is_finite()
+            if !is_valid_duration(chapter.start_time_seconds)
+                || !is_valid_chapter_duration(chapter.duration_seconds)
                 || chapter.start_time_seconds < previous
-                || chapter.duration_seconds <= 0.0
             {
                 return Err(crate::EncapError::Message(
-                    "Chapter times must be finite, ordered, and have positive durations.".into(),
+                    "Chapter times must be finite, within permitted bounds, ordered, and have positive durations.".into(),
+                ));
+            }
+            let end_time = chapter.start_time_seconds + chapter.duration_seconds;
+            if !end_time.is_finite() || end_time > MAX_DURATION_SECONDS {
+                return Err(crate::EncapError::Message(
+                    "Chapter timing or total project duration exceeds maximum permitted bounds.".into(),
                 ));
             }
             previous = chapter.start_time_seconds;
+            total_duration += chapter.duration_seconds;
+        }
+        if !total_duration.is_finite() || total_duration > MAX_DURATION_SECONDS {
+            return Err(crate::EncapError::Message(
+                "Aggregate chapter duration exceeds maximum permitted bounds.".into(),
+            ));
         }
         for segment in &self.transcript_segments {
-            if !segment.start_time_seconds.is_finite()
-                || !segment.end_time_seconds.is_finite()
-                || segment.start_time_seconds < 0.0
+            if !is_valid_duration(segment.start_time_seconds)
+                || !is_valid_duration(segment.end_time_seconds)
                 || segment.end_time_seconds < segment.start_time_seconds
             {
                 return Err(crate::EncapError::Message(
-                    "Transcript timing is invalid.".into(),
+                    "Transcript timing is invalid or exceeds permitted bounds.".into(),
                 ));
             }
             for word in &segment.words {
-                if !word.start_time_seconds.is_finite()
-                    || !word.end_time_seconds.is_finite()
+                if !is_valid_duration(word.start_time_seconds)
+                    || !is_valid_duration(word.end_time_seconds)
                     || word.start_time_seconds < segment.start_time_seconds
                     || word.end_time_seconds < word.start_time_seconds
                     || word.end_time_seconds > segment.end_time_seconds
                 {
                     return Err(crate::EncapError::Message(
-                        "Word-level transcript timing is invalid.".into(),
+                        "Word-level transcript timing is invalid or exceeds permitted bounds.".into(),
                     ));
                 }
             }
@@ -324,4 +358,84 @@ impl ProjectDocument {
 
 pub(crate) fn new_id() -> String {
     Uuid::new_v4().simple().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn sample_project() -> ProjectDocument {
+        let mut project = ProjectDocument::default();
+        project.metadata.podcast_title = "Show".into();
+        project.metadata.episode_title = "Ep".into();
+        project.audio_sources.push(AudioSource {
+            source_path: PathBuf::from("test.wav"),
+            display_name: "Source 1".into(),
+            duration_seconds: 60.0,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        project.chapters.push(Chapter {
+            id: "ch1".into(),
+            chapter_number: 1,
+            title: "Intro".into(),
+            start_time_seconds: 0.0,
+            duration_seconds: 60.0,
+            image_path: None,
+            image_stored_path: None,
+            link_url: String::new(),
+            extensions: BTreeMap::new(),
+        });
+        project
+    }
+
+    #[test]
+    fn test_valid_project_duration() {
+        let project = sample_project();
+        assert!(project.validate().is_ok());
+    }
+
+    #[test]
+    fn test_huge_duration_rejected() {
+        let mut project = sample_project();
+        project.audio_sources[0].duration_seconds = 1e300;
+        assert!(project.validate().is_err());
+
+        let mut project2 = sample_project();
+        project2.chapters[0].duration_seconds = 1e300;
+        assert!(project2.validate().is_err());
+    }
+
+    #[test]
+    fn test_negative_or_nan_duration_rejected() {
+        let mut project = sample_project();
+        project.audio_sources[0].duration_seconds = -1.0;
+        assert!(project.validate().is_err());
+
+        let mut project2 = sample_project();
+        project2.chapters[0].duration_seconds = f64::NAN;
+        assert!(project2.validate().is_err());
+
+        let mut project3 = sample_project();
+        project3.chapters[0].start_time_seconds = f64::INFINITY;
+        assert!(project3.validate().is_err());
+    }
+
+    #[test]
+    fn test_exceeding_max_duration_rejected() {
+        let mut project = sample_project();
+        project.chapters[0].start_time_seconds = MAX_DURATION_SECONDS - 10.0;
+        project.chapters[0].duration_seconds = 20.0; // sum exceeds MAX_DURATION_SECONDS
+        assert!(project.validate().is_err());
+    }
+
+    #[test]
+    fn test_max_duration_boundary() {
+        let mut project = sample_project();
+        project.audio_sources[0].duration_seconds = MAX_DURATION_SECONDS;
+        project.chapters[0].start_time_seconds = 0.0;
+        project.chapters[0].duration_seconds = MAX_DURATION_SECONDS;
+        assert!(project.validate().is_ok());
+    }
 }

@@ -177,9 +177,17 @@ fn packaged_pair() -> encap_core::Result<(PathBuf, PathBuf, String)> {
         return Err(unavailable());
     }
     for name in [&ffmpeg_name, &ffprobe_name] {
-        if signed["original_binary_sha256"][name] != *files.get(name).ok_or_else(unavailable)?
-            || signed["signed_binary_sha256"][name] != hash(&binary.join(name))?
-        {
+        let base_name = name.strip_suffix(std::env::consts::EXE_SUFFIX).unwrap_or(name);
+        let expected_original = files.get(name).ok_or_else(unavailable)?;
+        if signed["original_binary_sha256"][name] != *expected_original {
+            return Err(unavailable());
+        }
+        if let Some(pin_hash) = record["binary_sha256"].get(base_name).and_then(|v| v.as_str()) {
+            if pin_hash != *expected_original {
+                return Err(unavailable());
+            }
+        }
+        if signed["signed_binary_sha256"][name] != hash(&binary.join(name))? {
             return Err(unavailable());
         }
     }

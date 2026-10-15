@@ -42,6 +42,14 @@ static const gchar *media_xml =
   "<property name='CanControl' type='b' access='read'/></interface></node>";
 
 
+#define MAX_DURATION_SECONDS (86400.0 * 365.0)
+
+static gint64 safe_seconds_to_usec(double s) {
+    if (!isfinite(s) || s <= 0.0) return 0;
+    if (s > MAX_DURATION_SECONDS) s = MAX_DURATION_SECONDS;
+    return (gint64)(s * (double)G_USEC_PER_SEC);
+}
+
 static GVariant* property(GDBusConnection* c,const gchar* sender,const gchar* path,const gchar* iface,const gchar* name,GError** error,gpointer data){
     (void)c;(void)sender;(void)path;(void)iface;(void)data;
     GVariant* result=NULL;g_mutex_lock(&gate);
@@ -52,7 +60,7 @@ static GVariant* property(GDBusConnection* c,const gchar* sender,const gchar* pa
     else if(g_str_has_prefix(name,"Can"))result=g_variant_new_boolean(enabled);
     else if(g_str_equal(name,"SupportedUriSchemes")||g_str_equal(name,"SupportedMimeTypes"))result=g_variant_new_strv(NULL,0);
     else if(g_str_equal(name,"PlaybackStatus"))result=g_variant_new_string(!enabled?"Stopped":playing?"Playing":"Paused");
-    else if(g_str_equal(name,"Position"))result=g_variant_new_int64((gint64)(position*G_USEC_PER_SEC));
+    else if(g_str_equal(name,"Position"))result=g_variant_new_int64(safe_seconds_to_usec(position));
     else if(g_str_equal(name,"Rate"))result=g_variant_new_double(rate);
     else if(g_str_equal(name,"MinimumRate"))result=g_variant_new_double(-32);
     else if(g_str_equal(name,"MaximumRate"))result=g_variant_new_double(32);
@@ -63,7 +71,7 @@ static GVariant* property(GDBusConnection* c,const gchar* sender,const gchar* pa
         gchar* id=g_strconcat("/org/mpris/MediaPlayer2/track_",hash,NULL);
         g_variant_builder_add(&b,"{sv}","mpris:trackid",g_variant_new_object_path(id));g_free(hash);g_free(id);
         g_variant_builder_add(&b,"{sv}","xesam:title",g_variant_new_string(title?title:""));
-        g_variant_builder_add(&b,"{sv}","mpris:length",g_variant_new_int64((gint64)(duration*G_USEC_PER_SEC)));
+        g_variant_builder_add(&b,"{sv}","mpris:length",g_variant_new_int64(safe_seconds_to_usec(duration)));
         result=g_variant_builder_end(&b);
     }else g_set_error(error,G_DBUS_ERROR,G_DBUS_ERROR_UNKNOWN_PROPERTY,"Unknown property");
     g_mutex_unlock(&gate);return result;
@@ -87,7 +95,7 @@ static void method(GDBusConnection* c,const gchar* sender,const gchar* path,cons
     }
     if(!code){g_dbus_method_invocation_return_error(invocation,G_DBUS_ERROR,G_DBUS_ERROR_NOT_SUPPORTED,"Action unavailable");return;}
     invoke(code,value);g_dbus_method_invocation_return_value(invocation,NULL);
-    if(code==6)g_dbus_connection_emit_signal(bus,NULL,media_path,player_interface,"Seeked",g_variant_new("(x)",(gint64)(value*G_USEC_PER_SEC)),NULL);
+    if(code==6)g_dbus_connection_emit_signal(bus,NULL,media_path,player_interface,"Seeked",g_variant_new("(x)",safe_seconds_to_usec(value)),NULL);
 }
 static gboolean set_property(GDBusConnection* c,const gchar* sender,const gchar* path,const gchar* iface,const gchar* name,GVariant* v,GError** error,gpointer data){
     (void)c;(void)sender;(void)path;(void)iface;(void)data;
@@ -119,8 +127,13 @@ static gboolean changed(gpointer data){
     g_dbus_connection_emit_signal(bus,NULL,media_path,"org.freedesktop.DBus.Properties","PropertiesChanged",g_variant_new("(sa{sv}as)",player_interface,&b,NULL),NULL);return G_SOURCE_REMOVE;
 }
 API void encap_media_update(const char* text,double p,double d,double r,int active,int available,double v){
-    if(!thread)return;g_mutex_lock(&gate);gboolean notify=g_strcmp0(title,text)!=0||playing!=active||enabled!=available||rate!=r||volume!=v;
-    g_free(title);title=g_strdup(text);position=p;duration=d;rate=r;playing=active;enabled=available;volume=v;g_mutex_unlock(&gate);
+    if(!thread)return;
+    double safe_p=isfinite(p)&&p>=0.0?(p>MAX_DURATION_SECONDS?MAX_DURATION_SECONDS:p):0.0;
+    double safe_d=isfinite(d)&&d>=0.0?(d>MAX_DURATION_SECONDS?MAX_DURATION_SECONDS:d):0.0;
+    double safe_r=isfinite(r)?r:1.0;
+    double safe_v=isfinite(v)?CLAMP(v,0.0,1.0):1.0;
+    g_mutex_lock(&gate);gboolean notify=g_strcmp0(title,text)!=0||playing!=active||enabled!=available||rate!=safe_r||volume!=safe_v;
+    g_free(title);title=g_strdup(text);position=safe_p;duration=safe_d;rate=safe_r;playing=active;enabled=available;volume=safe_v;g_mutex_unlock(&gate);
     if(notify)g_main_context_invoke(context,changed,NULL);
 }
 static gboolean quit(gpointer data){(void)data;g_main_loop_quit(loop);return G_SOURCE_REMOVE;}

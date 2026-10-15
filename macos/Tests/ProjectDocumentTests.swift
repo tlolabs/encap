@@ -174,4 +174,17 @@ final class ReviewRegressionTests: XCTestCase {
         store.presentFileImporter(.audioFolder)
         XCTAssertFalse(store.isFileImporterPresented)
     }
+
+    func testTimestampFormatterBounds() {
+        XCTAssertEqual(EnCapFormatters.timestamp(0), "0:00")
+        XCTAssertEqual(EnCapFormatters.timestamp(65), "1:05")
+        XCTAssertEqual(EnCapFormatters.timestamp(3665), "1:01:05")
+        XCTAssertEqual(EnCapFormatters.timestamp(-1), "--:--")
+        XCTAssertEqual(EnCapFormatters.timestamp(Double.nan), "--:--")
+        XCTAssertEqual(EnCapFormatters.timestamp(Double.infinity), "--:--")
+        XCTAssertEqual(EnCapFormatters.timestamp(1e300), "--:--")
+        XCTAssertEqual(EnCapFormatters.timestamp(EnCapFormatters.maxSafeSeconds + 1), "--:--")
+        XCTAssertNotEqual(EnCapFormatters.timestamp(EnCapFormatters.maxSafeSeconds), "--:--")
+    }
 }
+

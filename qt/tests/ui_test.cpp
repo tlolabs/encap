@@ -3,6 +3,7 @@
 #include <QAccessible>
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDataStream>
 #include <QDir>
@@ -13,6 +14,7 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QDebug>
+#include <QSlider>
 #include <QStandardPaths>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -52,6 +54,36 @@ int main(int argc, char** argv) {
         ++namedTables;
     }
     if (namedTables < 3) return 3;
+
+    // Verify QSlider accessible names and interfaces (ENC-A01, ENC-A03)
+    QSlider* sourceSeek = nullptr;
+    QSlider* videoSeek = nullptr;
+    for (auto* slider : window.findChildren<QSlider*>()) {
+        if (slider->accessibleName() == "Recording position") sourceSeek = slider;
+        else if (slider->accessibleName() == "Video timeline position") videoSeek = slider;
+        if (!QAccessible::queryAccessibleInterface(slider)) return 20;
+    }
+    if (!sourceSeek || !videoSeek) return 21;
+
+    // Verify slider responds to keyboard / single-step actions (ENC-A01)
+    sourceSeek->setMaximum(100);
+    sourceSeek->setValue(10);
+    sourceSeek->triggerAction(QAbstractSlider::SliderSingleStepAdd);
+    if (sourceSeek->value() != 11) return 22;
+
+    // Verify ComboBox accessible names and interfaces (ENC-A03)
+    const QStringList requiredCombos = {
+        "Export format", "Audio channels", "Audio bitrate", "Chapter naming style", "Preview quality"
+    };
+    int foundCombos = 0;
+    for (auto* cb : window.findChildren<QComboBox*>()) {
+        if (requiredCombos.contains(cb->accessibleName())) {
+            if (!QAccessible::queryAccessibleInterface(cb)) return 23;
+            ++foundCombos;
+        }
+    }
+    if (foundCombos < requiredCombos.size()) return 24;
+
     modes->setCurrentIndex(2);
     app.processEvents();
     if (modes->currentIndex() != 2) return 4;

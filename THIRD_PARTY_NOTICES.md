@@ -338,7 +338,7 @@ The independent vendored `tlo-updater` component is GPL-3.0-or-later and has no 
 ## Shared Qt desktop frontend
 
 Windows/Linux and the internal Apple Silicon reference link Qt 6 **Core, Gui,
-and Widgets** dynamically. Windows CI uses Qt **6.11.2**; other hosts record
+and Widgets** dynamically. Windows CI uses Qt **6.10.3** (minimum supported 6.4); other hosts record
 their installed Qt version at package qualification. The application chooses
 Qt's **GPL-3.0-only** option, compatible with EnCap's GPL-3.0-or-later source.
 Distributed Qt platform, style, image-format, and optional Linux integration
@@ -357,8 +357,11 @@ The preview device adapter vendors miniaudio **0.11.23** from the upstream tag:
 <https://github.com/mackron/miniaudio/tree/0.11.23>. We select its MIT-0 option
 (the upstream file calls it “MIT No Attribution”); the complete dual-license text
 is retained in `desktop/vendor/miniaudio.LICENSE` and distributed with the app.
-The unmodified header SHA-256 is
+The unmodified upstream header SHA-256 is
 `7e4f3f13c8fe66df2080ac3dd12a89193e3c2463cb7f067c798abd7331cd8ee6`.
+The vendored header at `desktop/vendor/miniaudio.h` defines `#define MA_NO_ENCODING`
+for EnCap's read-only playback adapter, with reviewed local hash
+`e5cb323cec7932d068a225d7c84f8b895caa7027b6b052fe0085e825c323a730`.
 
 Linux media-session integration dynamically links the system GLib/GIO libraries
 under LGPL-2.1-or-later. No GTK, libadwaita, GStreamer or WinUI runtime remains.

@@ -51,7 +51,22 @@
 #include <algorithm>
 #include <cmath>
 
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#else
+#include <cerrno>
+#include <csignal>
+#endif
+
 namespace {
+constexpr double kMaxSafeSeconds = 86400.0 * 365.0;
+
+int safeSecondsToInt(double seconds, int fallback = 0) {
+    if (!std::isfinite(seconds) || seconds < 0.0) return fallback;
+    if (seconds > kMaxSafeSeconds) return static_cast<int>(kMaxSafeSeconds);
+    return static_cast<int>(seconds);
+}
+
 QWidget* row(std::initializer_list<QWidget*> children) {
     auto* widget = new QWidget;
     auto* layout = new QHBoxLayout(widget);
@@ -71,7 +86,10 @@ QComboBox* combo(const QStringList& values) {
     return control;
 }
 QString shownTime(double seconds) {
-    const int whole = std::max(0, static_cast<int>(seconds));
+    if (!std::isfinite(seconds) || seconds < 0.0 || seconds > kMaxSafeSeconds) {
+        return QStringLiteral("--:--");
+    }
+    const int whole = static_cast<int>(seconds);
     return QStringLiteral("%1:%2:%3").arg(whole / 3600, 2, 10, QChar('0'))
         .arg((whole / 60) % 60, 2, 10, QChar('0')).arg(whole % 60, 2, 10, QChar('0'));
 }
@@ -116,6 +134,11 @@ MainWindow::MainWindow() {
     setAcceptDrops(true);
     setMinimumSize(800, 580);
     resize(1180, 820);
+    sessionDir_ = QDir::temp().filePath(QStringLiteral("encap-qt-session-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    QDir().mkpath(sessionDir_);
+    cleanupStaleSessions();
     updateTitle();
     recoveryTimer_.setSingleShot(true);
     recoveryTimer_.setInterval(1000);
@@ -279,11 +302,24 @@ void MainWindow::setBusy(bool busy) {
     if (saveAction_) saveAction_->setEnabled(!busy && hasProject_);
 }
 void MainWindow::setStatus(const QString& message, bool error) {
+    if (status_->text() == message && !error) return;
     status_->setText(message);
-    status_->setStyleSheet(error ? "color: #a11919;" : "");
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    status_->setStyleSheet(error ? (dark ? "color: #f87171;" : "color: #b91c1c;") : "");
     status_->setAccessibleDescription(error ? "Error: " + message : message);
+    if (error) {
+        QAccessibleEvent alert(status_, QAccessible::Alert);
+        QAccessible::updateAccessibility(&alert);
+    }
     QAccessibleEvent changed(status_, QAccessible::DescriptionChanged);
     QAccessible::updateAccessibility(&changed);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    QAccessibleAnnouncementEvent announcement(status_, error ? ("Error: " + message) : message);
+    if (error) {
+        announcement.setPoliteness(QAccessible::AnnouncementPoliteness::Assertive);
+    }
+    QAccessible::updateAccessibility(&announcement);
+#endif
 }
 void MainWindow::fail(const QString& error) { setStatus(error, true); }
 void MainWindow::updateTitle() {
@@ -308,6 +344,11 @@ void MainWindow::markDirty() {
     recoveryTimer_.start();
 }
 void MainWindow::present(const QJsonObject& project, bool changed) {
+    const QString nextWorkingDir = project.value("working_dir").toString();
+    if (!activeWorkingDir_.isEmpty() && activeWorkingDir_ != nextWorkingDir) {
+        cleanupProjectDirectory(activeWorkingDir_);
+    }
+    activeWorkingDir_ = nextWorkingDir;
     pausePlayback();
     encap_audio_close();
     playingPath_.clear();
@@ -438,7 +479,7 @@ void MainWindow::refreshVideo() {
         if (enabled) { ++count; duration += chapter.value("duration_seconds").toDouble(); }
     }
     videoSummary_->setText(QStringLiteral("%1 of %2 selected · %3").arg(count).arg(videoOrder_.size()).arg(shownTime(duration)));
-    videoSeek_->setMaximum(std::max(1, static_cast<int>(duration)));
+    videoSeek_->setMaximum(std::max(1, safeSecondsToInt(duration, 1)));
     videoArtwork_->setText(project_.value("metadata").toObject().value("artwork_path").toString().isEmpty()
         ? "Episode artwork required" : "Episode artwork ready");
     const auto artwork = previewIndex_ < selected.size() ? [&] {
@@ -496,7 +537,7 @@ void MainWindow::openProject(const QString& requested) {
     const auto path = requested.isEmpty()
         ? QFileDialog::getOpenFileName(this, "Open EnCap project", {}, "EnCap projects (*.encap)") : requested;
     if (path.isEmpty()) return;
-    runEngine("Opening project…", {"open", path}, [this](const QJsonValue& value) {
+    runEngine("Opening project…", {"open", path, "--extraction-parent", sessionDir_}, [this](const QJsonValue& value) {
         const auto document = value.toObject();
         runEngine("Finishing project recovery…", {"clear-recovery"}, [this, document](const QJsonValue&) {
             present(document, false);
@@ -792,7 +833,7 @@ void MainWindow::syncVideoSelection() {
     setField({"video", "export_settings", "selected_chapter_ids"}, selected);
     setField({"video", "export_settings", "selection_initialized"}, true);
     videoSummary_->setText(QStringLiteral("%1 of %2 selected · %3").arg(count).arg(videoOrder_.size()).arg(shownTime(duration)));
-    videoSeek_->setMaximum(std::max(1, static_cast<int>(duration)));
+    videoSeek_->setMaximum(std::max(1, safeSecondsToInt(duration, 1)));
 }
 void MainWindow::moveVideo(int delta) {
     const int row = videoChapters_->currentRow();
@@ -855,6 +896,69 @@ MainWindow::~MainWindow() {
 #ifdef ENCAP_HAS_MEDIA_SESSION
     if (mediaOwner_ == this) { encap_media_close(); mediaOwner_ = nullptr; }
 #endif
+    cleanupProjectDirectory(activeWorkingDir_);
+    if (!sessionDir_.isEmpty()) {
+        QDir(sessionDir_).removeRecursively();
+    }
+}
+
+void MainWindow::cleanupProjectDirectory(const QString& workingDir) {
+    if (workingDir.isEmpty() || sessionDir_.isEmpty()) return;
+    QFileInfo dirInfo(workingDir);
+    QFileInfo sessionInfo(sessionDir_);
+    const QString dirCanon = dirInfo.canonicalFilePath();
+    const QString sessionCanon = sessionInfo.canonicalFilePath();
+    if (dirCanon.isEmpty() || sessionCanon.isEmpty()) return;
+    if (dirInfo.dir().canonicalPath() == sessionCanon) {
+        QDir(workingDir).removeRecursively();
+    }
+}
+
+void MainWindow::cleanupStaleSessions() {
+    QDir tempDir = QDir::temp();
+    const auto entries = tempDir.entryInfoList({"encap-qt-session-*"}, QDir::Dirs | QDir::NoDotAndDotDot);
+    QString recoveryWorkingDir;
+    QFile recFile(dataDirectory() + "/recovery.json");
+    if (recFile.open(QIODevice::ReadOnly)) {
+        const auto recDoc = QJsonDocument::fromJson(recFile.readAll()).object();
+        recoveryWorkingDir = recDoc.value("working_dir").toString();
+    }
+
+    int cleaned = 0;
+    const qint64 currentPid = QCoreApplication::applicationPid();
+    for (const auto& entry : entries) {
+        if (cleaned >= 20) break;
+        if (entry.absoluteFilePath() == sessionDir_) continue;
+        const auto parts = entry.fileName().split('-');
+        if (parts.size() < 4) continue;
+        bool ok = false;
+        const qint64 pid = parts[3].toLongLong(&ok);
+        if (!ok || pid <= 0 || pid == currentPid) continue;
+
+        bool alive = false;
+#if defined(Q_OS_WIN)
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+        if (hProcess) {
+            DWORD exitCode = 0;
+            if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
+                alive = true;
+            }
+            CloseHandle(hProcess);
+        }
+#else
+        if (kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM) {
+            alive = true;
+        }
+#endif
+        if (alive) continue;
+
+        if (!recoveryWorkingDir.isEmpty() && recoveryWorkingDir.startsWith(entry.absoluteFilePath())) {
+            continue;
+        }
+
+        QDir(entry.absoluteFilePath()).removeRecursively();
+        ++cleaned;
+    }
 }
 
 void MainWindow::buildUi() {
@@ -909,6 +1013,9 @@ QWidget* MainWindow::buildAudioPage() {
     sourceSeek_ = new QSlider(Qt::Horizontal);
     sourceSeek_->setAccessibleName("Recording position");
     connect(sourceSeek_, &QSlider::sliderReleased, this, [this] { seekPlayback(sourceSeek_->value()); });
+    connect(sourceSeek_, &QSlider::valueChanged, this, [this](int value) {
+        if (!sourceSeek_->isSliderDown()) seekPlayback(value);
+    });
     left->addWidget(sourceSeek_);
     sourcePlay_ = button("Play", [this] { togglePlayback(); });
     sourceTime_ = new QLabel("00:00:00 / 00:00:00");
@@ -940,11 +1047,23 @@ QWidget* MainWindow::buildAudioPage() {
     audioFormat_ = combo({"mp3", "aac"});
     audioBitrate_ = combo({"64k", "96k", "128k", "160k", "192k", "256k", "320k"});
     audioChannels_ = combo({"1", "2"});
-    right->addWidget(row({new QLabel("Format"), audioFormat_, new QLabel("Channels"), audioChannels_,
-                          new QLabel("Bitrate"), audioBitrate_, button("Export Audio…", [this] { exportFile("audio"); })}));
+    auto* formatLabel = new QLabel("Format");
+    formatLabel->setBuddy(audioFormat_);
+    audioFormat_->setAccessibleName("Export format");
+    auto* channelsLabel = new QLabel("Channels");
+    channelsLabel->setBuddy(audioChannels_);
+    audioChannels_->setAccessibleName("Audio channels");
+    auto* bitrateLabel = new QLabel("Bitrate");
+    bitrateLabel->setBuddy(audioBitrate_);
+    audioBitrate_->setAccessibleName("Audio bitrate");
+    right->addWidget(row({formatLabel, audioFormat_, channelsLabel, audioChannels_,
+                          bitrateLabel, audioBitrate_, button("Export Audio…", [this] { exportFile("audio"); })}));
     right->addWidget(new QLabel("Chapters"));
     naming_ = combo({"Original", "Numbered", "Time", "Custom"});
-    right->addWidget(row({naming_, button("Apply Names", [this] { applyChapterNames(); }),
+    auto* namingLabel = new QLabel("Chapter naming style");
+    namingLabel->setBuddy(naming_);
+    naming_->setAccessibleName("Chapter naming style");
+    right->addWidget(row({namingLabel, naming_, button("Apply Names", [this] { applyChapterNames(); }),
                           button("Add", [this] { addChapter(); }), button("Remove", [this] { removeChapter(); }),
                           button("Chapter Artwork…", [this] { chooseArtwork(true); })}));
     chapters_ = new QTableWidget(0, 5);
@@ -1102,7 +1221,10 @@ QWidget* MainWindow::buildVideoPage() {
     flipHorizontal_ = new QCheckBox("Flip horizontally");
     flipVertical_ = new QCheckBox("Flip vertically");
     previewQuality_ = combo({"automatic", "low", "medium", "high"});
-    artworkLayout->addWidget(row({flipHorizontal_, flipVertical_, new QLabel("Preview quality"), previewQuality_}));
+    auto* qualityLabel = new QLabel("Preview quality");
+    qualityLabel->setBuddy(previewQuality_);
+    previewQuality_->setAccessibleName("Preview quality");
+    artworkLayout->addWidget(row({flipHorizontal_, flipVertical_, qualityLabel, previewQuality_}));
     layout->addWidget(artwork);
 
     videoPreview_ = new QLabel;
@@ -1139,6 +1261,9 @@ QWidget* MainWindow::buildVideoPage() {
         }
     });
     connect(videoSeek_, &QSlider::sliderReleased, this, [this] { seekPlayback(videoSeek_->value()); });
+    connect(videoSeek_, &QSlider::valueChanged, this, [this](int value) {
+        if (!videoSeek_->isSliderDown()) seekPlayback(value);
+    });
     connect(preset_, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (loading_ || !hasProject_ || index < 0 || index >= presets_.size()) return;
         const auto selected = presets_[index].toObject();
@@ -1366,10 +1491,16 @@ void MainWindow::tick() {
         }
     }
     const double position = encap_audio_position();
-    if (!sourceSeek_->isSliderDown() && sourceSeek_->value() != static_cast<int>(position))
-        sourceSeek_->setValue(static_cast<int>(position));
-    if (sourceSeek_->maximum() != std::max(1, static_cast<int>(duration)))
-        sourceSeek_->setMaximum(std::max(1, static_cast<int>(duration)));
+    const int posInt = safeSecondsToInt(position);
+    const int durInt = std::max(1, safeSecondsToInt(duration, 1));
+    if (!sourceSeek_->isSliderDown() && sourceSeek_->value() != posInt) {
+        const QSignalBlocker blocker(sourceSeek_);
+        sourceSeek_->setValue(posInt);
+    }
+    if (sourceSeek_->maximum() != durInt) {
+        const QSignalBlocker blocker(sourceSeek_);
+        sourceSeek_->setMaximum(durInt);
+    }
     const QString sourceTimeText = shownTime(position) + " / " + shownTime(duration);
     if (sourceTime_->text() != sourceTimeText) sourceTime_->setText(sourceTimeText);
 
@@ -1386,10 +1517,16 @@ void MainWindow::tick() {
         }
     }
     const double videoPosition = offset + std::min(position, chapterDuration);
-    if (!videoSeek_->isSliderDown() && videoSeek_->value() != static_cast<int>(videoPosition))
-        videoSeek_->setValue(static_cast<int>(videoPosition));
-    if (videoSeek_->maximum() != std::max(1, static_cast<int>(videoDuration)))
-        videoSeek_->setMaximum(std::max(1, static_cast<int>(videoDuration)));
+    const int videoPosInt = safeSecondsToInt(videoPosition);
+    const int videoDurInt = std::max(1, safeSecondsToInt(videoDuration, 1));
+    if (!videoSeek_->isSliderDown() && videoSeek_->value() != videoPosInt) {
+        const QSignalBlocker blocker(videoSeek_);
+        videoSeek_->setValue(videoPosInt);
+    }
+    if (videoSeek_->maximum() != videoDurInt) {
+        const QSignalBlocker blocker(videoSeek_);
+        videoSeek_->setMaximum(videoDurInt);
+    }
     const QString videoTimeText = shownTime(videoPosition) + " / " + shownTime(videoDuration);
     if (videoTime_->text() != videoTimeText) videoTime_->setText(videoTimeText);
 
@@ -1525,7 +1662,7 @@ void MainWindow::setAppearance(const QString& preference) {
         palette.setColor(QPalette::Text, dark ? Qt::white : Qt::black);
         palette.setColor(QPalette::Button, dark ? QColor("#303640") : QColor("#e7eaf0"));
         palette.setColor(QPalette::ButtonText, dark ? Qt::white : Qt::black);
-        palette.setColor(QPalette::Highlight, QColor("#3b82f6"));
+        palette.setColor(QPalette::Highlight, dark ? QColor("#2563eb") : QColor("#1d4ed8"));
         palette.setColor(QPalette::HighlightedText, Qt::white);
         QApplication::setPalette(palette);
     }

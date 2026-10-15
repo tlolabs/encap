@@ -675,16 +675,23 @@ final class AppStore: ObservableObject {
 
     func seekVideo(to requestedTime: Double, autoplay: Bool? = nil) {
         let chapters = selectedVideoChapters
-        guard !chapters.isEmpty, let project else { return }
+        guard !chapters.isEmpty, let project, requestedTime.isFinite else { return }
         let target = min(max(0, requestedTime), selectedVideoDuration)
         var cumulative = 0.0
+        var chapterStart = 0.0
         var index = chapters.count - 1
         for candidate in chapters.indices {
-            if target < cumulative + chapters[candidate].durationSeconds {
+            let nextCumulative = cumulative + chapters[candidate].durationSeconds
+            if target < nextCumulative {
                 index = candidate
+                chapterStart = cumulative
                 break
             }
-            cumulative += chapters[candidate].durationSeconds
+            if candidate == chapters.count - 1 {
+                index = candidate
+                chapterStart = cumulative
+            }
+            cumulative = nextCumulative
         }
         let shouldPlay = autoplay ?? isVideoPlaying
         stopPlayback()
@@ -694,7 +701,8 @@ final class AppStore: ObservableObject {
         player = nextPlayer
         videoPlaybackIndex = index
         videoCurrentTime = target
-        nextPlayer.seek(to: CMTime(seconds: max(0, target - cumulative), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        let chapterOffset = min(chapter.durationSeconds, max(0, target - chapterStart))
+        nextPlayer.seek(to: CMTime(seconds: chapterOffset, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         videoTimeObserver = nextPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
             queue: .main
@@ -702,7 +710,7 @@ final class AppStore: ObservableObject {
             Task { @MainActor in
                 guard let self, self.player === nextPlayer, self.videoPlaybackIndex == index else { return }
                 let elapsed = min(time.seconds, chapter.durationSeconds)
-                self.videoCurrentTime = cumulative + max(0, elapsed)
+                self.videoCurrentTime = chapterStart + max(0, elapsed)
                 if elapsed >= chapter.durationSeconds - 0.04 {
                     self.playVideoChapter(index + 1)
                 }
@@ -745,7 +753,9 @@ final class AppStore: ObservableObject {
     func setVideoChapter(_ chapter: Chapter, selected: Bool) {
         guard var project else { return }
         var ids = project.video.exportSettings.selectedChapterIds
-        if ids.isEmpty { ids = project.chapters.map(\.id) }
+        if ids.isEmpty && !project.video.exportSettings.selectionInitialized {
+            ids = project.chapters.map(\.id)
+        }
         if selected {
             if !ids.contains(chapter.id) { ids.append(chapter.id) }
         } else {

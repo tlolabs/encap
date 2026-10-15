@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include <windows.h>
 #include <roapi.h>
 #include <SystemMediaTransportControlsInterop.h>
@@ -6,6 +6,7 @@
 #include <winrt/Windows.Media.h>
 #include <winrt/Windows.Media.Playback.h>
 #include <atomic>
+#include <cmath>
 using namespace winrt;
 using namespace winrt::Windows::Media;
 using namespace winrt::Windows::Foundation;
@@ -14,6 +15,14 @@ static SystemMediaTransportControls controls{nullptr};
 static std::atomic<callback_t> callback{nullptr};
 static event_token buttons,position_request,rate_request;
 static bool owns_apartment=false;
+constexpr double kMaxSafeSeconds = 86400.0 * 365.0;
+
+static int64_t safe_seconds_to_ticks(double seconds) {
+    if (!std::isfinite(seconds) || seconds <= 0.0) return 0;
+    if (seconds > kMaxSafeSeconds) seconds = kMaxSafeSeconds;
+    return static_cast<int64_t>(seconds * 10000000.0);
+}
+
 extern "C" __declspec(dllexport) int encap_media_open(void* window,callback_t handler){
     // Balance our own WinRT initialization when another desktop component owns COM.
     const HRESULT initialized=RoInitialize(RO_INIT_SINGLETHREADED);
@@ -43,10 +52,10 @@ extern "C" __declspec(dllexport) void encap_media_update(const char* title,doubl
     (void)volume;if(!controls)return;
     try{
         controls.IsEnabled(enabled!=0);controls.PlaybackStatus(playing?MediaPlaybackStatus::Playing:MediaPlaybackStatus::Paused);
-        controls.PlaybackRate(rate);
+        controls.PlaybackRate(std::isfinite(rate)?rate:1.0);
         auto display=controls.DisplayUpdater();display.Type(MediaPlaybackType::Music);display.MusicProperties().Title(to_hstring(title));display.Update();
         SystemMediaTransportControlsTimelineProperties timeline;
-        timeline.StartTime(TimeSpan{0});timeline.MinSeekTime(TimeSpan{0});timeline.MaxSeekTime(TimeSpan{static_cast<int64_t>(duration*10000000)});timeline.EndTime(timeline.MaxSeekTime());timeline.Position(TimeSpan{static_cast<int64_t>(position*10000000)});
+        timeline.StartTime(TimeSpan{0});timeline.MinSeekTime(TimeSpan{0});timeline.MaxSeekTime(TimeSpan{safe_seconds_to_ticks(duration)});timeline.EndTime(timeline.MaxSeekTime());timeline.Position(TimeSpan{safe_seconds_to_ticks(position)});
         controls.UpdateTimelineProperties(timeline);
     }catch(...){/* Session loss must not interrupt editing or playback. */}
 }
@@ -56,3 +65,4 @@ extern "C" __declspec(dllexport) void encap_media_close(){
     controls=nullptr;
     if(owns_apartment){RoUninitialize();owns_apartment=false;}
 }
+

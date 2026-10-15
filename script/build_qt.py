@@ -185,6 +185,14 @@ def build(args):
         for name in ('encap-playback', 'encap-media'):
             copy_required(build_dir / 'native/Release' / (name + '.dll'), output / (name + '.dll'))
         run(tool('windeployqt', args.qt_prefix), '--release', '--no-translations', '--no-opengl-sw', output / 'EnCap.exe')
+        inventory = json.loads((ROOT / 'qt/dependency-inventory.json').read_text())
+        allowed = set(inventory.get('qt_plugins_by_platform', {}).get('windows', []))
+        plugins_dir = output / 'plugins'
+        if plugins_dir.is_dir():
+            for plugin_file in plugins_dir.rglob('*.dll'):
+                rel = plugin_file.relative_to(plugins_dir).with_suffix('').as_posix()
+                if rel not in allowed:
+                    plugin_file.unlink()
     else:
         output = destination / 'bin'
         copy_required(build_dir / 'EnCap', output / 'EnCap')
@@ -198,9 +206,15 @@ def build(args):
             for library in qtlib.glob('libQt6' + name + '.so*'):
                 if library.is_file():
                     copy_required(library.resolve(), destination / 'lib' / library.name)
-        for category in ('platforms', 'platformthemes', 'imageformats', 'iconengines', 'xcbglintegrations', 'wayland-shell-integration'):
-            if (plugins / category).is_dir():
-                shutil.copytree(plugins / category, output / 'plugins' / category, symlinks=True)
+        inventory = json.loads((ROOT / 'qt/dependency-inventory.json').read_text())
+        linux_plugins = inventory.get('qt_plugins_by_platform', {}).get('linux', [])
+        for rel_plugin in linux_plugins:
+            parts = rel_plugin.split('/')
+            if len(parts) == 2:
+                category, name = parts
+                src = plugins / category / f'lib{name}.so'
+                if src.is_file():
+                    copy_required(src, output / 'plugins' / category / f'lib{name}.so')
         (output / 'qt.conf').write_text('[Paths]\nPlugins = plugins\n')
         desktop = destination / 'share/applications/com.tlolabs.encap.desktop'
         copy_required(ROOT / 'desktop/packaging/com.tlolabs.encap.desktop', desktop)

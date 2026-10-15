@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Narrow audio-device adapter. No project, UI, export, or update logic lives here.
 #define MINIAUDIO_IMPLEMENTATION
 #define MA_NO_ENCODING
@@ -10,6 +10,7 @@
 #define API __attribute__((visibility("default")))
 #endif
 #define BLOCK 4096
+#define MAX_DURATION_SECONDS (86400.0 * 365.0)
 static ma_device device;
 static ma_decoder decoder;
 static ma_mutex mutex;
@@ -60,11 +61,12 @@ API int encap_audio_open(const char* path) {
     if(result==MA_SUCCESS){opened=1;position=0;rate=1;cached_start=cached_count=0;ma_decoder_get_length_in_pcm_frames(&decoder,&length);}
     ma_mutex_unlock(&mutex);return result;
 }
-API void encap_audio_play(double value){if(!initialized)return;ma_mutex_lock(&mutex);rate=value;if(opened&&position>=length&&rate>0)position=0;playing=opened&&value!=0;ma_mutex_unlock(&mutex);}
+API void encap_audio_play(double value){if(!initialized||!isfinite(value))return;ma_mutex_lock(&mutex);rate=value;if(opened&&position>=length&&rate>0)position=0;playing=opened&&value!=0;ma_mutex_unlock(&mutex);}
 API void encap_audio_pause(void){if(!initialized)return;ma_mutex_lock(&mutex);playing=0;ma_mutex_unlock(&mutex);}
-API void encap_audio_seek(double seconds){if(!initialized)return;ma_mutex_lock(&mutex);position=fmin((double)length,fmax(0,seconds*48000));ma_mutex_unlock(&mutex);}
+API void encap_audio_seek(double seconds){if(!initialized||!isfinite(seconds))return;if(seconds<0.0)seconds=0.0;if(seconds>MAX_DURATION_SECONDS)seconds=MAX_DURATION_SECONDS;ma_mutex_lock(&mutex);position=fmin((double)length,fmax(0.0,seconds*48000.0));ma_mutex_unlock(&mutex);}
 API double encap_audio_position(void){if(!initialized)return 0;ma_mutex_lock(&mutex);double result=position/48000;ma_mutex_unlock(&mutex);return result;}
 API int encap_audio_playing(void){if(!initialized)return 0;ma_mutex_lock(&mutex);int result=playing;ma_mutex_unlock(&mutex);return result;}
 API void encap_audio_close(void){if(!initialized)return;ma_device_uninit(&device);if(opened)ma_decoder_uninit(&decoder);opened=playing=initialized=0;ma_mutex_uninit(&mutex);}
 
-API void encap_audio_volume(double value){if(initialized)ma_device_set_master_volume(&device,(float)value);}
+API void encap_audio_volume(double value){if(initialized&&isfinite(value))ma_device_set_master_volume(&device,(float)fmin(1.0,fmax(0.0,value)));}
+

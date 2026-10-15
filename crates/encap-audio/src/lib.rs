@@ -1,11 +1,11 @@
 //! Audio-mode ingest, chapter editing, and final encode support.
 
-use encap_core::{replace_staged_file, EncapError, ProjectDocument, Result};
+use encap_core::{conflicts_with_path, replace_staged_file, EncapError, ProjectDocument, Result};
 use encap_ffmpeg::{os, CancellationToken, MediaTools};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tempfile::{Builder, NamedTempFile};
+use tempfile::Builder;
 
 pub fn inspect(folder: &Path) -> Result<ProjectDocument> {
     encap_core::inspect_folder(folder)
@@ -24,31 +24,22 @@ pub fn export(
         source,
     })?;
     let suffix = format!(".{}", project.export_settings.extension());
-    let temporary = Builder::new()
+    let staging_dir = Builder::new()
         .prefix(".encap-export-")
-        .suffix(&suffix)
-        .tempfile_in(parent)
+        .tempdir_in(parent)
         .map_err(|source| EncapError::Write {
             path: destination.to_path_buf(),
             source,
         })?;
-    let temporary_path = temporary.path().to_path_buf();
-    drop(temporary);
-    let metadata = NamedTempFile::new().map_err(|source| EncapError::Write {
-        path: destination.to_path_buf(),
+    let staged_output = staging_dir.path().join(format!("output{suffix}"));
+    let metadata_path = staging_dir.path().join("ffmetadata.txt");
+    fs::write(&metadata_path, ffmetadata(project)).map_err(|source| EncapError::Write {
+        path: metadata_path.clone(),
         source,
     })?;
-    fs::write(metadata.path(), ffmetadata(project)).map_err(|source| EncapError::Write {
-        path: metadata.path().to_path_buf(),
-        source,
-    })?;
-    let arguments = export_arguments(project, metadata.path(), &temporary_path);
-    if let Err(error) = encap_ffmpeg::run(tools.ffmpeg(), &arguments, cancellation, "Audio export")
-    {
-        let _ = fs::remove_file(&temporary_path);
-        return Err(error);
-    }
-    replace_staged_file(&temporary_path, destination)?;
+    let arguments = export_arguments(project, &metadata_path, &staged_output);
+    encap_ffmpeg::run(tools.ffmpeg(), &arguments, cancellation, "Audio export")?;
+    replace_staged_file(&staged_output, destination)?;
     Ok(destination.to_path_buf())
 }
 
@@ -198,9 +189,8 @@ fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> 
             "Per-chapter artwork cannot be embedded safely yet. Remove chapter images before exporting audio.".into(),
         ));
     }
-    let destination = absolute(destination)?;
     for source in &project.audio_sources {
-        if absolute(&source.source_path)? == destination {
+        if conflicts_with_path(destination, &source.source_path) {
             return Err(EncapError::Message(
                 "The export destination must not overwrite source media.".into(),
             ));
@@ -213,6 +203,11 @@ fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> 
         }
     }
     if let Some(artwork) = &project.metadata.artwork_path {
+        if conflicts_with_path(destination, artwork) {
+            return Err(EncapError::Message(
+                "The export destination must not overwrite project artwork.".into(),
+            ));
+        }
         if !artwork.is_file() {
             return Err(EncapError::Message(format!(
                 "Episode artwork is missing: {}",
@@ -220,20 +215,23 @@ fn validate_export(project: &ProjectDocument, destination: &Path) -> Result<()> 
             )));
         }
     }
-    Ok(())
-}
-
-fn absolute(path: &Path) -> Result<PathBuf> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
-    } else {
-        Ok(std::env::current_dir()
-            .map_err(|source| EncapError::Read {
-                path: path.to_path_buf(),
-                source,
-            })?
-            .join(path))
+    for chapter in &project.chapters {
+        if let Some(image) = &chapter.image_path {
+            if conflicts_with_path(destination, image) {
+                return Err(EncapError::Message(
+                    "The export destination must not overwrite chapter artwork.".into(),
+                ));
+            }
+        }
     }
+    if let Some(proj_path) = &project.project_path {
+        if conflicts_with_path(destination, proj_path) {
+            return Err(EncapError::Message(
+                "The export destination must not overwrite the project file.".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn escape(value: &str) -> String {
@@ -297,4 +295,61 @@ mod tests {
         assert!(metadata.contains("title=A\\=B"));
         assert!(metadata.contains("START=0\nEND=3000"));
     }
+
+    #[test]
+    fn test_export_rejects_source_conflict_and_preserves_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let source_file = temp.path().join("original.wav");
+        let original_content = b"RIFF....WAVEfmt ....data....test audio bytes";
+        fs::write(&source_file, original_content).unwrap();
+
+        let project = ProjectDocument {
+            metadata: EpisodeMetadata {
+                podcast_title: "Show".into(),
+                episode_title: "Ep".into(),
+                ..Default::default()
+            },
+            audio_sources: vec![AudioSource {
+                display_name: "Source".into(),
+                source_path: source_file.clone(),
+                duration_seconds: 5.0,
+                stored_path: None,
+                extensions: BTreeMap::new(),
+            }],
+            chapters: vec![Chapter {
+                id: "c1".into(),
+                chapter_number: 1,
+                title: "Chapter 1".into(),
+                start_time_seconds: 0.0,
+                duration_seconds: 5.0,
+                link_url: String::new(),
+                image_path: None,
+                image_stored_path: None,
+                extensions: BTreeMap::new(),
+            }],
+            ..Default::default()
+        };
+
+        // Test direct conflict
+        let token = CancellationToken::default();
+        let result = export(&project, &source_file, &token);
+        assert!(result.is_err());
+        assert_eq!(fs::read(&source_file).unwrap(), original_content);
+
+        // Test conflict via parent traversal ..
+        let rel_dest = temp.path().join("sub/../original.wav");
+        let result2 = export(&project, &rel_dest, &token);
+        assert!(result2.is_err());
+        assert_eq!(fs::read(&source_file).unwrap(), original_content);
+
+        #[cfg(unix)]
+        {
+            let symlink = temp.path().join("symlink.wav");
+            std::os::unix::fs::symlink(&source_file, &symlink).unwrap();
+            let result3 = export(&project, &symlink, &token);
+            assert!(result3.is_err());
+            assert_eq!(fs::read(&source_file).unwrap(), original_content);
+        }
+    }
 }
+

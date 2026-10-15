@@ -97,6 +97,8 @@ private:
     QString enginePath() const;
     QString updaterPath() const;
     bool internalReference() const;
+    void cleanupProjectDirectory(const QString& workingDir);
+    void cleanupStaleSessions();
 
     EngineClient* engine_ = nullptr;
     EngineClient* previewEngine_ = nullptr;
@@ -109,6 +111,7 @@ private:
     int previewIndex_ = 0;
     double rate_ = 1, volume_ = 1;
     QString playingPath_, temporaryPreview_;
+    QString sessionDir_, activeWorkingDir_;
     QProcess* decoder_ = nullptr;
     QSet<int> heldKeys_;
     bool slow_ = false;

@@ -664,6 +664,24 @@ impl Model {
     }
 }
 
+use std::sync::Mutex;
+
+static PROCESS_VERIFICATION_CACHE: Mutex<Option<BTreeMap<String, VerificationRecord>>> =
+    Mutex::new(None);
+
+fn get_process_cached_verification(key: &str, current: &VerificationRecord) -> Option<bool> {
+    let lock = PROCESS_VERIFICATION_CACHE.lock().ok()?;
+    let map = lock.as_ref()?;
+    map.get(key).filter(|r| r.same_file(current)).map(|r| r.valid)
+}
+
+fn put_process_cached_verification(key: String, record: VerificationRecord) {
+    if let Ok(mut lock) = PROCESS_VERIFICATION_CACHE.lock() {
+        let map = lock.get_or_insert_with(BTreeMap::new);
+        map.insert(key, record);
+    }
+}
+
 fn verify_model(model: &Model) -> Result<()> {
     verify_path(&model.path, model.sha256, &model.name)
 }
@@ -687,12 +705,8 @@ fn verify_path(path: &Path, expected_sha256: &str, display_name: &str) -> Result
         valid: false,
     };
     let cache_key = format!("{display_name}:{expected_sha256}");
-    if let Some(cached) = read_verification_cache()
-        .entries
-        .get(&cache_key)
-        .filter(|cached| cached.same_file(&record))
-    {
-        return if cached.valid {
+    if let Some(valid) = get_process_cached_verification(&cache_key, &record) {
+        return if valid {
             Ok(())
         } else {
             Err(verification_error(display_name))
@@ -700,7 +714,9 @@ fn verify_path(path: &Path, expected_sha256: &str, display_name: &str) -> Result
     }
     let actual = sha256_file(path)?;
     let valid = actual == expected_sha256;
-    store_verification_result(&cache_key, VerificationRecord { valid, ..record });
+    let verified = VerificationRecord { valid, ..record };
+    put_process_cached_verification(cache_key.clone(), verified.clone());
+    store_verification_result(&cache_key, verified);
     if !valid {
         return Err(verification_error(display_name));
     }
