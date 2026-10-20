@@ -211,34 +211,60 @@ struct AudioView: View {
 
     private var encodingSection: some View {
         GroupBox("Encoding") {
-            HStack(spacing: 18) {
-                Picker("Format", selection: exportBinding(\.outputFormat)) {
-                    Text("MP3").tag("mp3")
-                    Text("AAC / M4A").tag("aac")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 18) {
+                    formatPicker
+                    encoderPicker
+                    channelsPicker
+                    bitratePicker
                 }
-                .help("Choose the exported audio file format")
-                Picker("Encoder", selection: exportBinding(\.encoder)) {
-                    if store.project?.exportSettings.outputFormat == "aac" {
-                        Text("Apple AudioToolbox").tag("audio_toolbox")
-                        Text("FFmpeg AAC").tag("ffmpeg")
-                    } else {
-                        Text("LAME").tag("lame")
-                        Text("FFmpeg MP3").tag("ffmpeg")
+                .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 18) {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
+                        GridRow { formatPicker; encoderPicker }
+                        GridRow { channelsPicker; bitratePicker }
                     }
                 }
-                .help("Choose the encoder used to create the audio file")
-                Picker("Channels", selection: exportBinding(\.channels)) {
-                    Text("Mono").tag(1)
-                    Text("Stereo").tag(2)
-                }
-                .help("Export one audio channel (Mono) or two (Stereo)")
-                Picker("Bitrate", selection: exportBinding(\.qualityPreset)) {
-                    ForEach(bitrates, id: \.self) { Text($0).tag($0) }
-                }
-                .help("Choose audio quality; higher bitrates produce larger files")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
         }
+    }
+
+    private var formatPicker: some View {
+        Picker("Format", selection: exportBinding(\.outputFormat)) {
+            Text("MP3").tag("mp3")
+            Text("AAC / M4A").tag("aac")
+        }
+        .help("Choose the exported audio file format")
+    }
+
+    private var encoderPicker: some View {
+        Picker("Encoder", selection: exportBinding(\.encoder)) {
+            if store.project?.exportSettings.outputFormat == "aac" {
+                Text("Apple AudioToolbox").tag("audio_toolbox")
+                Text("FFmpeg AAC").tag("ffmpeg")
+            } else {
+                Text("LAME").tag("lame")
+                Text("FFmpeg MP3").tag("ffmpeg")
+            }
+        }
+        .help("Choose the encoder used to create the audio file")
+    }
+
+    private var channelsPicker: some View {
+        Picker("Channels", selection: exportBinding(\.channels)) {
+            Text("Mono").tag(1)
+            Text("Stereo").tag(2)
+        }
+        .help("Export one audio channel (Mono) or two (Stereo)")
+    }
+
+    private var bitratePicker: some View {
+        Picker("Bitrate", selection: exportBinding(\.qualityPreset)) {
+            ForEach(bitrates, id: \.self) { Text($0).tag($0) }
+        }
+        .help("Choose audio quality; higher bitrates produce larger files")
     }
 
     private var chaptersSection: some View {
@@ -362,7 +388,7 @@ private struct ChapterRow: View {
 }
 
 /// The titlebar accessory owns the toggle on macOS 14 and later.
-private struct WindowSidebarToggle: ViewModifier {
+struct WindowSidebarToggle: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {

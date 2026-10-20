@@ -148,6 +148,10 @@ final class AppStore: ObservableObject {
         selectedVideoChapters.reduce(0) { $0 + $1.durationSeconds }
     }
 
+    var canExportVideo: Bool {
+        isProjectLoaded && !isWorking && project?.metadata.artworkPath != nil && !selectedVideoChapters.isEmpty
+    }
+
     func switchWorkspace(to target: WorkspaceMode) {
         guard target != workspace, !isWorking else { return }
         guard var project else {
@@ -333,7 +337,7 @@ final class AppStore: ObservableObject {
     }
 
     func presentVideoSavePanel() {
-        guard let project, !selectedVideoChapters.isEmpty, !isWorking else { return }
+        guard let project, canExportVideo else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.nameFieldStringValue = "\(project.outputBaseName).mp4"
@@ -809,15 +813,11 @@ final class AppStore: ObservableObject {
     }
 
     func moveVideoChapter(id: String, direction: Int) {
-        guard var project else { return }
-        var ids = selectedVideoChapters.map(\.id)
+        let ids = selectedVideoChapters.map(\.id)
         guard let index = ids.firstIndex(of: id) else { return }
         let target = index + direction
         guard ids.indices.contains(target) else { return }
-        ids.swapAt(index, target)
-        project.video.exportSettings.selectedChapterIds = ids
-        project.video.exportSettings.selectionInitialized = true
-        self.project = project
+        moveVideoChapters(from: IndexSet(integer: index), to: target > index ? target + 1 : target)
     }
 
     func effectiveArtwork(for chapter: Chapter) -> URL? {

@@ -3,9 +3,9 @@ import SwiftUI
 
 struct VideoView: View {
     @ObservedObject var store: AppStore
-    @State private var chaptersExpanded = false
-    @State private var advancedFormatExpanded = false
-    @State private var artworkOptionsExpanded = false
+    @Binding var sidebarVisibility: NavigationSplitViewVisibility
+    @State private var advancedFormatExpanded = true
+    @State private var artworkOptionsExpanded = true
 
     var body: some View {
         if store.project == nil {
@@ -17,156 +17,47 @@ struct VideoView: View {
                 Button("Open Audio Mode") { store.switchWorkspace(to: .audio) }
                     .help("Open Audio mode to import recordings and prepare an episode")
             }
-        } else if store.project?.metadata.artworkPath == nil {
-            VStack(spacing: 0) {
-                EmptyStateView(
-                    "Artwork Required",
-                    systemImage: "photo.badge.plus",
-                    description: "Add main artwork in Audio mode. Chapter artwork will override it when available."
-                ) {
-                    Button("Add Artwork in Audio") { store.switchWorkspace(to: .audio) }
-                        .help("Open Audio mode to choose the episode’s main artwork")
-                        .buttonStyle(.borderedProminent)
+        } else {
+            HSplitView {
+                if sidebarVisibility != .detailOnly {
+                    VideoChapterSidebar(store: store)
+                        .frame(minWidth: 230, idealWidth: 290, maxWidth: 420)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                Button(action: store.presentVideoSavePanel) {
-                    Label("Export MP4…", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(true)
-                .help("Add episode artwork in Audio mode before exporting")
-                .padding(18)
+                videoDetail
+                    .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var videoDetail: some View {
+        if store.project?.metadata.artworkPath == nil {
+            EmptyStateView(
+                "Artwork Required",
+                systemImage: "photo.badge.plus",
+                description: "Add main artwork in Audio mode. Chapter artwork will override it when available."
+            ) {
+                Button("Add Artwork in Audio") { store.switchWorkspace(to: .audio) }
+                    .buttonStyle(.borderedProminent)
             }
         } else {
             HSplitView {
                 controls
-                    .frame(minWidth: 470, idealWidth: 540)
+                    .frame(minWidth: 260, idealWidth: 300, maxWidth: 370)
                 preview
-                    .frame(minWidth: 390, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 260, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var controls: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    chapterSelection
-                    formatSettings
-                    imageSettings
-                }
-                .padding(18)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                formatSettings
+                imageSettings
             }
-            Divider()
-            HStack(spacing: 10) {
-                Button("Select All Chapters") { store.selectAllVideoChapters(true) }
-                    .help("Include every chapter in the video")
-                Button(action: store.presentVideoSavePanel) {
-                    Label("Export MP4…", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(store.selectedVideoChapters.isEmpty || store.isWorking)
-                .help("Export the selected chapters, artwork, and audio as an MP4 video")
-            }
-            .padding(18)
-        }
-    }
-
-    private var chapterSelection: some View {
-        GroupBox {
-            DisclosureGroup(isExpanded: $chaptersExpanded) {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("Chapters").font(.headline)
-                        Spacer()
-                        Button("Select All") { store.selectAllVideoChapters(true) }
-                            .help("Include every chapter in the video")
-                        Button("Select None") { store.selectAllVideoChapters(false) }
-                            .help("Clear the video’s chapter selection")
-                    }
-                    ForEach(store.project?.chapters ?? []) { chapter in
-                        HStack(spacing: 10) {
-                            artworkThumbnail(chapter)
-                            Toggle(isOn: Binding(
-                                get: { store.selectedVideoChapters.contains { $0.id == chapter.id } },
-                                set: { store.setVideoChapter(chapter, selected: $0) }
-                            )) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title)
-                                        .lineLimit(1)
-                                    Text(EnCapFormatters.timestamp(chapter.durationSeconds))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-                            .help("Include or exclude this chapter from the video")
-                        }
-                    }
-                    Divider()
-                    HStack {
-                        Text("Video order").font(.headline)
-                        Spacer()
-                        Text("Total \(EnCapFormatters.timestamp(store.selectedVideoDuration))")
-                            .foregroundStyle(.secondary)
-                    }
-                    if store.selectedVideoChapters.isEmpty {
-                        Text("Select at least one chapter.")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        List {
-                            ForEach(Array(store.selectedVideoChapters.enumerated()), id: \.element.id) { index, chapter in
-                                HStack(spacing: 8) {
-                                    Image(systemName: "line.3.horizontal")
-                                        .foregroundStyle(.tertiary)
-                                        .accessibilityHidden(true)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title)
-                                        Text("Starts \(EnCapFormatters.timestamp(startTime(for: index))) · \(EnCapFormatters.timestamp(chapter.durationSeconds))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Button { store.moveVideoChapter(id: chapter.id, direction: -1) } label: {
-                                        Image(systemName: "arrow.up")
-                                    }
-                                    .disabled(index == 0)
-                                    .help("Move this chapter earlier in the video")
-                                    .accessibilityLabel("Move \(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title) earlier")
-                                    Button { store.moveVideoChapter(id: chapter.id, direction: 1) } label: {
-                                        Image(systemName: "arrow.down")
-                                    }
-                                    .disabled(index == store.selectedVideoChapters.count - 1)
-                                    .help("Move this chapter later in the video")
-                                    .accessibilityLabel("Move \(chapter.title.isEmpty ? "Chapter \(chapter.chapterNumber)" : chapter.title) later")
-                                }
-                                .padding(.vertical, 3)
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { store.jumpToVideoChapter(index) }
-                                .accessibilityAction(named: "Preview chapter") { store.jumpToVideoChapter(index) }
-                            }
-                            .onMove(perform: store.moveVideoChapters)
-                        }
-                        .listStyle(.inset)
-                        .frame(height: min(260, CGFloat(store.selectedVideoChapters.count * 48 + 8)))
-                    }
-                }
-                .padding(.top, 10)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Chapter selection").font(.headline)
-                    Text("\(store.selectedVideoChapters.count) of \(store.project?.chapters.count ?? 0) selected · \(EnCapFormatters.timestamp(store.selectedVideoDuration))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(8)
+            .padding(14)
+            .padding(.top, 12)
         }
     }
 
@@ -253,7 +144,7 @@ struct VideoView: View {
         GroupBox {
             DisclosureGroup(isExpanded: $artworkOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 18) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Toggle("Flip horizontally", isOn: videoBinding(\.flipHorizontal))
                             .help("Mirror the artwork from left to right")
                         Toggle("Flip vertically", isOn: videoBinding(\.flipVertical))
@@ -327,7 +218,7 @@ struct VideoView: View {
                 .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 .accessibilityLabel("Video timeline preview")
             }
-            .frame(minHeight: 360)
+            .frame(minHeight: 180)
             Slider(
                 value: Binding(
                     get: { min(store.videoCurrentTime, store.selectedVideoDuration) },
@@ -413,23 +304,6 @@ struct VideoView: View {
             get: { (store.project?.video.exportSettings ?? VideoSettings())[keyPath: keyPath] },
             set: { store.project?.video.exportSettings[keyPath: keyPath] = $0 }
         )
-    }
-
-    private func startTime(for index: Int) -> Double {
-        store.selectedVideoChapters.prefix(index).reduce(0) { $0 + $1.durationSeconds }
-    }
-
-    private func artworkThumbnail(_ chapter: Chapter) -> some View {
-        Group {
-            if let url = store.effectiveArtwork(for: chapter), let image = NSImage(contentsOf: url) {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Image(systemName: "photo").foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: 36, height: 36)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-        .accessibilityHidden(true)
     }
 
     private func canvasSize(in available: CGSize) -> CGSize {

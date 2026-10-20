@@ -15,6 +15,7 @@ struct EnCapApp: App {
                 .onAppear(perform: applyAppearance)
                 .onChange(of: appearance) { _ in applyAppearance() }
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 820)
         .commands {
             CommandGroup(after: .newItem) {

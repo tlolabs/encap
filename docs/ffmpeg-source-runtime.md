@@ -1,6 +1,6 @@
 # AVID Core runtime packaging
 
-EnCAP 2.0.7 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
+EnCAP 2.0.8 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
 Core owns source acquisition, signature verification, codec configuration, native
 compilation, media validation, repeat-build checks, runtime packaging and licenses.
 EnCAP's former FFmpeg source builder and dependency recipe have been removed.

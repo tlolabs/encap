@@ -63,8 +63,8 @@ Linux stages in the same filesystem, verifies the complete download, fsyncs the 
 
 ## Qualified updater promotion
 
-EnCap 2.0.7 uses a manual-download release path described in the
-[release notes](releases/2.0.7.md). The tagged workflow does not run the
+EnCap 2.0.8 uses a manual-download release path described in the
+[release notes](releases/2.0.8.md). The tagged workflow does not run the
 qualification steps below or publish signed updater metadata. These steps
 remain the evidence requirements for a future authenticated updater release.
 

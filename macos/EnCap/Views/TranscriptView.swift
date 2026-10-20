@@ -27,14 +27,6 @@ struct TranscriptView: View {
                         .help("Create or replace the transcript using the selected on-device engine")
                     Button("Manage Models…", action: store.presentModelManager)
                         .help("Download or remove local transcription models")
-                    Menu("Export") {
-                        Button("Plain Text…") { store.presentTranscriptSavePanel(format: "txt") }
-                            .help("Save the transcript as a plain text file")
-                        Button("SRT Captions…") { store.presentTranscriptSavePanel(format: "srt") }
-                            .help("Save timed captions as an SRT subtitle file")
-                    }
-                    .disabled(store.project?.transcriptSegments.isEmpty != false)
-                    .help("Export the transcript as plain text or timed SRT captions")
                     Toggle("Show Speakers", isOn: $store.transcriptShowsSpeakers)
                         .help("Show or hide editable speaker names beside transcript segments")
                     Toggle(
