@@ -191,17 +191,19 @@ struct AudioView: View {
                     GridRow {
                         Text("Artwork").foregroundStyle(.secondary)
                         HStack {
-                            Text(store.project?.metadata.artworkPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "None")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
+                            ArtworkPathLabel(
+                                path: store.project?.metadata.artworkPath,
+                                accessibilityName: "Album artwork file"
+                            )
                             Button("Choose…") { store.presentFileImporter(.artwork) }
                                 .help("Choose or replace the episode’s album artwork")
                         }
+                        .modifier(ArtworkDropTarget(isEnabled: !store.isWorking, selectArtwork: store.chooseArtwork))
                     }
                 }
                 EpisodeArtworkPreview(path: store.project?.metadata.artworkPath)
+                    .modifier(ArtworkDropTarget(isEnabled: !store.isWorking, selectArtwork: store.chooseArtwork))
+                    .help("Drop an image to replace the album artwork")
             }
             .padding(8)
         }
@@ -269,7 +271,9 @@ struct AudioView: View {
                             displayNumber: rowNumber,
                             chapter: $chapter,
                             didRename: { chapterNamingStyle = .custom },
-                            chooseArtwork: { store.chooseChapterArtwork(for: chapter.id) }
+                            chooseArtwork: { store.chooseChapterArtwork(for: chapter.id) },
+                            dropArtwork: { store.chooseChapterArtwork($0, for: chapter.id) },
+                            canDropArtwork: !store.isWorking
                         )
                     }
                     .onDelete(perform: store.removeChapters)
@@ -313,6 +317,8 @@ private struct ChapterRow: View {
     @Binding var chapter: Chapter
     let didRename: () -> Void
     let chooseArtwork: () -> Void
+    let dropArtwork: (URL) -> Bool
+    let canDropArtwork: Bool
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 10) {
@@ -335,11 +341,20 @@ private struct ChapterRow: View {
                 TextField("Link", text: $chapter.linkUrl)
                     .frame(minWidth: 160)
                     .accessibilityLabel("Chapter \(displayNumber) link")
-                Button(action: chooseArtwork) {
-                    Image(systemName: chapter.imagePath == nil ? "photo.badge.plus" : "photo.fill")
+                HStack(spacing: 6) {
+                    if chapter.imagePath != nil {
+                        ArtworkPathLabel(path: chapter.imagePath, accessibilityName: "Chapter \(displayNumber) artwork file")
+                            .frame(width: 120)
+                    }
+                    Button(action: chooseArtwork) {
+                        Image(systemName: chapter.imagePath == nil ? "photo.badge.plus" : "photo.fill")
+                    }
+                    .help(chapter.imagePath == nil
+                        ? "Choose or drop chapter artwork"
+                        : "Choose or drop replacement chapter artwork")
+                    .accessibilityLabel("\(chapter.imagePath == nil ? "Add" : "Replace") artwork for chapter \(displayNumber)")
                 }
-                .help(chapter.imagePath == nil ? "Add chapter artwork" : "Replace chapter artwork")
-                .accessibilityLabel("\(chapter.imagePath == nil ? "Add" : "Replace") artwork for chapter \(displayNumber)")
+                .modifier(ArtworkDropTarget(isEnabled: canDropArtwork, selectArtwork: dropArtwork))
             }
         }
         .padding(.vertical, 3)

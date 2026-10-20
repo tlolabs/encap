@@ -446,9 +446,33 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func chooseArtwork(_ url: URL) {
+    @discardableResult
+    func chooseArtwork(_ url: URL) -> Bool {
+        guard !isWorking, project != nil, isReadableArtwork(url) else { return false }
         project?.metadata.artworkPath = url.path
         status = "Selected \(url.lastPathComponent) as episode artwork."
+        return true
+    }
+
+    @discardableResult
+    func chooseChapterArtwork(_ url: URL, for chapterID: String) -> Bool {
+        guard !isWorking,
+              let index = project?.chapters.firstIndex(where: { $0.id == chapterID }),
+              isReadableArtwork(url) else { return false }
+        project?.chapters[index].imagePath = url.path
+        status = "Selected \(url.lastPathComponent) as chapter artwork."
+        return true
+    }
+
+    private func isReadableArtwork(_ url: URL) -> Bool {
+        guard url.isFileURL,
+              let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+              type.conforms(to: .image),
+              NSImage(contentsOf: url)?.isValid == true else {
+            status = "Choose a readable image file for artwork."
+            return false
+        }
+        return true
     }
 
     func chooseChapterArtwork(for chapterID: String) {
@@ -459,10 +483,8 @@ final class AppStore: ObservableObject {
         panel.canChooseDirectories = false
         panel.title = "Choose Chapter Artwork"
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard response == .OK, let url = panel.url,
-                  let index = self?.project?.chapters.firstIndex(where: { $0.id == chapterID }) else { return }
-            self?.project?.chapters[index].imagePath = url.path
-            self?.status = "Selected \(url.lastPathComponent) as chapter artwork."
+            guard response == .OK, let url = panel.url else { return }
+            self?.chooseChapterArtwork(url, for: chapterID)
         }
         if let window = NSApp.keyWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)

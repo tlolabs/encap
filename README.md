@@ -48,8 +48,9 @@ Video's timing, encoder selection, and composition rules are documented in
 | Linux ARM64 | `EnCap-<version>-linux-arm64.AppImage` | X11/XWayland, GLib/GIO, glibc 2.39+ |
 
 Every package contains its own tested `ffmpeg` and `ffprobe`; users do not need
-to install media tools. The 2.0.7 Mac downloads are ad-hoc signed and have not
-been notarized; its Windows downloads are not Authenticode signed. See the
+to install media tools. The 2.0.7 Apple silicon Mac download is Developer ID
+signed and notarized. This locally built release includes only that verified
+platform. See the
 [2.0.7 release notes](docs/releases/2.0.7.md) before installing. New direct
 downloads may be unsigned after target-platform functional verification.
 Authenticated application updates remain separately signed and are not

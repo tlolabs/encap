@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		100000000000000000000016 /* Views/ArtworkControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* Views/ArtworkControls.swift */; };
 		100000000000000000000001 /* App/EnCapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* App/EnCapApp.swift */; };
 		100000000000000000000002 /* Models/ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* Models/ProjectDocument.swift */; };
 		100000000000000000000003 /* Services/EngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* Services/EngineClient.swift */; };
@@ -45,6 +46,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		200000000000000000000016 /* Views/ArtworkControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ArtworkControls.swift; sourceTree = "<group>"; };
 		200000000000000000000001 /* App/EnCapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/EnCapApp.swift; sourceTree = "<group>"; };
 		200000000000000000000002 /* Models/ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ProjectDocument.swift; sourceTree = "<group>"; };
 		200000000000000000000003 /* Services/EngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/EngineClient.swift; sourceTree = "<group>"; };
@@ -125,6 +127,7 @@
 		400000000000000000000002 /* EnCap */ = {
 			isa = PBXGroup;
 			children = (
+				200000000000000000000016 /* Views/ArtworkControls.swift */,
 				200000000000000000000001 /* App/EnCapApp.swift */,
 				200000000000000000000002 /* Models/ProjectDocument.swift */,
 				200000000000000000000015 /* Support/SourceWaveforms.swift */,
@@ -344,6 +347,7 @@
 				100000000000000000000014 /* Support/SourcePlayback.swift in Sources */,
 				100000000000000000000013 /* Models/AudioSourceEditing.swift in Sources */,
 				100000000000000000000012 /* Views/EpisodeArtworkPreview.swift in Sources */,
+				100000000000000000000016 /* Views/ArtworkControls.swift in Sources */,
 				100000000000000000000011 /* Models/ChapterNamingStyle.swift in Sources */,
 				100000000000000000000003 /* Services/EngineClient.swift in Sources */,
 				100000000000000000000004 /* Stores/AppStore.swift in Sources */,
