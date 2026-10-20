@@ -16,7 +16,7 @@ pub const MAX_DURATION_SECONDS: f64 = 86_400.0 * 365.0;
 
 #[inline]
 pub fn is_valid_duration(seconds: f64) -> bool {
-    seconds.is_finite() && seconds >= 0.0 && seconds <= MAX_DURATION_SECONDS
+    seconds.is_finite() && (0.0..=MAX_DURATION_SECONDS).contains(&seconds)
 }
 
 #[inline]
@@ -298,7 +298,8 @@ impl ProjectDocument {
         for source in &self.audio_sources {
             if !is_valid_duration(source.duration_seconds) {
                 return Err(crate::EncapError::Message(
-                    "Audio source duration is invalid or exceeds maximum permitted duration.".into(),
+                    "Audio source duration is invalid or exceeds maximum permitted duration."
+                        .into(),
                 ));
             }
         }
@@ -316,7 +317,8 @@ impl ProjectDocument {
             let end_time = chapter.start_time_seconds + chapter.duration_seconds;
             if !end_time.is_finite() || end_time > MAX_DURATION_SECONDS {
                 return Err(crate::EncapError::Message(
-                    "Chapter timing or total project duration exceeds maximum permitted bounds.".into(),
+                    "Chapter timing or total project duration exceeds maximum permitted bounds."
+                        .into(),
                 ));
             }
             previous = chapter.start_time_seconds;
@@ -344,7 +346,8 @@ impl ProjectDocument {
                     || word.end_time_seconds > segment.end_time_seconds
                 {
                     return Err(crate::EncapError::Message(
-                        "Word-level transcript timing is invalid or exceeds permitted bounds.".into(),
+                        "Word-level transcript timing is invalid or exceeds permitted bounds."
+                            .into(),
                     ));
                 }
             }

@@ -1,0 +1,46 @@
+{
+  "version": "2.0.9",
+  "platform": "macos-arm64",
+  "artifact": "EnCap-2.0.9-macos-arm64.zip",
+  "size": 47617249,
+  "sha256": "8bb7b6f788b60dcf2f81568875697a50a1c5d2d5b32e17825adeaa3bfa9967c9",
+  "core": {
+    "version": "0.3.1",
+    "revision": "15f28236142c100d0a83bf19154ed6f9f5b44e75"
+  },
+  "notarization": {
+    "message": "Processing complete",
+    "status": "Accepted",
+    "id": "2af71a93-6ca0-46d2-8471-4f58a730519c"
+  },
+  "checks": {
+    "workspace_tests": {
+      "passed": 104,
+      "failed": 0,
+      "ignored": 13
+    },
+    "packaged_media": {
+      "passed": 7,
+      "failed": 0
+    },
+    "swift": {
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0
+    },
+    "format": "passed",
+    "clippy": "passed",
+    "workspace_release_build": "passed",
+    "package_integrity": "passed",
+    "runtime_integrity_and_dependencies": "passed",
+    "extracted_native_launch": "passed",
+    "gatekeeper": "Notarized Developer ID"
+  },
+  "github_actions_used_for_build": false,
+  "authenticated_update_metadata_published": false,
+  "unresolved_core_defects": [
+    "mixed-aspect portrait concat sample-aspect-ratio mismatch",
+    "GIF PerFrame input loop option rejection"
+  ],
+  "other_platform_artifacts": "not built or published"
+}

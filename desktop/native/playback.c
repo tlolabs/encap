@@ -31,7 +31,7 @@ static void render(ma_device* dev, void* output, const void* input, ma_uint32 co
             if(ma_decoder_seek_to_pcm_frame(&decoder,cached_start)!=MA_SUCCESS){playing=0;break;}
             ma_decoder_read_pcm_frames(&decoder,samples,BLOCK,&cached_count);
         }
-        if(frame>=cached_start+cached_count){playing=0;break;}
+        if(frame>=cached_start+cached_count){position=(double)length;playing=0;break;}
         out[i*2]=samples[(frame-cached_start)*2];out[i*2+1]=samples[(frame-cached_start)*2+1];
         position+=rate;
     }

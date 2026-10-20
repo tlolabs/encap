@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-set(ENCAP_VERSION "2.0.8" CACHE STRING "Version from the Cargo workspace")
+set(ENCAP_VERSION "2.0.9" CACHE STRING "Version from the Cargo workspace")
 project(EnCapQt VERSION ${ENCAP_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)

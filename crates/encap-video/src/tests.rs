@@ -3,6 +3,24 @@ use avid_core::{Codec, Composition, Encoding};
 use encap_core::{AudioSource, EpisodeMetadata};
 use std::fs;
 
+// Container headers only; decoding in these tests is explicitly injected.
+fn png_header(animated: bool) -> Vec<u8> {
+    fn chunk(output: &mut Vec<u8>, name: &[u8; 4], data: &[u8]) {
+        output.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        output.extend_from_slice(name);
+        output.extend_from_slice(data);
+        output.extend_from_slice(&[0; 4]);
+    }
+    let mut output = b"\x89PNG\r\n\x1a\n".to_vec();
+    chunk(&mut output, b"IHDR", &[0; 13]);
+    if animated {
+        chunk(&mut output, b"acTL", &[0; 8]);
+    }
+    chunk(&mut output, b"IDAT", &[0]);
+    chunk(&mut output, b"IEND", &[]);
+    output
+}
+
 fn project(root: &Path) -> ProjectDocument {
     let art = root.join("cover.png");
     fs::write(&art, b"image").unwrap();
@@ -140,6 +158,91 @@ fn shared_selection_and_execution_settings_preserve_host_policy() {
     }
     project.video.schema_version = 2;
     assert!(render_request(&project, Path::new("out.mp4")).is_err());
+}
+
+#[test]
+fn automatic_mode_preserves_animation_unknown_formats_and_cached_frame_budget() {
+    let root = tempfile::tempdir().unwrap();
+    let mut project = project(root.path());
+    let token = CancellationToken::default();
+    let output = root.path().join("out.mp4");
+    let main = project.metadata.artwork_path.clone().unwrap();
+    // Filename suffix does not decide staticness.
+    assert_eq!(
+        automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+        RenderMode::PerFrame
+    );
+    for image in [
+        png_header(false),
+        vec![0xff, 0xd8, 0xff, 0xda, 1, 2, 0xff, 0xd9],
+    ] {
+        fs::write(&main, image).unwrap();
+        assert_eq!(
+            automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+            RenderMode::Simple
+        );
+    }
+    for image in [
+        png_header(true),
+        b"GIF89a".to_vec(),
+        b"RIFFxxxxWEBP".to_vec(),
+        [[0xff, 0xd8, 0xff, 0xda, 0xff, 0xd9]; 2].concat(),
+    ] {
+        fs::write(&main, image).unwrap();
+        assert_eq!(
+            automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+            RenderMode::PerFrame
+        );
+    }
+    fs::write(&main, png_header(false)).unwrap();
+    let animated = root.path().join("animated.png");
+    fs::write(&animated, png_header(true)).unwrap();
+    project.chapters[1].image_path = Some(animated);
+    assert_eq!(
+        automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+        RenderMode::PerFrame
+    );
+    project.video.export_settings.selected_chapter_ids = vec!["0".into()];
+    assert_eq!(
+        automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+        RenderMode::Simple
+    );
+    project.video.export_settings.selected_chapter_ids.clear();
+    project.chapters[1].image_path = None;
+    project.video.export_settings.width = 7680;
+    project.video.export_settings.height = 4320;
+    let mut chapter = project.chapters[0].clone();
+    chapter.id = "third".into();
+    chapter.start_time_seconds = 5.0;
+    chapter.chapter_number = 3;
+    project.chapters.push(chapter);
+    project.audio_sources.push(project.audio_sources[0].clone());
+    assert_eq!(
+        automatic_mode(&render_request(&project, &output).unwrap(), &token).unwrap(),
+        RenderMode::PerFrame
+    );
+}
+
+#[test]
+fn completion_confirmation_is_required_and_forwarded() {
+    #[derive(Default)]
+    struct Events(std::sync::Mutex<Vec<avid_core::Stage>>);
+    impl EventSink for Events {
+        fn stage(&self, stage: avid_core::Stage) {
+            self.0.lock().unwrap().push(stage);
+        }
+    }
+    let events = Events::default();
+    let completion = CompletionEvents::new(&events);
+    assert!(completion.require_complete().is_err());
+    completion.stage(avid_core::Stage::Publishing);
+    assert!(completion.require_complete().is_err());
+    completion.stage(avid_core::Stage::Complete);
+    completion.require_complete().unwrap();
+    assert_eq!(
+        *events.0.lock().unwrap(),
+        [avid_core::Stage::Publishing, avid_core::Stage::Complete]
+    );
 }
 
 #[cfg(unix)]
@@ -368,5 +471,136 @@ printf complete > "$last"
             .unwrap_err()
             .to_string()
             .contains("Add project artwork"));
+    }
+
+    #[test]
+    fn reusable_session_caches_inspection_and_invalidates_changed_source() {
+        let root = tempfile::tempdir().unwrap();
+        let project = project(root.path());
+        let image = project.metadata.artwork_path.as_deref().unwrap();
+        let renderer = VideoRenderer::new(fake(root.path(), "success"));
+        let token = CancellationToken::default();
+        assert_eq!(renderer.inspect_image(image, &token).unwrap(), (100, 100));
+        renderer.clone().inspect_image(image, &token).unwrap();
+        let count = || {
+            fs::read_to_string(root.path().join("probes"))
+                .unwrap()
+                .lines()
+                .filter(|line| *line == image.to_string_lossy())
+                .count()
+        };
+        assert_eq!(count(), 1);
+        fs::write(image, b"changed image with a new file length").unwrap();
+        renderer.inspect_image(image, &token).unwrap();
+        assert_eq!(count(), 2);
+    }
+
+    #[test]
+    fn session_preview_and_render_modes_keep_project_composition_and_publication() {
+        let root = tempfile::tempdir().unwrap();
+        let mut project = project(root.path());
+        fs::write(
+            project.metadata.artwork_path.as_ref().unwrap(),
+            png_header(false),
+        )
+        .unwrap();
+        let renderer = VideoRenderer::new(fake(root.path(), "success"));
+        let token = CancellationToken::default();
+        let preview = root.path().join("new folder/預覽.png");
+        // Fake FFmpeg emulates output creation, while Core owns staging and
+        // publication, including creation of a missing destination directory.
+        renderer
+            .preview(&project, &preview, Some("1"), &token)
+            .unwrap();
+        assert_eq!(fs::read(&preview).unwrap(), b"complete");
+        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
+        assert!(arguments.contains("gblur=sigma=20"));
+        assert!(arguments.contains("pad=90:90"));
+        assert!(arguments.contains("hflip"));
+        assert!(arguments.contains("-frames:v\n1\n-f\nimage2\n"));
+        assert!(renderer
+            .preview(&project, &preview, Some("missing"), &token)
+            .is_err());
+        let protected = project.project_path.as_ref().unwrap();
+        assert!(renderer.preview(&project, protected, None, &token).is_err());
+        assert_eq!(fs::read(protected).unwrap(), b"project");
+        let output = root.path().join("cached.mp4");
+        renderer.export(&project, &output, &token).unwrap();
+        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
+        assert!(arguments.contains("loop=loop=-1:size=1:start=0"));
+        assert!(arguments.contains("aformat=sample_rates=48000:channel_layouts=stereo"));
+        fs::remove_file(root.path().join("arguments")).unwrap();
+        renderer
+            .export_with_mode(&project, &output, RenderMode::PerFrame, &token)
+            .unwrap();
+        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
+        assert!(!arguments.contains("loop=loop=-1:size=1:start=0"));
+        project.chapters[1].image_path = Some(root.path().join("animated.gif"));
+        fs::write(
+            project.chapters[1].image_path.as_ref().unwrap(),
+            b"GIF89a01",
+        )
+        .unwrap();
+        fs::remove_file(root.path().join("arguments")).unwrap();
+        renderer.export(&project, &output, &token).unwrap();
+        assert!(!fs::read_to_string(root.path().join("arguments"))
+            .unwrap()
+            .contains("loop=loop=-1:size=1:start=0"));
+    }
+
+    #[test]
+    fn preview_cancellation_and_failure_preserve_existing_destination() {
+        for mode in ["fail", "encode_sleep"] {
+            let root = tempfile::tempdir().unwrap();
+            let project = project(root.path());
+            let output = root.path().join("preview.png");
+            fs::write(&output, b"old output").unwrap();
+            let renderer = VideoRenderer::new(fake(root.path(), mode));
+            let token = CancellationToken::default();
+            let signal = token.clone();
+            let cancel = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                signal.cancel();
+            });
+            assert!(renderer.preview(&project, &output, None, &token).is_err());
+            cancel.join().unwrap();
+            assert_clean(root.path(), &project, &output);
+        }
+    }
+
+    #[test]
+    fn cancelling_one_export_does_not_cancel_an_independent_job() {
+        let sleeping = tempfile::tempdir().unwrap();
+        let successful = tempfile::tempdir().unwrap();
+        let project_slow = project(sleeping.path());
+        let output_slow = sleeping.path().join("out.mp4");
+        fs::write(&output_slow, b"old output").unwrap();
+        let slow = VideoRenderer::new(fake(sleeping.path(), "encode_sleep"));
+        let fast = VideoRenderer::new(fake(successful.path(), "success"));
+        let token = CancellationToken::default();
+        let worker_token = token.clone();
+        let worker_project = project_slow.clone();
+        let worker_output = output_slow.clone();
+        let worker =
+            std::thread::spawn(move || slow.export(&worker_project, &worker_output, &worker_token));
+        let fast_token = CancellationToken::default();
+        let fast_project = project(successful.path());
+        let fast_output = successful.path().join("out.mp4");
+        let cancel = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            token.cancel();
+        });
+        fast.export(&fast_project, &fast_output, &fast_token)
+            .unwrap();
+        cancel.join().unwrap();
+        assert!(worker
+            .join()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled"));
+        assert!(!fast_token.is_cancelled());
+        assert_eq!(fs::read(fast_output).unwrap(), b"complete");
+        assert_clean(sleeping.path(), &project_slow, &output_slow);
     }
 }

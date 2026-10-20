@@ -79,7 +79,6 @@ fn sync_parent(_parent: &Path) -> Result<()> {
     Ok(())
 }
 
-
 fn normalize_path(path: &Path) -> PathBuf {
     use std::path::Component;
     let mut components = Vec::new();
@@ -106,8 +105,12 @@ pub fn conflicts_with_path(destination: &Path, source: &Path) -> bool {
     let src_lex = normalize_path(source);
 
     // 1. Direct equality after canonicalization
-    let dest_canon = fs::canonicalize(&dest_lex).or_else(|_| fs::canonicalize(destination)).ok();
-    let src_canon = fs::canonicalize(&src_lex).or_else(|_| fs::canonicalize(source)).ok();
+    let dest_canon = fs::canonicalize(&dest_lex)
+        .or_else(|_| fs::canonicalize(destination))
+        .ok();
+    let src_canon = fs::canonicalize(&src_lex)
+        .or_else(|_| fs::canonicalize(source))
+        .ok();
 
     if let (Some(dc), Some(sc)) = (&dest_canon, &src_canon) {
         if dc == sc {
@@ -239,4 +242,3 @@ mod tests {
         assert_eq!(fs::read(&source).unwrap(), b"original audio bytes");
     }
 }
-

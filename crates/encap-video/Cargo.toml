@@ -9,6 +9,7 @@ license.workspace = true
 avid-core.workspace = true
 encap-core = { path = "../encap-core" }
 encap-ffmpeg = { path = "../encap-ffmpeg" }
+fs2 = "0.4.3"
 tracing.workspace = true
 
 [dev-dependencies]

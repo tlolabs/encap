@@ -1,0 +1,55 @@
+{
+  "core": {
+    "revision": "15f28236142c100d0a83bf19154ed6f9f5b44e75",
+    "source": "git+https://github.com/tlolabs/avid-core.git?rev=15f28236142c100d0a83bf19154ed6f9f5b44e75#15f28236142c100d0a83bf19154ed6f9f5b44e75",
+    "version": "0.3.1"
+  },
+  "resolved_manifest": "/Users/tlothian/.cargo/git/checkouts/avid-core-4cb72637de392084/15f2823/Cargo.toml",
+  "runtime_pins_changed": false,
+  "checks": {
+    "default-final": {
+      "passed": 104,
+      "failed": 0,
+      "ignored": 13
+    },
+    "all-final": {
+      "passed": 104,
+      "failed": 0,
+      "ignored": 13
+    },
+    "packaged-media": {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    "workspace_debug_build": "passed",
+    "workspace_release_build": "passed",
+    "workspace_check": "passed",
+    "fmt": "passed",
+    "clippy_all_targets_all_features_deny_warnings": "passed",
+    "packaged_runtime_rejection_and_relocation": "passed",
+    "qt_ctest": {
+      "passed": 4,
+      "failed": 0
+    },
+    "swift": {
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0
+    },
+    "python_runtime_contracts": {
+      "passed": 13,
+      "failed": 0
+    },
+    "native_xcode_release_build_and_launch": "passed; loaded-project interactive acceptance not completed",
+    "native_renderer": {
+      "passed": 2,
+      "failed": 2,
+      "limitations": [
+        "Core mixed-aspect portrait concat SAR mismatch",
+        "Core GIF loop input option failure"
+      ]
+    }
+  },
+  "adjacent_core_checkout_required": false
+}

@@ -426,6 +426,10 @@ fn transcribe_apple(
         cancellation,
         "Apple On-Device transcription",
     )?;
+    parse_apple_response(&result.stdout, offset)
+}
+
+fn parse_apple_response(bytes: &[u8], offset: f64) -> Result<Vec<TranscriptSegment>> {
     #[derive(serde::Deserialize)]
     struct Response {
         segments: Vec<Word>,
@@ -436,34 +440,43 @@ fn transcribe_apple(
         start_seconds: f64,
         duration_seconds: f64,
     }
-    let response: Response = serde_json::from_slice(&result.stdout)
+    let response: Response = serde_json::from_slice(bytes)
         .map_err(|_| EncapError::Message("Apple Speech returned an invalid result.".into()))?;
-    let words = response
-        .segments
-        .into_iter()
-        .filter(|word| !word.text.trim().is_empty())
-        .map(|word| {
-            let id = uuid::Uuid::new_v4().simple().to_string();
-            let start_time_seconds = offset + word.start_seconds;
-            let end_time_seconds = start_time_seconds + word.duration_seconds;
-            let text = word.text.trim().to_string();
-            TranscriptSegment {
-                id: id.clone(),
+    let mut words = Vec::with_capacity(response.segments.len());
+    for word in response.segments {
+        let text = word.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !word.start_seconds.is_finite()
+            || !word.duration_seconds.is_finite()
+            || word.start_seconds < 0.0
+            || word.duration_seconds < 0.0
+        {
+            return Err(EncapError::Message(
+                "Apple Speech returned an invalid segment time.".into(),
+            ));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let start_time_seconds = offset + word.start_seconds;
+        let end_time_seconds = (start_time_seconds + word.duration_seconds).max(start_time_seconds);
+        let text = text.to_string();
+        words.push(TranscriptSegment {
+            id: id.clone(),
+            start_time_seconds,
+            end_time_seconds,
+            speaker: String::new(),
+            text: text.clone(),
+            words: vec![encap_core::TranscriptWord {
+                id,
                 start_time_seconds,
                 end_time_seconds,
-                speaker: String::new(),
-                text: text.clone(),
-                words: vec![encap_core::TranscriptWord {
-                    id,
-                    start_time_seconds,
-                    end_time_seconds,
-                    text,
-                    extensions: BTreeMap::new(),
-                }],
+                text,
                 extensions: BTreeMap::new(),
-            }
-        })
-        .collect::<Vec<_>>();
+            }],
+            extensions: BTreeMap::new(),
+        });
+    }
     Ok(group_words(words))
 }
 
@@ -525,6 +538,15 @@ fn transcribe_whisper(
         arguments.push(os("--split-on-word"));
     }
     encap_ffmpeg::run(&whisper, &arguments, cancellation, "Whisper transcription")?;
+    let result_path = prefix.with_extension("json");
+    let bytes = fs::read(&result_path).map_err(|source| EncapError::Read {
+        path: result_path,
+        source,
+    })?;
+    parse_whisper_response(&bytes, offset)
+}
+
+fn parse_whisper_response(bytes: &[u8], offset: f64) -> Result<Vec<TranscriptSegment>> {
     #[derive(serde::Deserialize)]
     struct Response {
         transcription: Vec<Item>,
@@ -546,47 +568,61 @@ fn transcribe_whisper(
         text: String,
         offsets: Option<Offsets>,
     }
-    let result_path = prefix.with_extension("json");
-    let bytes = fs::read(&result_path).map_err(|source| EncapError::Read {
-        path: result_path,
-        source,
-    })?;
-    let response: Response = serde_json::from_slice(&bytes)
+    let response: Response = serde_json::from_slice(bytes)
         .map_err(|_| EncapError::Message("Whisper returned an invalid result.".into()))?;
-    Ok(response
-        .transcription
-        .into_iter()
-        .filter(|item| !item.text.trim().is_empty())
-        .map(|item| {
-            let words = item
-                .tokens
-                .into_iter()
-                .filter_map(|token| {
-                    let timing = token.offsets?;
-                    let text = token.text.trim();
-                    if text.is_empty() || text.starts_with("<|") {
-                        return None;
-                    }
-                    Some(encap_core::TranscriptWord {
-                        id: uuid::Uuid::new_v4().simple().to_string(),
-                        start_time_seconds: offset + timing.from / 1000.0,
-                        end_time_seconds: offset + timing.to / 1000.0,
-                        text: text.to_string(),
-                        extensions: BTreeMap::new(),
-                    })
+    let mut segments = Vec::with_capacity(response.transcription.len());
+    for item in response.transcription {
+        let text = item.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !item.offsets.from.is_finite()
+            || !item.offsets.to.is_finite()
+            || item.offsets.from < 0.0
+            || item.offsets.to < 0.0
+        {
+            return Err(EncapError::Message(
+                "Whisper returned an invalid segment time.".into(),
+            ));
+        }
+        let start_time_seconds = offset + item.offsets.from / 1000.0;
+        let end_time_seconds = (offset + item.offsets.to / 1000.0).max(start_time_seconds);
+        let words = item
+            .tokens
+            .into_iter()
+            .filter_map(|token| {
+                let timing = token.offsets?;
+                if !timing.from.is_finite() || !timing.to.is_finite() {
+                    return None;
+                }
+                let word_text = token.text.trim();
+                if word_text.is_empty() || word_text.starts_with("<|") {
+                    return None;
+                }
+                let word_start = (offset + timing.from.max(0.0) / 1000.0)
+                    .clamp(start_time_seconds, end_time_seconds);
+                let word_end =
+                    (offset + timing.to.max(0.0) / 1000.0).clamp(word_start, end_time_seconds);
+                Some(encap_core::TranscriptWord {
+                    id: uuid::Uuid::new_v4().simple().to_string(),
+                    start_time_seconds: word_start,
+                    end_time_seconds: word_end,
+                    text: word_text.to_string(),
+                    extensions: BTreeMap::new(),
                 })
-                .collect();
-            TranscriptSegment {
-                id: uuid::Uuid::new_v4().simple().to_string(),
-                start_time_seconds: offset + item.offsets.from / 1000.0,
-                end_time_seconds: offset + item.offsets.to / 1000.0,
-                speaker: String::new(),
-                text: item.text.trim().to_string(),
-                words,
-                extensions: BTreeMap::new(),
-            }
-        })
-        .collect())
+            })
+            .collect();
+        segments.push(TranscriptSegment {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            start_time_seconds,
+            end_time_seconds,
+            speaker: String::new(),
+            text: text.to_string(),
+            words,
+            extensions: BTreeMap::new(),
+        });
+    }
+    Ok(segments)
 }
 
 #[derive(Clone)]
@@ -672,7 +708,9 @@ static PROCESS_VERIFICATION_CACHE: Mutex<Option<BTreeMap<String, VerificationRec
 fn get_process_cached_verification(key: &str, current: &VerificationRecord) -> Option<bool> {
     let lock = PROCESS_VERIFICATION_CACHE.lock().ok()?;
     let map = lock.as_ref()?;
-    map.get(key).filter(|r| r.same_file(current)).map(|r| r.valid)
+    map.get(key)
+        .filter(|r| r.same_file(current))
+        .map(|r| r.valid)
 }
 
 fn put_process_cached_verification(key: String, record: VerificationRecord) {
@@ -1142,7 +1180,9 @@ fn group_words(words: Vec<TranscriptSegment>) -> Vec<TranscriptSegment> {
                     current.text.push(' ');
                 }
                 current.text.push_str(&word.text);
-                current.end_time_seconds = word.end_time_seconds;
+                current.start_time_seconds =
+                    current.start_time_seconds.min(word.start_time_seconds);
+                current.end_time_seconds = current.end_time_seconds.max(word.end_time_seconds);
                 current.words.extend(word.words);
                 continue;
             }
@@ -1178,6 +1218,47 @@ mod tests {
             sha256_file(&path).unwrap(),
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
+    }
+
+    #[test]
+    fn whisper_and_apple_word_timings_are_clamped_to_valid_project_bounds() {
+        let whisper_json = br#"{
+            "transcription": [{
+                "offsets": { "from": 1000.0, "to": 2000.0 },
+                "text": " Hello world ",
+                "tokens": [
+                    { "text": "<|startoftranscript|>", "offsets": { "from": 0.0, "to": 100.0 } },
+                    { "text": " Hello", "offsets": { "from": 850.0, "to": 1500.0 } },
+                    { "text": " world", "offsets": { "from": 1600.0, "to": 1400.0 } },
+                    { "text": "!", "offsets": { "from": 1900.0, "to": 2250.0 } }
+                ]
+            }]
+        }"#;
+        let segments = parse_whisper_response(whisper_json, 10.0).unwrap();
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].start_time_seconds, 11.0);
+        assert_eq!(segments[0].end_time_seconds, 12.0);
+        assert_eq!(segments[0].words.len(), 3);
+        let mut project = encap_core::ProjectDocument {
+            transcript_segments: segments,
+            ..Default::default()
+        };
+        project.validate().unwrap();
+
+        let apple_json = br#"{
+            "segments": [
+                { "text": "First", "start_seconds": 1.0, "duration_seconds": 1.5 },
+                { "text": "Second", "start_seconds": 0.8, "duration_seconds": 0.5 }
+            ]
+        }"#;
+        let apple_segments = parse_apple_response(apple_json, 5.0).unwrap();
+        assert_eq!(apple_segments.len(), 1);
+        project.transcript_segments = apple_segments;
+        project.validate().unwrap();
+
+        let invalid_apple =
+            br#"{"segments":[{"text":"Bad","start_seconds":-1.0,"duration_seconds":1.0}]}"#;
+        assert!(parse_apple_response(invalid_apple, 0.0).is_err());
     }
 
     #[cfg(target_os = "macos")]

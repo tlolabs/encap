@@ -200,18 +200,32 @@ final class AudioSourceRemovalTests: XCTestCase {
         XCTAssertEqual(store.videoCurrentTime, 29.5)
         XCTAssertEqual(store.currentVideoChapterIndex, 1)
 
-        // Seek exact end (30.0s)
+        // Seek exact end (30.0s) while paused must not set isPlaying or isVideoPlaying
         store.seekVideo(to: 30.0, autoplay: false)
         XCTAssertEqual(store.videoCurrentTime, 30.0)
         XCTAssertEqual(store.currentVideoChapterIndex, 1)
+        XCTAssertFalse(store.isPlaying)
+        XCTAssertFalse(store.isVideoPlaying)
 
         // Seek beyond end (50.0s) clamps to total
         store.seekVideo(to: 50.0, autoplay: false)
         XCTAssertEqual(store.videoCurrentTime, 30.0)
+        XCTAssertFalse(store.isPlaying)
 
         // Non-finite value is safely ignored
         store.seekVideo(to: Double.nan, autoplay: false)
         XCTAssertEqual(store.videoCurrentTime, 30.0)
+
+        // Toggling playback at the end of the timeline restarts from 0
+        store.toggleVideoPlayback()
+        XCTAssertEqual(store.videoCurrentTime, 0.0)
+        XCTAssertEqual(store.currentVideoChapterIndex, 0)
+        XCTAssertTrue(store.isPlaying)
+        XCTAssertTrue(store.isVideoPlaying)
+        store.toggleVideoPlayback()
+        XCTAssertFalse(store.isPlaying)
+        XCTAssertFalse(store.isVideoPlaying)
+        store.stopPlayback()
     }
 }
 

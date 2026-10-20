@@ -1,11 +1,13 @@
 # AVID Core runtime packaging
 
-EnCAP 2.0.8 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
+EnCAP 2.0.9 consumes AVID Core's matched FFmpeg/ffprobe 9.0.1 runtime, recipe 7.
 Core owns source acquisition, signature verification, codec configuration, native
 compilation, media validation, repeat-build checks, runtime packaging and licenses.
 EnCAP's former FFmpeg source builder and dependency recipe have been removed.
 
-Cargo pins Core 0.3.0 at `25d19098a22936638b0e2a70616083d929fe409c`.
+Cargo pins Core 0.3.1 at `15f28236142c100d0a83bf19154ed6f9f5b44e75`.
+The Rust library source pin is independent of the authenticated runtime pins;
+this integration retains the existing runtime artifacts.
 The default `runtime/platform-runtimes.json` pins one immutable, attested AVID Core
 release per target from build run `38185320964`. Each record fixes its release
 tag, publisher and build source commits, GitHub asset IDs and sizes, runtime and

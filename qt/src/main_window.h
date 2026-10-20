@@ -58,6 +58,7 @@ private:
     void refreshChapters();
     void refreshSegments();
     void refreshVideo();
+    void requestVideoPreview();
     void refreshPlayback();
     void markDirty();
     void setField(const QStringList& path, const QJsonValue& value);
@@ -79,6 +80,7 @@ private:
     void refreshModels();
     void changeModel(bool remove);
     void syncVideoSelection();
+    void syncAudioBitrateOptions(bool markProjectDirty);
     void moveVideo(int delta);
     void moveVideoTo(int destination);
     void loadWaveforms();
@@ -103,6 +105,7 @@ private:
 
     EngineClient* engine_ = nullptr;
     EngineClient* previewEngine_ = nullptr;
+    EngineClient* artworkEngine_ = nullptr;
     EngineClient* waveformEngine_ = nullptr;
     QJsonObject project_;
     QJsonArray providers_, models_, presets_;
@@ -112,12 +115,17 @@ private:
     int previewIndex_ = 0;
     double rate_ = 1, volume_ = 1;
     QString playingPath_, temporaryPreview_;
+    QByteArray videoArtworkKey_;
+    QByteArray videoPreviewKey_, videoPreviewAttemptKey_;
+    int videoArtworkGeneration_ = 0;
+    QString videoPreviewPath_;
     QString sessionDir_, activeWorkingDir_;
     QProcess* decoder_ = nullptr;
     QSet<int> heldKeys_;
     bool slow_ = false;
     QStringList videoOrder_;
     int waveformGeneration_ = 0;
+    int playbackGeneration_ = 0;
     QTabWidget* modes_ = nullptr;
     QLabel* status_ = nullptr;
     QProgressBar* progress_ = nullptr;

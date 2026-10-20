@@ -5,10 +5,12 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
+#include <QImage>
 #include <QLabel>
 #include <QSlider>
 #include <QStandardPaths>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QThread>
 #include <cstdio>
@@ -57,6 +59,16 @@ static int fakeEngine(const QStringList& args) {
     else if (command == "waveform") {
         QThread::msleep(120);
         std::puts(args.last() == "newest" ? "{\"peaks\":[1]}" : "{\"peaks\":[0]}");
+    } else if (command == "preview-video") {
+        QThread::msleep(120);
+        if (qEnvironmentVariableIsSet("ENCAP_PREVIEW_FAIL")) {
+            std::puts("{\"error\":\"injected preview failure\"}");
+            return 1;
+        }
+        QImage image(160, 90, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        if (!image.save(args.value(3), "PNG")) return 1;
+        std::puts("{}");
     } else std::puts("{}");
     return 0;
 }
@@ -117,6 +129,46 @@ public:
         window->loadWaveforms();
         if (!waitUntil([&] { return !window->waveformEngine_->busy() && window->sources_->item(0, 1)->text() == QString::fromUtf8("█"); })) return 12;
         window->loadWaveforms();
+        window->project_.insert("metadata", QJsonObject{{"artwork_path", "cover.png"}});
+        window->project_.insert("chapters", QJsonArray{QJsonObject{{"id", "one"}, {"chapter_number", 1},
+            {"duration_seconds", 1}, {"title", "Intro"}}});
+        window->project_.insert("video", QJsonObject{{"export_settings", QJsonObject{
+            {"selected_chapter_ids", QJsonArray{"one"}}, {"selection_initialized", true}}}});
+        window->loading_ = true;
+        window->modes_->setCurrentIndex(2);
+        window->loading_ = false;
+        window->refreshVideo();
+        if (!waitUntil([&] { return window->artworkEngine_->busy(); })) return 15;
+        window->setField({"video", "export_settings", "flip_horizontal"}, true);
+        window->refreshVideo();
+        if (!waitUntil([&] { return !window->artworkEngine_->busy() && !window->videoPreviewPath_.isEmpty(); })) return 16;
+        const auto previewPath = window->videoPreviewPath_;
+        if (QImage(previewPath).isNull()) return 17;
+        window->refreshVideo(); window->refreshVideo();
+        if (window->artworkEngine_->busy() || window->videoPreviewPath_ != previewPath) return 18;
+        window->setField({"video", "export_settings", "selected_chapter_ids"}, QJsonArray{});
+        window->refreshVideo(); window->refreshVideo();
+        if (!window->videoPreview_->pixmap().isNull()) return 19;
+        window->setField({"video", "export_settings", "selected_chapter_ids"}, QJsonArray{"one"});
+        window->refreshVideo();
+        window->setField({"video", "export_settings", "flip_horizontal"}, false);
+        window->refreshVideo();
+        window->setField({"video", "export_settings", "flip_horizontal"}, true);
+        window->refreshVideo();
+        if (!waitUntil([&] { return !window->artworkEngine_->busy(); })) return 20;
+        if (window->videoPreview_->pixmap().isNull()) return 21;
+        qputenv("ENCAP_PREVIEW_FAIL", "1");
+        window->setField({"video", "export_settings", "flip_vertical"}, true);
+        window->refreshVideo(); window->refreshVideo();
+        if (!waitUntil([&] { return !window->artworkEngine_->busy(); })) return 22;
+        window->refreshVideo();
+        if (!window->videoPreviewPath_.isEmpty() || !window->videoPreview_->text().contains("injected preview failure")) return 23;
+        qunsetenv("ENCAP_PREVIEW_FAIL");
+        window->setField({"video", "export_settings", "flip_vertical"}, false);
+        window->refreshVideo();
+        if (!waitUntil([&] { return !window->artworkEngine_->busy() && !window->videoPreviewPath_.isEmpty(); })) return 24;
+        window->setField({"video", "export_settings", "flip_vertical"}, true);
+        window->refreshVideo();
         window.reset(); // shutdown with pending work must never call the destroyed window
         QCoreApplication::processEvents();
         return 0;

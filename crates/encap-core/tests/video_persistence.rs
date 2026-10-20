@@ -122,3 +122,57 @@ fn schema_one_two_video_roundtrips_preserve_opaque_state_and_audio_order() {
     assert_eq!(copy.video.schema_version, 99);
     assert!(copy.validate().is_err());
 }
+
+#[test]
+fn saved_video_settings_keep_encap_composition_and_render_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let project = ProjectDocument {
+        video: serde_json::from_value(json!({
+        "schema_version": 1,
+        "compositions": [{"layers": [{"future": true}]}],
+        "export_settings": {
+            "platform": "YouTube", "aspect": "Portrait video (9:16)",
+            "width": 720, "height": 1280, "codec": "hevc",
+            "encoding": "automatic", "audio_bitrate": "320k", "fps": 120,
+            "flip_horizontal": true, "flip_vertical": true,
+            "preview_quality": "high", "selection_initialized": true,
+            "future_setting": {"keep": [1, 2]}
+        }
+        }))
+        .unwrap(),
+        ..ProjectDocument::default()
+    };
+    let saved = save_project(&project, &root.path().join("settings.encap")).unwrap();
+    let restored = load_project(&saved, Some(root.path())).unwrap();
+    assert_eq!(restored.video, project.video);
+    assert_eq!(restored.schema_version, 2);
+    assert_eq!(restored.video.schema_version, 1);
+    let settings = restored.video.export_settings.render_settings().unwrap();
+    assert_eq!(settings.composition, avid_core::Composition::SquarePadded);
+    assert_eq!(settings.codec, avid_core::Codec::Hevc);
+    assert_eq!(settings.encoding, avid_core::Encoding::Automatic);
+    assert_eq!(
+        (settings.width, settings.height, settings.fps),
+        (720, 1280, 120)
+    );
+    assert!(settings.flip_horizontal && settings.flip_vertical);
+    assert_eq!(settings.audio_bitrate, "320k");
+
+    let mut legacy: encap_core::VideoSettings = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(legacy, encap_core::VideoSettings::default());
+    for fps in [1, 120] {
+        legacy.fps = fps;
+        assert_eq!(legacy.render_settings().unwrap().fps, fps);
+    }
+    for fps in [0, 121] {
+        legacy.fps = fps;
+        assert!(legacy.render_settings().is_err());
+    }
+    legacy.fps = 30;
+    for bitrate in ["64k", "96k", "128k", "160k", "192k", "256k", "320k"] {
+        legacy.audio_bitrate = bitrate.into();
+        assert_eq!(legacy.render_settings().unwrap().audio_bitrate, bitrate);
+    }
+    legacy.audio_bitrate = "80k".into();
+    assert!(legacy.render_settings().is_err());
+}

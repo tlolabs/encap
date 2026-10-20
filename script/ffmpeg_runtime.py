@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tomllib
@@ -125,8 +126,10 @@ def core_identity():
     packages = tomllib.loads((ROOT / 'Cargo.lock').read_text())['package']
     core, = [package for package in packages if package['name'] == 'avid-core']
     source = f"git+{pin['git']}?rev={pin['rev']}#{pin['rev']}"
-    if core['source'] != source or pin['version'] != '=' + core['version'] or pin['rev'] != PIN['revision']:
-        raise ValueError('Core lock differs from the runtime pin')
+    if (pin['git'] != 'https://github.com/tlolabs/avid-core.git'
+            or re.fullmatch('[0-9a-f]{40}', pin['rev']) is None or 'path' in pin
+            or core['source'] != source or pin['version'] != '=' + core['version']):
+        raise ValueError('Core lock differs from the immutable library pin')
     return dict(version=core['version'], revision=pin['rev'], source=source)
 
 

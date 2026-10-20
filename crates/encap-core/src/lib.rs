@@ -20,7 +20,7 @@ pub use project::{
     PROJECT_SCHEMA_VERSION,
 };
 pub use source::{discover_audio_files, inspect_files, inspect_folder, inspect_source};
-pub use transcript::{render_srt, render_transcript_text};
+pub use transcript::{render_srt, render_transcript_text, validate_transcript_export};
 
 pub use waveform::{waveform_preview, WaveformPreview};
 

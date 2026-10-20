@@ -1,0 +1,742 @@
+{
+  "recorded_utc": "2026-10-20T15:18:08.494279+00:00",
+  "core": {
+    "version": "0.3.1",
+    "revision": "15f28236142c100d0a83bf19154ed6f9f5b44e75"
+  },
+  "platform": "macos-arm64",
+  "runtime": {
+    "release_tag": "platform-ffmpeg-9.0.1-r7-macos-arm64-run38185320964",
+    "release_revision": "7e124a3387349e38cc99e5db7e89a73cc23068ad",
+    "binary_sha256": {
+      "ffmpeg": "eb9937d7e3d27b7bbbb73698d50e1e20149b540113b09e3d430d55d718b36ec0",
+      "ffprobe": "1851a46d6de0467078019b4f66269c56fc081e96fe7778d6ec91914adbb3f0a7"
+    },
+    "cached_release_reauthentication": "passed: script/platform_runtime.py verify_cached; immutable release origin, provider GitHub attestation, full pinned assets/provenance/checksums/receipt/runtime/source rechecked",
+    "reauthentication_log": "/Users/tlothian/Documents/Projects/EnCAP/target/core031/runtime-authentication.log",
+    "engine_validate_core_runtime": {
+      "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "ffprobe": "ffprobe version 9.0.1 Copyright (c) 2007-2026 the FFmpeg developers"
+    }
+  },
+  "command": "ENCAP_CORE_RUNTIME_DIR=\"$PWD/build/core-acquisition/platform-ffmpeg-9.0.1-r7-macos-arm64-run38185320964/macos-arm64/avid-ffmpeg-9.0.1-r7-macos-arm64\" cargo test -p encap-video --test core031_native -- --ignored --test-threads=1 --nocapture",
+  "results": {
+    "test_count": 4,
+    "passed": 2,
+    "failed": 2,
+    "native_successful_mode_comparison_pairs": 5,
+    "native_failed_mode_cases": 2,
+    "failure_summary": [
+      "Core mixed 180x320 artwork timelines fail in both Simple and PerFrame: concat SAR 1:1 versus 640:639 mismatch. Existing destinations remain unchanged.",
+      "Valid two-frame GIF is inspected successfully, but automatic and explicit PerFrame exports both fail: Option loop not found. Existing destinations remain unchanged."
+    ]
+  },
+  "scope": "actual EnCAP VideoRenderer adapter with the exact authenticated complete runtime; native execution, no fake process or system media executable substitution",
+  "caveats": [
+    "Only macOS arm64 executed. Other platforms are unrun by this harness.",
+    "Performance is one run per mode, including adapter, process, and OS sampler overhead; no speed or memory guarantee.",
+    "Child RSS is a sampled aggregate of descendant processes excluding the sampler, with 25ms sleeps plus ps query time; it is not a strict memory bound. ps required scoped sandbox escalation.",
+    "The two known Core failures intentionally keep these explicit native tests failing; tests are ignored without explicit runtime opt-in.",
+    "Preview worker cancellation occurs after 75ms and export cancellation after 150ms; no guarantee about exact internal Core stage at token cancellation."
+  ],
+  "native-mode-comparison": {
+    "cases": [
+      {
+        "codec": "h264",
+        "decoded_pcm_identical": true,
+        "decoded_rgb_mean_absolute_delta": 0.0,
+        "flip_horizontal": false,
+        "flip_vertical": false,
+        "height": 180,
+        "measurements": [
+          {
+            "cost": {
+              "rss_sample_count": 2,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 55872,
+              "wall_seconds": 0.093463959
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "PerFrame",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          },
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 256,
+              "wall_seconds": 0.066856417
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "Simple",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          }
+        ],
+        "width": 320
+      },
+      {
+        "codec": "h264",
+        "decoded_pcm_identical": true,
+        "decoded_rgb_mean_absolute_delta": 0.0,
+        "flip_horizontal": true,
+        "flip_vertical": false,
+        "height": 360,
+        "measurements": [
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 272,
+              "wall_seconds": 0.065805917
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "PerFrame",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          },
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 256,
+              "wall_seconds": 0.069908667
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "Simple",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          }
+        ],
+        "width": 180
+      },
+      {
+        "codec": "h264",
+        "decoded_pcm_identical": true,
+        "decoded_rgb_mean_absolute_delta": 0.0,
+        "flip_horizontal": false,
+        "flip_vertical": true,
+        "height": 180,
+        "measurements": [
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 288,
+              "wall_seconds": 0.068962
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "PerFrame",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          },
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 288,
+              "wall_seconds": 0.066854792
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "Simple",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          }
+        ],
+        "width": 320
+      },
+      {
+        "codec": "h264",
+        "decoded_pcm_identical": true,
+        "decoded_rgb_mean_absolute_delta": 0.0,
+        "flip_horizontal": true,
+        "flip_vertical": true,
+        "height": 360,
+        "measurements": [
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 288,
+              "wall_seconds": 0.067966042
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "PerFrame",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          },
+          {
+            "cost": {
+              "rss_sample_count": 1,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 288,
+              "wall_seconds": 0.067324417
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "Simple",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          }
+        ],
+        "width": 180
+      },
+      {
+        "codec": "hevc",
+        "decoded_pcm_identical": true,
+        "decoded_rgb_mean_absolute_delta": 0.0,
+        "flip_horizontal": false,
+        "flip_vertical": false,
+        "height": 180,
+        "measurements": [
+          {
+            "cost": {
+              "rss_sample_count": 2,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 202144,
+              "wall_seconds": 0.091922584
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "PerFrame",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          },
+          {
+            "cost": {
+              "rss_sample_count": 2,
+              "rss_sample_interval_ms": 25,
+              "sampled_peak_child_rss_kib": 288,
+              "wall_seconds": 0.091909542
+            },
+            "duration_seconds": 1.5,
+            "frame_count": 36,
+            "mode": "Simple",
+            "timestamps": [
+              "0.000000",
+              "0.041667",
+              "0.083333",
+              "0.125000",
+              "0.166667",
+              "0.208333",
+              "0.250000",
+              "0.291667",
+              "0.333333",
+              "0.375000",
+              "0.416667",
+              "0.458333",
+              "0.500000",
+              "0.541667",
+              "0.583333",
+              "0.625000",
+              "0.666667",
+              "0.708333",
+              "0.750000",
+              "0.791667",
+              "0.833333",
+              "0.875000",
+              "0.916667",
+              "0.958333",
+              "1.000000",
+              "1.041667",
+              "1.083333",
+              "1.125000",
+              "1.166667",
+              "1.208333",
+              "1.250000",
+              "1.291667",
+              "1.333333",
+              "1.375000",
+              "1.416667",
+              "1.458333"
+            ]
+          }
+        ],
+        "width": 320
+      }
+    ],
+    "core_revision": "15f28236142c100d0a83bf19154ed6f9f5b44e75",
+    "coverage": "native EnCAP VideoRenderer with authenticated pinned macOS arm64 runtime",
+    "runtime_directory": "/Users/tlothian/Documents/Projects/EnCAP/build/core-acquisition/platform-ffmpeg-9.0.1-r7-macos-arm64-run38185320964/macos-arm64/avid-ffmpeg-9.0.1-r7-macos-arm64"
+  },
+  "native-performance": {
+    "coverage": "native EnCAP VideoRenderer; single run per mode; diagnostic measurements only",
+    "measurements": [
+      {
+        "cost": {
+          "rss_sample_count": 10,
+          "rss_sample_interval_ms": 25,
+          "sampled_peak_child_rss_kib": 542784,
+          "wall_seconds": 0.734079542
+        },
+        "duration_seconds": "12.000000",
+        "frame_count": 360,
+        "mode": "PerFrame"
+      },
+      {
+        "cost": {
+          "rss_sample_count": 4,
+          "rss_sample_interval_ms": 25,
+          "sampled_peak_child_rss_kib": 494512,
+          "wall_seconds": 0.278483708
+        },
+        "duration_seconds": "12.000000",
+        "frame_count": 360,
+        "mode": "Simple"
+      }
+    ],
+    "settings": {
+      "chapter_count": 6,
+      "codec": "h264",
+      "encoding": "software",
+      "fps": 30,
+      "height": 720,
+      "seconds": 12,
+      "width": 1280
+    }
+  },
+  "native-lifecycle": {
+    "active_render_cancel_preserves_destination": true,
+    "changed_image_dimensions_and_preview": true,
+    "corrupt_input_preserves_preview": true,
+    "coverage": "native EnCAP VideoRenderer",
+    "independent_preview_succeeds": true,
+    "oversized_40000px_source_rejected": true,
+    "preview_precancel_preserves_destination": true,
+    "preview_worker_cancel_after_75ms_preserves_destination": true,
+    "protected_project_audio_artwork_rejected": true,
+    "repeated_inspection": true
+  },
+  "native-animation": {
+    "coverage": "native mixed GIF and PNG EnCAP timeline",
+    "observations": [
+      {
+        "diagnostics": [
+          "Option loop not found.",
+          "Error opening input file /var/folders/pb/b82nxwv91c5d4vcc7cnxm3tm0000gn/T/.tmpHLFVCF/animated \u4e8c\u8272.gif.",
+          "Error opening input files: Option not found"
+        ],
+        "error": "The Video media tool could not complete the operation. Check the selected media and local diagnostics.",
+        "existing_destination_preserved_on_failure": true,
+        "mode": "None",
+        "stages": [
+          "validating",
+          "probing",
+          "compositing",
+          "encoding"
+        ],
+        "success": false
+      },
+      {
+        "diagnostics": [
+          "Option loop not found.",
+          "Error opening input file /var/folders/pb/b82nxwv91c5d4vcc7cnxm3tm0000gn/T/.tmpHLFVCF/animated \u4e8c\u8272.gif.",
+          "Error opening input files: Option not found"
+        ],
+        "error": "The Video media tool could not complete the operation. Check the selected media and local diagnostics.",
+        "existing_destination_preserved_on_failure": true,
+        "mode": "Some(PerFrame)",
+        "stages": [
+          "validating",
+          "probing",
+          "compositing",
+          "encoding"
+        ],
+        "success": false
+      }
+    ]
+  },
+  "native-render-failures": {
+    "coverage": "native pinned runtime",
+    "failures": [
+      {
+        "codec": "h264",
+        "diagnostics": [
+          "[Parsed_concat_39 @ 0x7a03148900] Input link in0:v0 parameters (size 180x320, SAR 1:1) do not match the corresponding output link in0:v0 parameters (180x320, SAR 640:639)",
+          "[Parsed_concat_39 @ 0x7a03148900] Failed to configure output pad on Parsed_concat_39",
+          "[fc#0 @ 0x7a03048000] Error reinitializing filters!",
+          "[fc#0 @ 0x7a03048000] Task finished with error code: -22 (Invalid argument)",
+          "[fc#0 @ 0x7a03048000] Terminating thread with return code -22 (Invalid argument)",
+          "[vost#0:0/libx264 @ 0x7a030f4000] [enc:libx264 @ 0x7a030f0b60] Could not open encoder before EOF",
+          "[vost#0:0/libx264 @ 0x7a030f4000] Task finished with error code: -22 (Invalid argument)",
+          "[vost#0:0/libx264 @ 0x7a030f4000] Terminating thread with return code -22 (Invalid argument)",
+          "[aost#0:1/aac @ 0x7a030f4300] [enc:aac @ 0x7a030f0d20] Could not open encoder before EOF",
+          "[aost#0:1/aac @ 0x7a030f4300] Task finished with error code: -22 (Invalid argument)",
+          "[aost#0:1/aac @ 0x7a030f4300] Terminating thread with return code -22 (Invalid argument)",
+          "[out#0/mp4 @ 0x7a03064e40] Nothing was written into output file, because at least one of its streams received no packets."
+        ],
+        "error": "The Video media tool could not complete the operation. Check the selected media and local diagnostics.",
+        "existing_destination_preserved": true,
+        "height": 320,
+        "mode": "PerFrame",
+        "stages": [
+          "validating",
+          "probing",
+          "compositing",
+          "encoding"
+        ],
+        "width": 180
+      },
+      {
+        "codec": "h264",
+        "diagnostics": [
+          "[Parsed_concat_48 @ 0x752d2a4900] Input link in0:v0 parameters (size 180x320, SAR 1:1) do not match the corresponding output link in0:v0 parameters (180x320, SAR 640:639)",
+          "[Parsed_concat_48 @ 0x752d2a4900] Failed to configure output pad on Parsed_concat_48",
+          "[fc#0 @ 0x752cc1c000] Error reinitializing filters!",
+          "[fc#0 @ 0x752cc1c000] Task finished with error code: -22 (Invalid argument)",
+          "[vost#0:0/libx264 @ 0x752ccb0000] [enc:libx264 @ 0x752cc14230] Could not open encoder before EOF",
+          "[vost#0:0/libx264 @ 0x752ccb0000] Task finished with error code: -22 (Invalid argument)",
+          "[fc#0 @ 0x752cc1c000] Terminating thread with return code -22 (Invalid argument)",
+          "[aost#0:1/aac @ 0x752ccb0300] [enc:aac @ 0x752cc16d80] Could not open encoder before EOF",
+          "[aost#0:1/aac @ 0x752ccb0300] Task finished with error code: -22 (Invalid argument)",
+          "[aost#0:1/aac @ 0x752ccb0300] Terminating thread with return code -22 (Invalid argument)",
+          "[vost#0:0/libx264 @ 0x752ccb0000] Terminating thread with return code -22 (Invalid argument)",
+          "[out#0/mp4 @ 0x752d05ce40] Nothing was written into output file, because at least one of its streams received no packets."
+        ],
+        "error": "The Video media tool could not complete the operation. Check the selected media and local diagnostics.",
+        "existing_destination_preserved": true,
+        "height": 320,
+        "mode": "Simple",
+        "stages": [
+          "validating",
+          "probing",
+          "compositing",
+          "encoding"
+        ],
+        "width": 180
+      }
+    ]
+  }
+}

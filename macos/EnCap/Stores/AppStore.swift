@@ -689,13 +689,21 @@ final class AppStore: ObservableObject {
         if isVideoPlaying {
             player?.pause()
             isVideoPlaying = false
+            isPlaying = false
             status = "Video preview paused."
+        } else if selectedVideoDuration > 0 && videoCurrentTime >= selectedVideoDuration - 0.04 {
+            seekVideo(to: 0, autoplay: true)
+            status = "Playing Video preview."
         } else if let player {
             player.play()
             isVideoPlaying = true
+            isPlaying = true
             status = "Playing Video preview."
         } else {
             seekVideo(to: videoCurrentTime, autoplay: true)
+            if isVideoPlaying {
+                status = "Playing Video preview."
+            }
         }
     }
 
@@ -734,7 +742,7 @@ final class AppStore: ObservableObject {
             queue: .main
         ) { [weak self, weak nextPlayer] time in
             Task { @MainActor in
-                guard let self, self.player === nextPlayer, self.videoPlaybackIndex == index else { return }
+                guard let self, self.isVideoPlaying, self.player === nextPlayer, self.videoPlaybackIndex == index else { return }
                 let elapsed = min(time.seconds, chapter.durationSeconds)
                 self.videoCurrentTime = chapterStart + max(0, elapsed)
                 if elapsed >= chapter.durationSeconds - 0.04 {
@@ -742,11 +750,24 @@ final class AppStore: ObservableObject {
                 }
             }
         }
+        playbackEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: nextPlayer.currentItem,
+            queue: .main
+        ) { [weak self, weak nextPlayer] _ in
+            Task { @MainActor in
+                guard let self, self.isVideoPlaying, self.player === nextPlayer, self.videoPlaybackIndex == index else { return }
+                self.playVideoChapter(index + 1)
+            }
+        }
         if shouldPlay {
             nextPlayer.play()
             isVideoPlaying = true
+            isPlaying = true
+        } else {
+            isVideoPlaying = false
+            isPlaying = false
         }
-        isPlaying = true
     }
 
     func previousVideoChapter() {

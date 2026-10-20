@@ -162,11 +162,29 @@ pub fn save_project_cancellable(
             source,
         })?;
     let staged = temporary.path().join("project.encap");
-    for source in &project.audio_sources {
-        if crate::file_ops::conflicts_with_path(&target, &source.source_path) {
-            return Err(EncapError::Message(
-                "The save destination must not overwrite source media.".into(),
-            ));
+    for candidate in [requested_path, target.as_path()] {
+        for source in &project.audio_sources {
+            if crate::file_ops::conflicts_with_path(candidate, &source.source_path) {
+                return Err(EncapError::Message(
+                    "The save destination must not overwrite source media.".into(),
+                ));
+            }
+        }
+        if let Some(artwork) = &project.metadata.artwork_path {
+            if crate::file_ops::conflicts_with_path(candidate, artwork) {
+                return Err(EncapError::Message(
+                    "The save destination must not overwrite project artwork.".into(),
+                ));
+            }
+        }
+        for chapter in &project.chapters {
+            if let Some(image) = &chapter.image_path {
+                if crate::file_ops::conflicts_with_path(candidate, image) {
+                    return Err(EncapError::Message(
+                        "The save destination must not overwrite chapter artwork.".into(),
+                    ));
+                }
+            }
         }
     }
     {
@@ -320,6 +338,23 @@ pub fn load_project_cancellable(
         path: project_path.to_path_buf(),
         source,
     })?;
+    if file
+        .metadata()
+        .map_err(|source| EncapError::Read {
+            path: project_path.to_path_buf(),
+            source,
+        })?
+        .len()
+        == 0
+    {
+        return Err(EncapError::Message(format!(
+            "The project file \"{}\" is empty (0 bytes). Restore another copy or re-import the original recordings.",
+            project_path
+                .file_name()
+                .unwrap_or(project_path.as_os_str())
+                .to_string_lossy()
+        )));
+    }
     let mut archive = zip::ZipArchive::new(file)?;
     preflight(&mut archive)?;
     let temporary = match extraction_parent {
@@ -1143,6 +1178,31 @@ mod tests {
     }
 
     #[test]
+    fn empty_project_reports_recovery_options_without_modifying_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_path = temp.path().join("empty.encap");
+        let extraction = temp.path().join("extraction");
+        let sentinel = temp.path().join("original-recording.wav");
+        fs::write(&project_path, b"").unwrap();
+        fs::write(&sentinel, b"original recording").unwrap();
+        let modified = fs::metadata(&project_path).unwrap().modified().unwrap();
+
+        let error = load_project(&project_path, Some(&extraction))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("\"empty.encap\" is empty (0 bytes)"));
+        assert!(error.contains("Restore another copy or re-import the original recordings."));
+        assert_eq!(fs::read(&project_path).unwrap(), b"");
+        assert_eq!(
+            fs::metadata(&project_path).unwrap().modified().unwrap(),
+            modified
+        );
+        assert_eq!(fs::read(&sentinel).unwrap(), b"original recording");
+        assert!(!extraction.exists());
+    }
+
+    #[test]
     fn rejects_traversal() {
         let temp = tempfile::tempdir().unwrap();
         let target = temp.path().join("bad.encap");
@@ -1214,5 +1274,26 @@ mod cancellation_regressions {
             fs::read(&loaded.audio_sources[0].source_path).unwrap(),
             vec![13; 2 * 1024 * 1024]
         );
+
+        let cover = root.path().join("cover.png");
+        let chapter_art = root.path().join("chapter.png");
+        fs::write(&cover, b"cover bytes").unwrap();
+        fs::write(&chapter_art, b"chapter bytes").unwrap();
+        project.metadata.artwork_path = Some(cover.clone());
+        project.chapters.push(Chapter {
+            id: "c1".into(),
+            start_time_seconds: 0.0,
+            duration_seconds: 1.0,
+            chapter_number: 1,
+            title: "Chapter 1".into(),
+            link_url: String::new(),
+            image_path: Some(chapter_art.clone()),
+            image_stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        assert!(save_project(&project, &cover).is_err());
+        assert!(save_project(&project, &chapter_art).is_err());
+        assert_eq!(fs::read(&cover).unwrap(), b"cover bytes");
+        assert_eq!(fs::read(&chapter_art).unwrap(), b"chapter bytes");
     }
 }

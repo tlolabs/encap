@@ -1,5 +1,46 @@
-use crate::TranscriptSegment;
+use crate::{conflicts_with_path, EncapError, ProjectDocument, Result, TranscriptSegment};
 use std::fmt::Write;
+use std::path::Path;
+
+pub fn validate_transcript_export(project: &ProjectDocument, destination: &Path) -> Result<()> {
+    project.validate()?;
+    if project.transcript_segments.is_empty() {
+        return Err(EncapError::Message(
+            "There is no transcript available to export.".into(),
+        ));
+    }
+    for source in &project.audio_sources {
+        if conflicts_with_path(destination, &source.source_path) {
+            return Err(EncapError::Message(
+                "The export destination must not overwrite source media.".into(),
+            ));
+        }
+    }
+    if let Some(artwork) = &project.metadata.artwork_path {
+        if conflicts_with_path(destination, artwork) {
+            return Err(EncapError::Message(
+                "The export destination must not overwrite project artwork.".into(),
+            ));
+        }
+    }
+    for chapter in &project.chapters {
+        if let Some(image) = &chapter.image_path {
+            if conflicts_with_path(destination, image) {
+                return Err(EncapError::Message(
+                    "The export destination must not overwrite chapter artwork.".into(),
+                ));
+            }
+        }
+    }
+    if let Some(proj_path) = &project.project_path {
+        if conflicts_with_path(destination, proj_path) {
+            return Err(EncapError::Message(
+                "The export destination must not overwrite the project file.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub fn render_transcript_text(segments: &[TranscriptSegment]) -> String {
     let mut output = String::with_capacity(segments.len().checked_mul(48).unwrap_or(0));
@@ -58,7 +99,9 @@ fn write_time(output: &mut String, seconds: f64) {
 #[cfg(test)]
 mod equivalence_tests {
     use super::*;
+    use crate::{AudioSource, Chapter};
     use std::collections::BTreeMap;
+    use std::fs;
     fn segment(start: f64, end: f64, speaker: &str, text: &str) -> TranscriptSegment {
         TranscriptSegment {
             id: String::new(),
@@ -134,5 +177,55 @@ mod equivalence_tests {
         assert_eq!(render_transcript_text(&segments), reference_text);
         assert_eq!(reference_time(59.9996), "00:01:00,000");
         assert_eq!(reference_time(3599.9996), "01:00:00,000");
+    }
+
+    #[test]
+    fn transcript_export_rejects_overwriting_protected_project_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.wav");
+        let cover = dir.path().join("cover.png");
+        let chapter_art = dir.path().join("chapter.png");
+        let project_file = dir.path().join("episode.encap");
+        let safe_out = dir.path().join("transcript.txt");
+        for path in [&source, &cover, &chapter_art, &project_file] {
+            fs::write(path, b"protected").unwrap();
+        }
+        let mut project = ProjectDocument {
+            project_path: Some(project_file.clone()),
+            ..Default::default()
+        };
+        project.metadata.artwork_path = Some(cover.clone());
+        project.audio_sources.push(AudioSource {
+            source_path: source.clone(),
+            display_name: "source".into(),
+            duration_seconds: 10.0,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        project.chapters.push(Chapter {
+            id: "c1".into(),
+            start_time_seconds: 0.0,
+            duration_seconds: 10.0,
+            chapter_number: 1,
+            title: "Chapter 1".into(),
+            link_url: String::new(),
+            image_path: Some(chapter_art.clone()),
+            image_stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        assert!(validate_transcript_export(&project, &safe_out).is_err());
+        project
+            .transcript_segments
+            .push(segment(0.0, 5.0, "Host", "Hello"));
+        assert!(validate_transcript_export(&project, &safe_out).is_ok());
+        for protected in [&source, &cover, &chapter_art, &project_file] {
+            assert!(validate_transcript_export(&project, protected).is_err());
+        }
+        #[cfg(unix)]
+        {
+            let alias = dir.path().join("alias.txt");
+            std::os::unix::fs::symlink(&source, &alias).unwrap();
+            assert!(validate_transcript_export(&project, &alias).is_err());
+        }
     }
 }

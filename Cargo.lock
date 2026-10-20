@@ -78,13 +78,13 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "avid-core"
-version = "0.3.0"
-source = "git+https://github.com/tlolabs/avid-core?rev=25d19098a22936638b0e2a70616083d929fe409c#25d19098a22936638b0e2a70616083d929fe409c"
+version = "0.3.1"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=15f28236142c100d0a83bf19154ed6f9f5b44e75#15f28236142c100d0a83bf19154ed6f9f5b44e75"
 dependencies = [
  "same-file",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.11.1",
  "tempfile",
 ]
 
@@ -136,6 +136,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -260,6 +269,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,6 +343,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "ctrlc"
 version = "3.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -361,8 +385,19 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
- "crypto-common",
+ "block-buffer 0.10.4",
+ "crypto-common 0.1.7",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer 0.12.1",
+ "const-oid",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -417,7 +452,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "encap-audio"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -427,14 +462,14 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "avid-core",
  "directories",
  "rustix",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror",
  "toml",
@@ -446,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "avid-core",
  "clap",
@@ -468,36 +503,36 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "avid-core",
  "encap-core",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "tempfile",
  "tracing",
 ]
 
 [[package]]
 name = "encap-portable-update"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "fs2",
  "semver",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "windows-sys 0.61.2",
  "zip",
 ]
 
 [[package]]
 name = "encap-release"
-version = "2.0.8"
+version = "2.0.9"
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "directories",
  "encap-core",
@@ -505,25 +540,26 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "tempfile",
  "uuid",
 ]
 
 [[package]]
 name = "encap-update"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "tlo-updater",
 ]
 
 [[package]]
 name = "encap-video"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "avid-core",
  "encap-core",
  "encap-ffmpeg",
+ "fs2",
  "serde_json",
  "tempfile",
  "tracing",
@@ -542,7 +578,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -727,6 +763,15 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "hybrid-array"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "hyper"
@@ -1222,7 +1267,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1410,7 +1455,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1468,7 +1513,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1620,7 +1665,18 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -1758,7 +1814,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1856,7 +1912,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "tempfile",
 ]
 
@@ -2256,7 +2312,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

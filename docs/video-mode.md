@@ -29,18 +29,36 @@ Video does not require a transcript and does not render captions in 2.0. The
 project schema separately persists optional word timings so a later composition
 engine can build transcript-driven graphics without changing Audio or Video 2.0.
 
-`encap-video` is a small host adapter over `avid-core` in the sibling AVID Core
-repository. The canonical crate owns presets, persisted Video types, validation,
+`encap-video` is a host adapter over the immutable Git dependency `avid-core` 0.3.1.
+No adjacent source checkout is required. Core owns presets, persisted Video types, validation,
 selection, encoder choice, composition, media execution, and atomic publication.
 The adapter retains whole-project checks, the required main-artwork inspection,
 checked chapter-number mapping, all protected project/media paths, and safe messages.
-No native client source changed in this migration.
+Reusable `VideoRenderer` sessions and clones share Core's bounded probe caches.
+The engine and both native clients use Core's PNG composition previews; playback
+of the selected audio sources and the existing transport controls remain native.
 
 The shared settings adapter explicitly selects `Composition::SquarePadded` (sigma20).
-Preview playback remains native and its blur/scale treatment is approximate, not
-pixel-identical to export. Pause/seek/next/previous and preview_quality remain host
-state; export pause/resume is not provided. No new UI selection or graph code is added.
+PNG previews show the first artwork frame using the export composition and flips.
+Pause/seek/next/previous and preview_quality remain host state; export pause/resume
+is not provided. Preview tasks are independent of playback and export tasks and
+do not recompose on every playhead tick.
 Probes default to 30 seconds, preview to 120 seconds, and export has no default timeout.
 Shared events go only to local tracing; stdout remains one JSON value.
 
-See [migration verification](migration-avid-core.md) for actual tests and platform gaps.
+Automatic export selects `RenderMode::Simple` only for confidently static PNG/JPEG
+containers and an estimate of at most 256 MiB of cached composed frames (four
+bytes per output pixel per clip, including repeated artwork). Simple composes once
+per clip in FFmpeg memory without temporary PNG files. Larger timelines, APNG,
+GIF, WebP, and unknown media retain PerFrame for the entire render. Explicit
+`--render-mode simple` and `--render-mode per-frame` are comparison controls;
+Simple deliberately freezes animation. The budget is not a total process memory
+limit. Core's size/mtime probe fingerprints invalidate ordinary changed sources.
+
+The exact runtime currently exposes two verified Core limitations: mixed-aspect
+artwork at some portrait dimensions fails concat with inconsistent sample aspect
+ratios; GIF rendering fails with `Option loop not found`. Both preserve existing
+outputs. No host filter-graph workaround is introduced.
+
+See [0.3.1 integration verification](core-031-integration.md) for current evidence
+and restrictions. Older migration reports are historical.

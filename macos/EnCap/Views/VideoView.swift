@@ -190,21 +190,9 @@ struct VideoView: View {
             GeometryReader { geometry in
                 ZStack {
                     RoundedRectangle(cornerRadius: 12).fill(.black)
-                    if let image = currentArtworkImage {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .blur(radius: 22)
-                            .clipped()
-                            .scaleEffect(x: flipX, y: flipY)
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(
-                                width: min(canvasSize(in: geometry.size).width, canvasSize(in: geometry.size).height),
-                                height: min(canvasSize(in: geometry.size).width, canvasSize(in: geometry.size).height)
-                            )
-                            .scaleEffect(x: flipX, y: flipY)
+                    if let project = store.project, let chapter = currentChapter,
+                       let artwork = store.effectiveArtwork(for: chapter) {
+                        VideoCompositionPreview(project: project, chapterID: chapter.id, artwork: artwork)
                     } else {
                         VStack(spacing: 8) {
                             Image(systemName: "photo").font(.largeTitle)
@@ -256,11 +244,10 @@ struct VideoView: View {
         .padding(20)
     }
 
-    private var currentArtworkImage: NSImage? {
+    private var currentChapter: Chapter? {
         guard let index = store.currentVideoChapterIndex,
-              store.selectedVideoChapters.indices.contains(index),
-              let url = store.effectiveArtwork(for: store.selectedVideoChapters[index]) else { return nil }
-        return NSImage(contentsOf: url)
+              store.selectedVideoChapters.indices.contains(index) else { return nil }
+        return store.selectedVideoChapters[index]
     }
 
     private var platforms: [String] {
@@ -295,9 +282,6 @@ struct VideoView: View {
             }
         )
     }
-
-    private var flipX: CGFloat { store.project?.video.exportSettings.flipHorizontal == true ? -1 : 1 }
-    private var flipY: CGFloat { store.project?.video.exportSettings.flipVertical == true ? -1 : 1 }
 
     private func videoBinding<Value>(_ keyPath: WritableKeyPath<VideoSettings, Value>) -> Binding<Value> {
         Binding(

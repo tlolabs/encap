@@ -116,6 +116,7 @@ MainWindow::MainWindow() {
     QDir().mkpath(QFileInfo(preferencePath("chapter-naming.txt")).absolutePath());
     engine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     previewEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
+    artworkEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     waveformEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     buildUi();
     buildMenus();
@@ -408,9 +409,13 @@ void MainWindow::refreshUi() {
     const auto artwork = metadata.value("artwork_path").toString();
     if (artwork.isEmpty()) episodeArtwork_->clear();
     else episodeArtwork_->setPixmap(QPixmap(artwork).scaled(160, 160, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    audioFormat_->setCurrentText(settings.value("output_format").toString("mp3"));
-    audioBitrate_->setCurrentText(settings.value("quality_preset").toString("320k"));
-    audioChannels_->setCurrentText(QString::number(settings.value("channels").toInt(2)));
+    {
+        const QSignalBlocker blockFormat(audioFormat_);
+        const QSignalBlocker blockChannels(audioChannels_);
+        audioFormat_->setCurrentText(settings.value("output_format").toString("mp3"));
+        audioChannels_->setCurrentText(QString::number(settings.value("channels").toInt(2)));
+    }
+    syncAudioBitrateOptions(false);
     wordTimestamps_->setChecked(field({"transcript_settings", "include_word_timestamps"}).toBool());
     codec_->setCurrentText(video.value("codec").toString("h264"));
     encoding_->setCurrentText(video.value("encoding").toString("automatic"));
@@ -501,21 +506,78 @@ void MainWindow::refreshVideo() {
     videoSeek_->setMaximum(std::max(1, safeSecondsToInt(duration, 1)));
     videoArtwork_->setText(project_.value("metadata").toObject().value("artwork_path").toString().isEmpty()
         ? "Episode artwork required" : "Episode artwork ready");
-    const auto artwork = previewIndex_ < selected.size() ? [&] {
-        for (const auto& value : chapters) if (value.toObject().value("id") == selected[previewIndex_])
-            return value.toObject().value("image_path").toString();
-        return QString{};
-    }() : QString{};
-    const auto path = artwork.isEmpty() ? project_.value("metadata").toObject().value("artwork_path").toString() : artwork;
-    QPixmap picture(path);
-    if (picture.isNull()) videoPreview_->setText("No artwork preview");
-    else {
-        if (flipHorizontal_->isChecked() || flipVertical_->isChecked())
-            picture = picture.transformed(QTransform().scale(flipHorizontal_->isChecked() ? -1 : 1,
-                                                           flipVertical_->isChecked() ? -1 : 1));
-        videoPreview_->setPixmap(picture.scaled(videoPreview_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    }
+    requestVideoPreview();
     loading_ = before;
+}
+
+void MainWindow::requestVideoPreview() {
+    if (!hasProject_ || sessionDir_.isEmpty() || modes_->currentIndex() != 2) return;
+    const auto settings = field({"video", "export_settings"}).toObject();
+    auto selected = settings.value("selected_chapter_ids").toArray();
+    const auto chapters = project_.value("chapters").toArray();
+    if (selected.isEmpty() && !settings.value("selection_initialized").toBool())
+        for (const auto& value : chapters) selected.append(value.toObject().value("id"));
+    QString chapterId, chapterArtwork;
+    if (!selected.isEmpty()) {
+        chapterId = selected[std::clamp(previewIndex_, 0, static_cast<int>(selected.size()) - 1)].toString();
+        for (const auto& value : chapters) if (value.toObject().value("id").toString() == chapterId)
+            chapterArtwork = value.toObject().value("image_path").toString();
+    }
+    const auto mainArtwork = field({"metadata", "artwork_path"}).toString();
+    auto fingerprint = [](const QString& path) {
+        const QFileInfo file(path);
+        return QJsonArray{path, static_cast<double>(file.size()),
+                          static_cast<double>(file.lastModified().toMSecsSinceEpoch())};
+    };
+    const auto key = QJsonDocument(QJsonObject{{"settings", settings}, {"chapter", chapterId},
+        {"project_path", project_.value("project_path")}, {"working_dir", project_.value("working_dir")},
+        {"schema", project_.value("schema_version")}, {"video_schema", field({"video", "schema_version"})},
+        {"main", fingerprint(mainArtwork)}, {"artwork", fingerprint(chapterArtwork)}}).toJson(QJsonDocument::Compact);
+    if (key != videoArtworkKey_) {
+        videoArtworkKey_ = key;
+        videoPreviewAttemptKey_.clear();
+        ++videoArtworkGeneration_;
+        if (artworkEngine_->busy()) artworkEngine_->cancel();
+        videoPreview_->clear();
+        videoPreview_->setText("Composing artwork…");
+    }
+    if (mainArtwork.isEmpty() || selected.isEmpty()) {
+        videoPreview_->clear();
+        videoPreview_->setText("Select chapters and add episode artwork for a preview.");
+        return;
+    }
+    if (key == videoPreviewKey_ && !videoPreviewPath_.isEmpty()) {
+        videoPreview_->setPixmap(QPixmap(videoPreviewPath_).scaled(videoPreview_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        return;
+    }
+    // Wait for cancelled Core work to drain before launching the newest request.
+    if (artworkEngine_->busy() || videoPreviewAttemptKey_ == key) return;
+    videoPreviewAttemptKey_ = key;
+    const auto generation = videoArtworkGeneration_;
+    const auto output = QDir(sessionDir_).filePath("video-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".png");
+    videoPreview_->clear();
+    videoPreview_->setText("Composing artwork…");
+    artworkEngine_->runWithPayload({"preview-video", "@payload", output, "--chapter-id", chapterId}, project_,
+        [this, key, output, generation](const QJsonValue&, const QString& error) {
+            if (generation != videoArtworkGeneration_) {
+                QFile::remove(output);
+                requestVideoPreview();
+                return;
+            }
+            const QPixmap composed(output);
+            if (!error.isEmpty() || composed.isNull()) {
+                QFile::remove(output);
+                if (!videoPreviewPath_.isEmpty()) QFile::remove(videoPreviewPath_);
+                videoPreviewPath_.clear();
+                videoPreviewKey_.clear();
+                videoPreview_->setText(error.isEmpty() ? "The Video preview returned an invalid image." : error);
+                return;
+            }
+            if (!videoPreviewPath_.isEmpty()) QFile::remove(videoPreviewPath_);
+            videoPreviewPath_ = output;
+            videoPreviewKey_ = key;
+            videoPreview_->setPixmap(composed.scaled(videoPreview_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        });
 }
 
 bool MainWindow::confirmReplace(bool modeSwitch) {
@@ -910,6 +972,7 @@ MainWindow::~MainWindow() {
     recoveryTimer_.stop();
     engine_->shutdown();
     previewEngine_->shutdown();
+    artworkEngine_->shutdown();
     waveformEngine_->shutdown();
     if (decoder_) {
         decoder_->kill();
@@ -1012,6 +1075,7 @@ void MainWindow::buildUi() {
         setStatus("Cancelling safely…");
         engine_->cancel();
         previewEngine_->cancel();
+        artworkEngine_->cancel();
         if (decoder_) decoder_->kill();
     });
     cancel_->setVisible(false);
@@ -1071,8 +1135,10 @@ QWidget* MainWindow::buildAudioPage() {
     episodeForm->addRow("Artwork", row({episodeArtwork_, button("Artwork…", [this] { chooseArtwork(false); })}));
     right->addWidget(episode);
     audioFormat_ = combo({"mp3", "aac"});
-    audioBitrate_ = combo({"64k", "96k", "128k", "160k", "192k", "256k", "320k"});
+    audioBitrate_ = combo({"128k", "160k", "192k", "224k", "256k", "320k"});
     audioChannels_ = combo({"1", "2"});
+    audioChannels_->setCurrentText("2");
+    audioBitrate_->setCurrentText("320k");
     auto* formatLabel = new QLabel("Format");
     formatLabel->setBuddy(audioFormat_);
     audioFormat_->setAccessibleName("Export format");
@@ -1103,12 +1169,15 @@ QWidget* MainWindow::buildAudioPage() {
     connect(podcastTitle_, &QLineEdit::textEdited, this, [this](const QString& text) { setField({"metadata", "podcast_title"}, text); });
     connect(episodeTitle_, &QLineEdit::textEdited, this, [this](const QString& text) { setField({"metadata", "episode_title"}, text); updateTitle(); });
     connect(summary_, &QPlainTextEdit::textChanged, this, [this] { if (!loading_) setField({"metadata", "summary"}, summary_->toPlainText()); });
-    connect(audioFormat_, &QComboBox::currentTextChanged, this, [this](const QString& value) {
-        setField({"export_settings", "output_format"}, value);
-        setField({"export_settings", "encoder"}, "ffmpeg");
+    connect(audioFormat_, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        if (!loading_) syncAudioBitrateOptions(true);
     });
-    connect(audioBitrate_, &QComboBox::currentTextChanged, this, [this](const QString& value) { setField({"export_settings", "quality_preset"}, value); });
-    connect(audioChannels_, &QComboBox::currentTextChanged, this, [this](const QString& value) { setField({"export_settings", "channels"}, value.toInt()); });
+    connect(audioBitrate_, &QComboBox::currentTextChanged, this, [this](const QString& value) {
+        if (!loading_) setField({"export_settings", "quality_preset"}, value);
+    });
+    connect(audioChannels_, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        if (!loading_) syncAudioBitrateOptions(true);
+    });
     connect(naming_, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (loading_) return;
         QSaveFile file(preferencePath("chapter-naming.txt"));
@@ -1128,7 +1197,30 @@ QWidget* MainWindow::buildAudioPage() {
         const auto value = chapters_->item(row, column)->text();
         if (column == 1) { chapter.insert("title", value); naming_->setCurrentIndex(3); }
         if (column == 2) chapter.insert("link_url", value);
-        if (column == 3) chapter.insert("duration_seconds", std::max(0.001, value.toDouble()));
+        if (column == 3) {
+            bool ok = false;
+            const double parsed = value.toDouble(&ok);
+            if (!ok || !std::isfinite(parsed) || parsed <= 0.0 || parsed > kMaxSafeSeconds) {
+                const QSignalBlocker blocker(chapters_);
+                chapters_->item(row, column)->setText(QString::number(chapter.value("duration_seconds").toDouble(), 'f', 2));
+                fail("Chapter duration must be a positive number of seconds within supported bounds.");
+                return;
+            }
+            const double clamped = std::max(0.001, parsed);
+            double total = 0.0;
+            for (int i = 0; i < list.size(); ++i) {
+                total += (i == row) ? clamped : list[i].toObject().value("duration_seconds").toDouble();
+            }
+            if (!std::isfinite(total) || total > kMaxSafeSeconds) {
+                const QSignalBlocker blocker(chapters_);
+                chapters_->item(row, column)->setText(QString::number(chapter.value("duration_seconds").toDouble(), 'f', 2));
+                fail("Total chapter duration exceeds maximum permitted bounds.");
+                return;
+            }
+            chapter.insert("duration_seconds", clamped);
+            const QSignalBlocker blocker(chapters_);
+            chapters_->item(row, column)->setText(QString::number(clamped, 'f', 2));
+        }
         list[row] = chapter;
         if (column == 3) {
             double start = 0;
@@ -1144,6 +1236,44 @@ QWidget* MainWindow::buildAudioPage() {
         refreshVideo();
     });
     return split;
+}
+
+void MainWindow::syncAudioBitrateOptions(bool markProjectDirty) {
+    const auto format = audioFormat_->currentText() == "aac" ? QStringLiteral("aac") : QStringLiteral("mp3");
+    const int channels = audioChannels_->currentText().toInt() == 1 ? 1 : 2;
+    QStringList allowed;
+    if (format == "aac" && channels == 1) {
+        allowed = {"48k", "64k", "80k", "96k", "128k", "160k"};
+    } else if (format == "aac") {
+        allowed = {"96k", "128k", "160k", "192k", "256k", "320k"};
+    } else if (channels == 1) {
+        allowed = {"64k", "80k", "96k", "112k", "128k", "160k"};
+    } else {
+        allowed = {"128k", "160k", "192k", "224k", "256k", "320k"};
+    }
+    const auto settings = project_.value("export_settings").toObject();
+    QString selected = markProjectDirty
+        ? audioBitrate_->currentText()
+        : settings.value("quality_preset").toString("320k");
+    if (!allowed.contains(selected)) {
+        selected = allowed.last();
+    }
+    {
+        const QSignalBlocker blocker(audioBitrate_);
+        audioBitrate_->clear();
+        audioBitrate_->addItems(allowed);
+        audioBitrate_->setCurrentText(selected);
+    }
+    if (markProjectDirty && hasProject_) {
+        const auto currentEncoder = settings.value("encoder").toString();
+        const QString encoder = format == "aac"
+            ? (currentEncoder == "audio_toolbox" ? QStringLiteral("audio_toolbox") : QStringLiteral("ffmpeg"))
+            : (currentEncoder == "ffmpeg" ? QStringLiteral("ffmpeg") : QStringLiteral("lame"));
+        setField({"export_settings", "output_format"}, format);
+        setField({"export_settings", "channels"}, channels);
+        setField({"export_settings", "quality_preset"}, selected);
+        setField({"export_settings", "encoder"}, encoder);
+    }
 }
 
 QWidget* MainWindow::buildTranscriptPage() {
@@ -1353,8 +1483,11 @@ void MainWindow::buildMenus() {
 }
 
 void MainWindow::openPlayback(const QString& path, std::function<void(bool)> completed) {
+    const int generation = ++playbackGeneration_;
     if (decoder_) { decoder_->kill(); decoder_->deleteLater(); decoder_ = nullptr; }
+    previewEngine_->cancel();
     encap_audio_close();
+    playingPath_.clear();
     if (!temporaryPreview_.isEmpty()) { QFile::remove(temporaryPreview_); temporaryPreview_.clear(); }
     if (encap_audio_open(path.toUtf8().constData()) == 0) {
         encap_audio_volume(volume_);
@@ -1364,7 +1497,8 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
     }
     encap_audio_close();
     setStatus("Opening recording preview…");
-    previewEngine_->run({"validate-tools"}, [this, path, completed](const QJsonValue&, const QString& error) {
+    previewEngine_->run({"validate-tools"}, [this, path, completed, generation](const QJsonValue&, const QString& error) {
+        if (generation != playbackGeneration_) { completed(false); return; }
         if (!error.isEmpty()) { fail(error); completed(false); return; }
         QTemporaryFile staged(QDir::tempPath() + "/encap-preview-XXXXXX.wav");
         staged.setAutoRemove(false);
@@ -1381,8 +1515,8 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
                                 "-c:a", "pcm_f32le", "-y", temporaryPreview_});
         auto* active = decoder_;
         connect(active, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-                [this, active, path, completed](int code, QProcess::ExitStatus status) {
-            if (decoder_ != active) return;
+                [this, active, path, completed, generation](int code, QProcess::ExitStatus status) {
+            if (decoder_ != active || generation != playbackGeneration_) return;
             const auto details = QString::fromUtf8(active->readAllStandardError());
             active->deleteLater(); decoder_ = nullptr;
             if (status != QProcess::NormalExit || code != 0 || encap_audio_open(temporaryPreview_.toUtf8().constData()) != 0) {
@@ -1396,8 +1530,8 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
             setStatus("Recording preview ready.");
             completed(true);
         });
-        connect(active, &QProcess::errorOccurred, this, [this, active, completed](QProcess::ProcessError error) {
-            if (error != QProcess::FailedToStart || decoder_ != active) return;
+        connect(active, &QProcess::errorOccurred, this, [this, active, completed, generation](QProcess::ProcessError error) {
+            if (error != QProcess::FailedToStart || decoder_ != active || generation != playbackGeneration_) return;
             decoder_ = nullptr;
             active->deleteLater();
             fail("Could not start the bundled FFmpeg preview decoder.");
@@ -1407,6 +1541,9 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
     });
 }
 void MainWindow::pausePlayback() {
+    ++playbackGeneration_;
+    if (decoder_) { decoder_->kill(); decoder_->deleteLater(); decoder_ = nullptr; }
+    previewEngine_->cancel();
     videoPlaying_ = false;
     encap_audio_pause();
     tick();
@@ -1423,6 +1560,12 @@ void MainWindow::togglePlayback() {
         for (const auto& value : project_.value("chapters").toArray()) {
             const auto chapter = value.toObject();
             if (chapter.value("id").toString() != id) continue;
+            const double chapterDuration = chapter.value("duration_seconds").toDouble();
+            if (previewIndex_ == selected.size() - 1 && chapterDuration > 0 &&
+                encap_audio_position() >= chapterDuration) {
+                seekPlayback(0, true);
+                return;
+            }
             const int source = chapter.value("chapter_number").toInt() - 1;
             const auto sources = project_.value("audio_sources").toArray();
             if (source < 0 || source >= sources.size()) { fail("Chapter refers to a missing recording."); return; }

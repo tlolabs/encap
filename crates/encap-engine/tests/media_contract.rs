@@ -42,7 +42,14 @@ impl Harness {
     }
     #[track_caller]
     fn engine(&self, args: &[&OsStr], ok: bool) -> Value {
+        self.engine_in(None, args, ok)
+    }
+    #[track_caller]
+    fn engine_in(&self, directory: Option<&Path>, args: &[&OsStr], ok: bool) -> Value {
         let mut command = Command::new(&self.engine);
+        if let Some(directory) = directory {
+            command.current_dir(directory);
+        }
         command.args(args).env(
             "ENCAP_RECOVERY_PATH",
             self.root.path().join("recovery.json"),
@@ -79,6 +86,7 @@ impl Harness {
                         s("error"),
                         s("-show_streams"),
                         s("-show_format"),
+                        s("-show_chapters"),
                         s("-of"),
                         s("json"),
                         path.as_os_str(),
@@ -96,6 +104,249 @@ impl Harness {
 }
 fn s(value: &str) -> &OsStr {
     OsStr::new(value)
+}
+
+#[cfg(not(windows))]
+#[test]
+#[ignore = "requires the explicit approved FFmpeg/ffprobe release pair"]
+fn audio_exports_relative_colon_paths_as_local_files() {
+    let h = Harness::new();
+    // Finder displays POSIX colons in names as slashes, such as "10/01".
+    let folder = Path::new("10:01");
+    fs::create_dir(h.root.path().join(folder)).unwrap();
+    let source = h.root.path().join(folder).join("take:01.wav");
+    h.ff(&[
+        s("-v"),
+        s("error"),
+        s("-f"),
+        s("lavfi"),
+        s("-i"),
+        s("sine=frequency=440:duration=1:sample_rate=44100"),
+        s("-c:a"),
+        s("pcm_s24le"),
+        source.as_os_str(),
+    ]);
+    let artwork = h.root.path().join("art:01.png");
+    h.ff(&[
+        s("-v"),
+        s("error"),
+        s("-f"),
+        s("lavfi"),
+        s("-i"),
+        s("color=c=red:s=16x16"),
+        s("-frames:v"),
+        s("1"),
+        artwork.as_os_str(),
+    ]);
+    let source_bytes = fs::read(&source).unwrap();
+    let artwork_bytes = fs::read(&artwork).unwrap();
+    let mut project = h.engine_in(
+        Some(h.root.path()),
+        &[s("inspect"), folder.as_os_str()],
+        true,
+    );
+    assert_eq!(
+        project["audio_sources"][0]["source_path"],
+        "10:01/take:01.wav"
+    );
+    project["metadata"]["podcast_title"] = json!("Colon paths");
+    project["metadata"]["episode_title"] = json!("10/01 episode");
+    project["metadata"]["artwork_path"] = json!("art:01.png");
+    project["chapters"][0]["title"] = json!("10/01 Intro");
+    for (format, encoder, extension) in [("mp3", "lame", "mp3"), ("aac", "ffmpeg", "m4a")] {
+        project["export_settings"] =
+            json!({"output_format":format,"encoder":encoder,"quality_preset":"192k","channels":2});
+        let payload = h.write(&project);
+        let relative_output = folder.join(format!("output:01.{extension}"));
+        let output = h.root.path().join(&relative_output);
+        let response = h.engine_in(
+            Some(h.root.path()),
+            &[
+                s("export"),
+                payload.as_os_str(),
+                relative_output.as_os_str(),
+            ],
+            true,
+        );
+        assert_eq!(response, json!({"path":relative_output}));
+        let probe = h.probe(&output);
+        let streams = probe["streams"].as_array().unwrap();
+        let audio = streams.iter().find(|v| v["codec_type"] == "audio").unwrap();
+        assert_eq!(audio["codec_name"], format);
+        assert_eq!(audio["sample_rate"], "48000");
+        assert_eq!(audio["channels"], 2);
+        assert!(streams
+            .iter()
+            .any(|v| v["disposition"]["attached_pic"] == 1));
+        let duration = probe["format"]["duration"]
+            .as_str()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert!((duration - 1.0).abs() < 0.1);
+        assert_eq!(probe["format"]["tags"]["title"], "10/01 episode");
+        assert_eq!(probe["chapters"].as_array().unwrap().len(), 1);
+        assert_eq!(probe["chapters"][0]["tags"]["title"], "10/01 Intro");
+        let decoded = h.ff(&[
+            s("-v"),
+            s("error"),
+            s("-i"),
+            output.as_os_str(),
+            s("-map"),
+            s("0:a:0"),
+            s("-f"),
+            s("s16le"),
+            s("-"),
+        ]);
+        assert!(decoded.len() >= 48_000 * 2 * 2);
+        assert!(decoded.iter().any(|byte| *byte != 0));
+    }
+    assert_eq!(fs::read(source).unwrap(), source_bytes);
+    assert_eq!(fs::read(artwork).unwrap(), artwork_bytes);
+}
+
+#[test]
+#[ignore = "requires the explicit approved FFmpeg/ffprobe release pair"]
+fn reopened_project_with_psd_cover_exports_complete_audio_and_metadata() {
+    let h = Harness::new();
+    let audio = h.root.path().join("audio");
+    fs::create_dir(&audio).unwrap();
+    let source = audio.join("one.wav");
+    h.ff(&[
+        s("-v"),
+        s("error"),
+        s("-f"),
+        s("lavfi"),
+        s("-i"),
+        s("sine=frequency=440:duration=1:sample_rate=44100"),
+        s("-c:a"),
+        s("pcm_s24le"),
+        source.as_os_str(),
+    ]);
+    // A minimal uncompressed RGB8 Photoshop image. PSD is a valid artwork
+    // input, but its codec cannot be copied directly into MP3 or M4A.
+    let artwork = h.root.path().join("cover.psd");
+    let mut psd = b"8BPS".to_vec();
+    psd.extend(1u16.to_be_bytes()); // Version.
+    psd.extend([0; 6]);
+    psd.extend(3u16.to_be_bytes()); // RGB channels.
+    psd.extend(16u32.to_be_bytes()); // Height.
+    psd.extend(16u32.to_be_bytes()); // Width.
+    psd.extend(8u16.to_be_bytes()); // Bits per channel.
+    psd.extend(3u16.to_be_bytes()); // RGB color mode.
+    for _ in 0..3 {
+        psd.extend(0u32.to_be_bytes()); // No color data, resources, or layers.
+    }
+    psd.extend(0u16.to_be_bytes()); // Raw planar pixel data.
+    psd.extend([255; 16 * 16]);
+    psd.extend([0; 2 * 16 * 16]);
+    fs::write(&artwork, &psd).unwrap();
+    let input_probe = h.probe(&artwork);
+    assert_eq!(input_probe["streams"][0]["codec_name"], "psd");
+    assert_eq!(input_probe["streams"][0]["width"], 16);
+    assert_eq!(input_probe["streams"][0]["height"], 16);
+
+    let source_bytes = fs::read(&source).unwrap();
+    let mut project = h.engine(&[s("inspect"), audio.as_os_str()], true);
+    project["metadata"]["podcast_title"] = json!("PSD Cover Show");
+    project["metadata"]["episode_title"] = json!("Reopened PSD episode");
+    project["metadata"]["artwork_path"] = json!(artwork);
+    project["chapters"][0]["title"] = json!("Opening chapter");
+    let saved = h.root.path().join("psd-cover.encap");
+    h.engine(
+        &[s("save"), h.write(&project).as_os_str(), saved.as_os_str()],
+        true,
+    );
+    let archive_bytes = fs::read(&saved).unwrap();
+    let mut reopened = h.engine(
+        &[
+            s("open"),
+            saved.as_os_str(),
+            s("--extraction-parent"),
+            h.root.path().as_os_str(),
+        ],
+        true,
+    );
+    let extracted_artwork = PathBuf::from(reopened["metadata"]["artwork_path"].as_str().unwrap());
+    let extracted_audio = PathBuf::from(
+        reopened["audio_sources"][0]["source_path"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(fs::read(&extracted_artwork).unwrap(), psd);
+    assert_eq!(fs::read(&extracted_audio).unwrap(), source_bytes);
+    for (format, encoder, extension) in [("mp3", "lame", "mp3"), ("aac", "ffmpeg", "m4a")] {
+        reopened["export_settings"] =
+            json!({"output_format":format,"encoder":encoder,"quality_preset":"192k","channels":2});
+        let output = h.root.path().join(format!("reopened.{extension}"));
+        h.engine(
+            &[
+                s("export"),
+                h.write(&reopened).as_os_str(),
+                output.as_os_str(),
+            ],
+            true,
+        );
+        let probe = h.probe(&output);
+        let streams = probe["streams"].as_array().unwrap();
+        let audio = streams.iter().find(|v| v["codec_type"] == "audio").unwrap();
+        assert_eq!(audio["codec_name"], format);
+        let cover = streams
+            .iter()
+            .find(|v| v["disposition"]["attached_pic"] == 1)
+            .unwrap();
+        assert_eq!(cover["codec_name"], "png");
+        for dimension in ["width", "height"] {
+            assert!((1..=3000).contains(&cover[dimension].as_u64().unwrap()));
+        }
+        let cover_pixels = h.ff(&[
+            s("-v"),
+            s("error"),
+            s("-i"),
+            output.as_os_str(),
+            s("-map"),
+            s("0:v:0"),
+            s("-frames:v"),
+            s("1"),
+            s("-pix_fmt"),
+            s("rgb24"),
+            s("-f"),
+            s("rawvideo"),
+            s("-"),
+        ]);
+        assert!(!cover_pixels.is_empty());
+        assert!(cover_pixels
+            .chunks_exact(3)
+            .all(|pixel| pixel == [255, 0, 0]));
+        let duration = probe["format"]["duration"]
+            .as_str()
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert!((duration - 1.0).abs() < 0.1, "{format}: {duration} seconds");
+        assert_eq!(probe["format"]["tags"]["title"], "Reopened PSD episode");
+        assert_eq!(probe["format"]["tags"]["album"], "PSD Cover Show");
+        assert_eq!(probe["chapters"].as_array().unwrap().len(), 1);
+        assert_eq!(probe["chapters"][0]["tags"]["title"], "Opening chapter");
+        let decoded = h.ff(&[
+            s("-v"),
+            s("error"),
+            s("-i"),
+            output.as_os_str(),
+            s("-map"),
+            s("0:a:0"),
+            s("-f"),
+            s("s16le"),
+            s("-"),
+        ]);
+        assert!(decoded.len() >= 48_000 * 2 * 2);
+        assert!(decoded.iter().any(|byte| *byte != 0));
+    }
+    assert_eq!(fs::read(source).unwrap(), source_bytes);
+    assert_eq!(fs::read(extracted_audio).unwrap(), source_bytes);
+    assert_eq!(fs::read(artwork).unwrap(), psd);
+    assert_eq!(fs::read(extracted_artwork).unwrap(), psd);
+    assert_eq!(fs::read(saved).unwrap(), archive_bytes);
 }
 
 #[test]

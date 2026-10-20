@@ -44,9 +44,10 @@ The three mode crates are siblings. Do not add dependencies between them. Video
 media behavior belongs in `avid-core`; unrelated Audio/Transcript process behavior
 remains in `encap-ffmpeg`. Whole-project data and archive persistence stay in `encap-core`.
 
-Cargo consumes AVID Core `v0.3.0` from Git, pinned to immutable revision
-`25d19098a22936638b0e2a70616083d929fe409c`. No sibling source checkout is
-required. EnCAP acquires and packages the matched, checksum-pinned Core runtime.
+Cargo consumes AVID Core `v0.3.1` from Git, pinned to immutable revision
+`15f28236142c100d0a83bf19154ed6f9f5b44e75`. No sibling source checkout is
+required. EnCAP acquires and packages the matched, attestation-verified Core runtime.
+Library updates do not silently change the independently pinned runtime release.
 The exact Core version, revision and Cargo source are available from `encap-engine build-info`.
 
 
@@ -59,13 +60,23 @@ exits nonzero and writes `{ "error": "plain-language message" }` to stdout while
 detailed diagnostics remain in the local rotating log.
 
 Commands are `build-info`, `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
-`video-capabilities`, `export-transcript`,
+`video-capabilities`, `inspect-artwork`, `preview-video`, `export-transcript`,
 `transcribe`, `providers`, `models`, `install-model`, `remove-model`, and
 `validate-tools`, plus `save-recovery`, `load-recovery`, and `clear-recovery`
 for the crash-safe edit journal. Long-running native tasks keep a handle only to the process
 they own. Cancellation terminates that process and the Rust runner terminates
 its owned FFmpeg/transcription child, so unrelated system processes are never
 targeted.
+
+`preview-video <payload> <output> [--chapter-id <id>]` composes a PNG through Core
+using saved Video settings and chapter artwork with main-artwork fallback.
+`inspect-artwork <image>` returns Core-validated width/height. `export-video`
+accepts an execution-only `--render-mode automatic|simple|per-frame` override;
+it is not a project schema field. Automatic uses Simple for confirmed static
+PNG/JPEG timelines within the estimated cache budget; unknown/animated artwork
+and larger timelines retain PerFrame. Core operations run in native worker
+processes with independent cancellation. Two cross-process operation slots bound
+aggregate artwork probing, and destination locks serialize Video writers.
 
 Recovery records are small JSON snapshots referencing the current session's
 media rather than duplicate `.encap` archives. A normal save or confirmed clean

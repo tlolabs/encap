@@ -58,6 +58,20 @@ enum Commands {
     ExportVideo {
         payload: PathBuf,
         output: PathBuf,
+        /// Compare Core renderers without changing saved project settings.
+        #[arg(long, value_enum, default_value = "automatic")]
+        render_mode: VideoRenderMode,
+    },
+    /// Inspect artwork through the same Core limits used by Video export.
+    InspectArtwork {
+        image: PathBuf,
+    },
+    /// Publish a PNG composition using the project's Video settings and artwork fallback.
+    PreviewVideo {
+        payload: PathBuf,
+        output: PathBuf,
+        #[arg(long)]
+        chapter_id: Option<String>,
     },
     VideoPresets,
     VideoCapabilities,
@@ -99,6 +113,13 @@ enum TranscriptFormat {
     Srt,
 }
 
+#[derive(Clone, clap::ValueEnum)]
+enum VideoRenderMode {
+    Automatic,
+    Simple,
+    PerFrame,
+}
+
 #[derive(Serialize)]
 struct PathResponse {
     path: PathBuf,
@@ -113,9 +134,12 @@ fn main() {
     init_logging();
     let cancellation = CancellationToken::default();
     let signal_cancellation = cancellation.clone();
-    let video_cancellation = cancellation.clone();
+    // Each operation owns a token; the process stop signal reaches both mode workers.
+    let video_cancellation = CancellationToken::default();
+    let signal_video_cancellation = video_cancellation.clone();
     if let Err(error) = ctrlc::set_handler(move || {
         signal_cancellation.cancel();
+        signal_video_cancellation.cancel();
     }) {
         tracing::warn!(%error, "could not install the cancellation signal handler");
     }
@@ -204,9 +228,43 @@ fn run(
             let path = encap_audio::export(&project, &output, cancellation)?;
             json(PathResponse { path })
         }
-        Commands::ExportVideo { payload, output } => {
-            let project = read_payload(&payload)?;
-            let path = encap_video::export(&project, &output, video_cancellation)?;
+        Commands::ExportVideo {
+            payload,
+            output,
+            render_mode,
+        } => {
+            let project = read_video_payload(&payload, &output)?;
+            let path = match render_mode {
+                VideoRenderMode::Automatic => {
+                    encap_video::export(&project, &output, video_cancellation)?
+                }
+                VideoRenderMode::Simple => encap_video::export_with_mode(
+                    &project,
+                    &output,
+                    encap_video::RenderMode::Simple,
+                    video_cancellation,
+                )?,
+                VideoRenderMode::PerFrame => encap_video::export_with_mode(
+                    &project,
+                    &output,
+                    encap_video::RenderMode::PerFrame,
+                    video_cancellation,
+                )?,
+            };
+            json(PathResponse { path })
+        }
+        Commands::InspectArtwork { image } => {
+            let (width, height) = encap_video::inspect_image(&image, video_cancellation)?;
+            Ok(serde_json::json!({ "width": width, "height": height }))
+        }
+        Commands::PreviewVideo {
+            payload,
+            output,
+            chapter_id,
+        } => {
+            let project = read_video_payload(&payload, &output)?;
+            let path =
+                encap_video::preview(&project, &output, chapter_id.as_deref(), video_cancellation)?;
             json(PathResponse { path })
         }
         Commands::VideoPresets => json(encap_video::PRESETS),
@@ -217,11 +275,7 @@ fn run(
             format,
         } => {
             let project = read_payload(&payload)?;
-            if project.transcript_segments.is_empty() {
-                return Err(EncapError::Message(
-                    "There is no transcript available to export.".into(),
-                ));
-            }
+            encap_core::validate_transcript_export(&project, &output)?;
             let content = match format {
                 TranscriptFormat::Txt => {
                     encap_core::render_transcript_text(&project.transcript_segments)
@@ -268,6 +322,15 @@ fn run(
             json(serde_json::json!({ "ok": true }))
         }
     }
+}
+
+fn read_video_payload(payload: &Path, output: &Path) -> Result<ProjectDocument> {
+    if encap_core::conflicts_with_path(output, payload) {
+        return Err(EncapError::Message(
+            "Video output cannot replace its project payload.".into(),
+        ));
+    }
+    read_payload(payload)
 }
 
 fn recovery_path() -> Result<PathBuf> {

@@ -50,15 +50,20 @@ pub fn export_arguments(
 ) -> Vec<OsString> {
     let mut args = vec![os("-hide_banner"), os("-nostdin"), os("-y")];
     for source in &project.audio_sources {
-        args.extend([os("-i"), os(&source.source_path)]);
+        args.extend([os("-i"), file_argument(&source.source_path)]);
     }
     let artwork_index = project.metadata.artwork_path.as_ref().map(|artwork| {
         let index = project.audio_sources.len();
-        args.extend([os("-i"), os(artwork)]);
+        args.extend([os("-i"), file_argument(artwork)]);
         index
     });
     let metadata_index = project.audio_sources.len() + usize::from(artwork_index.is_some());
-    args.extend([os("-f"), os("ffmetadata"), os("-i"), os(metadata)]);
+    args.extend([
+        os("-f"),
+        os("ffmetadata"),
+        os("-i"),
+        file_argument(metadata),
+    ]);
     let normalized = (0..project.audio_sources.len()).map(|index| {
         format!("[{index}:a:0]aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[a{index}];")
     }).collect::<String>();
@@ -81,11 +86,17 @@ pub fn export_arguments(
         os(project.export_settings.channels.to_string()),
     ]);
     if let Some(index) = artwork_index {
+        // A readable image such as PSD or TIFF cannot be copied directly into
+        // an audio container. Embed one PNG frame and keep oversized artwork
+        // out of the exported file without modifying the project's original.
+        // Trim the image stream; an output frame limit can truncate the audio.
         args.extend([
             os("-map"),
             os(format!("{index}:v:0")),
             os("-c:v"),
-            os("copy"),
+            os("png"),
+            os("-filter:v"),
+            os("trim=end_frame=1,scale=w='min(3000,iw)':h='min(3000,ih)':force_original_aspect_ratio=decrease"),
             os("-disposition:v"),
             os("attached_pic"),
         ]);
@@ -117,8 +128,17 @@ pub fn export_arguments(
             os("3"),
         ]),
     }
-    args.push(os(output));
+    args.push(file_argument(output));
     args
+}
+
+fn file_argument(path: &Path) -> OsString {
+    // FFmpeg parses a colon in a relative name as a protocol separator
+    // ("10:01" is shown as "10/01" by Finder). Explicitly select local files
+    // without changing the path bytes or applying URL/shell escaping.
+    let mut argument = OsString::from("file:");
+    argument.push(path);
+    argument
 }
 
 pub fn ffmetadata(project: &ProjectDocument) -> String {
@@ -262,7 +282,7 @@ mod tests {
         let args = export_arguments(&project, Path::new("meta file"), Path::new("out.mp3"));
         assert!(args
             .iter()
-            .any(|arg| arg == std::ffi::OsStr::new("audio;$(touch nope).wav")));
+            .any(|arg| arg == std::ffi::OsStr::new("file:audio;$(touch nope).wav")));
         assert!(!args
             .iter()
             .any(|arg| arg.to_string_lossy().contains("sh -c")));
@@ -352,4 +372,3 @@ mod tests {
         }
     }
 }
-

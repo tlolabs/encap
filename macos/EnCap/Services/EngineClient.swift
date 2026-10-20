@@ -86,6 +86,13 @@ final class EngineClient: @unchecked Sendable {
         return try decode(PathResponse.self, from: data).url
     }
 
+    func previewVideo(_ project: ProjectDocument, chapterID: String, to destination: URL) async throws -> URL {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        let data = try await run(["preview-video", payload.path, destination.path, "--chapter-id", chapterID], priority: .utility)
+        return try decode(PathResponse.self, from: data).url
+    }
+
     func videoPresets() async throws -> [VideoPreset] {
         try decode([VideoPreset].self, from: await run(["video-presets"]))
     }
@@ -208,37 +215,44 @@ final class EngineClient: @unchecked Sendable {
         priority: TaskPriority = .userInitiated,
         processChanged: (@Sendable (Process, Bool) -> Void)? = nil
     ) async throws -> Data {
-        try await Task.detached(priority: priority) {
-            let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.executableURL = executable
-            process.arguments = arguments
-            process.environment = environment
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try process.run()
-            processChanged?(process, true)
-            defer { processChanged?(process, false) }
-            let errorReader = Task.detached {
-                stderr.fileHandleForReading.readDataToEndOfFile()
-            }
-            let output = stdout.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let errorOutput = await errorReader.value
-            if process.terminationStatus != 0 {
-                let decoder = JSONDecoder()
-                if let response = try? decoder.decode(ErrorResponse.self, from: output) {
-                    throw EngineError.failed(response.error)
+        let cancellation = ProcessCancellation()
+        return try await withTaskCancellationHandler {
+            let output = try await Task.detached(priority: priority) {
+                let process = Process()
+                let stdout = Pipe()
+                let stderr = Pipe()
+                process.executableURL = executable
+                process.arguments = arguments
+                process.environment = environment
+                process.standardOutput = stdout
+                process.standardError = stderr
+                try cancellation.start(process)
+                processChanged?(process, true)
+                defer { processChanged?(process, false) }
+                let errorReader = Task.detached {
+                    stderr.fileHandleForReading.readDataToEndOfFile()
                 }
-                let detail = String(
-                    data: errorOutput,
-                    encoding: .utf8
-                )?.trimmingCharacters(in: .whitespacesAndNewlines)
-                throw EngineError.failed(detail?.isEmpty == false ? detail! : "The EnCap audio engine failed.")
-            }
+                let output = stdout.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let errorOutput = await errorReader.value
+                if process.terminationStatus != 0 {
+                    let decoder = JSONDecoder()
+                    if let response = try? decoder.decode(ErrorResponse.self, from: output) {
+                        throw EngineError.failed(response.error)
+                    }
+                    let detail = String(
+                        data: errorOutput,
+                        encoding: .utf8
+                    )?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    throw EngineError.failed(detail?.isEmpty == false ? detail! : "The EnCap audio engine failed.")
+                }
+                return output
+            }.value
+            try Task.checkCancellation()
             return output
-        }.value
+        } onCancel: {
+            cancellation.cancel()
+        }
     }
 
     private func invocation(arguments: [String]) throws -> (
@@ -264,5 +278,29 @@ final class EngineClient: @unchecked Sendable {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }) else { throw EngineError.unavailable }
         return (engine, arguments, environment)
+    }
+}
+
+// Serialize launch against task cancellation so a cancelled preview cannot
+// launch a new child after its view has already moved to another chapter.
+private final class ProcessCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var process: Process?
+
+    func start(_ process: Process) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { throw CancellationError() }
+        try process.run()
+        self.process = process
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let active = process
+        lock.unlock()
+        if let active, active.isRunning { active.terminate() }
     }
 }
