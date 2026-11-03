@@ -98,6 +98,32 @@ fn normalize_path(path: &Path) -> PathBuf {
     components.into_iter().collect()
 }
 
+#[cfg(windows)]
+fn windows_file_identity(path: &Path) -> Option<(u32, u64)> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+    };
+
+    // Metadata-only access also works for files that deny data reads. Backup
+    // semantics permits opening directories; reparse points are followed.
+    let file = fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: The handle remains open and the initialized output structure is
+    // valid for the duration of this synchronous call.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return None;
+    }
+    Some((
+        information.dwVolumeSerialNumber,
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+    ))
+}
+
 /// Determines whether `destination` refers to the same file or path as `source`,
 /// accounting for symlinks, aliases, parent `..` normalization, hardlinks, and filesystem identity.
 pub fn conflicts_with_path(destination: &Path, source: &Path) -> bool {
@@ -130,14 +156,12 @@ pub fn conflicts_with_path(destination: &Path, source: &Path) -> bool {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        if let (Ok(m1), Ok(m2)) = (fs::metadata(destination), fs::metadata(source)) {
-            if let (Some(v1), Some(v2)) = (m1.volume_serial_number(), m2.volume_serial_number()) {
-                if let (Some(i1), Some(i2)) = (m1.file_index(), m2.file_index()) {
-                    if v1 == v2 && i1 == i2 {
-                        return true;
-                    }
-                }
+        if let (Some(dest_identity), Some(src_identity)) = (
+            windows_file_identity(destination),
+            windows_file_identity(source),
+        ) {
+            if dest_identity == src_identity {
+                return true;
             }
         }
     }
@@ -205,6 +229,22 @@ mod tests {
 
         assert_eq!(fs::read(destination).unwrap(), b"complete replacement");
         assert!(!staged.exists());
+    }
+
+    #[test]
+    fn detects_hardlinks_but_not_distinct_files_with_identical_bytes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("recording.wav");
+        let hardlink = temporary.path().join("hardlink.wav");
+        let distinct = temporary.path().join("distinct.wav");
+        fs::write(&source, b"original audio bytes").unwrap();
+        fs::hard_link(&source, &hardlink).unwrap();
+        fs::write(&distinct, b"original audio bytes").unwrap();
+
+        assert!(conflicts_with_path(&hardlink, &source));
+        assert!(conflicts_with_path(&source, &hardlink));
+        assert!(!conflicts_with_path(&distinct, &source));
+        assert!(!conflicts_with_path(&source, &distinct));
     }
 
     #[test]

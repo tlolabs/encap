@@ -48,6 +48,7 @@ jobs:
         run: |
           cargo test --workspace --locked --all-features
           python3 script/test_runtime_ownership.py
+          python3 script/test_macos_build_toolchain.py
           python3 script/check_desktop_dependencies.py
           python3 script/test_desktop_distribution.py
           python3 script/test_platform_runtime.py
