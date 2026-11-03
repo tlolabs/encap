@@ -25,7 +25,7 @@ if [[ "$MODE" == "--qt-reference" ]]; then
   exec python3 "$ROOT_DIR/script/build_qt.py" --rid osx-arm64 --tools "$ROOT_DIR/dist/EnCap.app/Contents/MacOS" --run
 fi
 "$ROOT_DIR/script/check_no_python.sh"
-CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
+CARGO="${CARGO:-cargo}"
 APP_BUNDLE="$ROOT_DIR/dist/EnCap.app"
 if [[ "$NATIVE_ARCH" != "$HOST_ARCH" ]]; then
   APP_BUNDLE="$ROOT_DIR/dist/$ARCH_LABEL/EnCap.app"
@@ -67,11 +67,14 @@ has_linker_signature() {
   codesign -dvv "$1" 2>&1 | grep 'linker-signed' >/dev/null
 }
 
-if [[ ! -x "$CARGO" ]]; then
+if ! CARGO_PATH="$(command -v "$CARGO")" || [[ ! -x "$CARGO_PATH" ]]; then
   echo "Missing Rust toolchain: $CARGO" >&2
   echo "Install Rust with rustup before building EnCap." >&2
   exit 1
 fi
+# Hosted runners can install Cargo outside ~/.cargo/bin. Resolve through PATH
+# while preserving explicit CARGO overrides and relative paths across cd below.
+CARGO="$(cd "$(dirname "$CARGO_PATH")" && pwd)/$(basename "$CARGO_PATH")"
 if [[ ! -s "$PUBLIC_KEY_FILE" ]]; then
   echo "Missing update public key: $PUBLIC_KEY_FILE" >&2
   echo "Set ENCAP_UPDATE_PUBLIC_KEY in GitHub and place the same public key at this path." >&2

@@ -8,6 +8,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets)
 if(WIN32)
+    # Keep Windows headers from replacing std::min/std::max in app and tests.
+    add_compile_definitions(NOMINMAX)
     enable_language(RC)
     set(ENCAP_WINDOWS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icons/EnCap.ico")
     set(ENCAP_WINDOWS_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/EnCap.manifest")

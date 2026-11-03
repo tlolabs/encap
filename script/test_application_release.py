@@ -1,10 +1,28 @@
 import copy
 from pathlib import Path
+import tomllib
 import unittest
 import application_release as release
 from core_runtime import obj
 
 class ApplicationReleaseControls(unittest.TestCase):
+    def current_plan(self):
+        # Qualification records describe real release evidence and may remain
+        # stale across a version bump. Give each negative test a current test
+        # identity so it reaches the acceptance condition it is exercising.
+        plan = obj(release.ROOT/'runtime/application-qualification.json')
+        version = tomllib.loads((release.ROOT/'Cargo.toml').read_text())['workspace']['package']['version']
+        plan.update(version=version, tag='v'+version, application_revision='a'*40)
+        return plan
+
+    def test_stale_release_identity_cannot_publish(self):
+        for field, value in (('version', '0.0.0'), ('tag', 'v0.0.0')):
+            with self.subTest(field=field):
+                plan = self.current_plan()
+                plan[field] = value
+                with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                    release.validate(plan, {}, 'a'*40)
+
     def test_linux_provenance_replaces_gpg_without_weakening_other_targets(self):
         linux=release.required_checks('linux-x86_64')
         mac=release.required_checks('macos-arm64')
@@ -21,18 +39,18 @@ class ApplicationReleaseControls(unittest.TestCase):
             self.assertFalse(release.qualification_only_path(path))
 
     def test_candidate_can_never_publish(self):
-        plan=obj(release.ROOT/'runtime/application-qualification.json');plan['application_revision']='a'*40
+        plan=self.current_plan()
         with self.assertRaisesRegex(ValueError,'unpublished Core'):
             release.validate(plan,{'qualification_only':True},'a'*40)
 
     def test_missing_final_package_evidence_cannot_publish(self):
-        plan=obj(release.ROOT/'runtime/application-qualification.json');plan['application_revision']='a'*40
+        plan=self.current_plan()
         pin={'qualification_only':False,'release_revision':'b'*40,'manifest_sha256':'c'*64}
         with self.assertRaisesRegex(ValueError,'qualified target|incomplete'):
             release.validate(plan,pin,'a'*40)
 
     def test_matrix_cannot_silently_shrink(self):
-        plan=obj(release.ROOT/'runtime/application-qualification.json');plan['application_revision']='a'*40
+        plan=self.current_plan()
         plan['targets'].pop('windows-arm64')
         pin={'qualification_only':False,'release_revision':'b'*40,'manifest_sha256':'c'*64}
         with self.assertRaisesRegex(ValueError,'matrix'):
