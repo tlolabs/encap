@@ -33,7 +33,8 @@ QJsonValue EngineClient::parseResponse(const QByteArray& output, QString* error)
 
 bool EngineClient::isUnsupportedStartup(int code, QProcess::ExitStatus status, const QString& diagnostics) {
     return status == QProcess::NormalExit && code == 2 &&
-        diagnostics.startsWith(QStringLiteral("error: unrecognized subcommand 'startup'\n"));
+        (diagnostics.startsWith(QStringLiteral("error: unrecognized subcommand 'startup'\n")) ||
+         diagnostics.startsWith(QStringLiteral("error: unrecognized subcommand 'startup'\r\n")));
 }
 
 void EngineClient::run(const QStringList& arguments, Completion completed) {

@@ -21,6 +21,23 @@ int main(int argc, char** argv) {
     if (nullErrVal.toObject().value("path") != "sample.encap") return EXIT_FAILURE;
     const auto invalidNullErr = EngineClient::parseResponse("not json", nullptr);
     if (!invalidNullErr.isNull()) return EXIT_FAILURE;
+    for (const auto& diagnostics : {
+            QStringLiteral("error: unrecognized subcommand 'startup'\n\nUsage: engine <COMMAND>"),
+            QStringLiteral("error: unrecognized subcommand 'startup'\r\n\r\nUsage: engine <COMMAND>")}) {
+        if (!EngineClient::isUnsupportedStartup(2, QProcess::NormalExit, diagnostics)) return EXIT_FAILURE;
+        for (const int code : {0, 1, 3}) {
+            if (EngineClient::isUnsupportedStartup(code, QProcess::NormalExit, diagnostics)) return EXIT_FAILURE;
+        }
+        if (EngineClient::isUnsupportedStartup(2, QProcess::CrashExit, diagnostics)) return EXIT_FAILURE;
+    }
+    for (const auto& diagnostics : {
+            QStringLiteral("error: unrecognized subcommand 'different'\n\nUsage: engine <COMMAND>"),
+            QStringLiteral("error: unrecognized subcommand 'startup' extra\n"),
+            QStringLiteral("error: unrecognized subcommand 'startup'\rUnexpected output"),
+            QStringLiteral("damaged recovery\nerror: unrecognized subcommand 'startup'\n"),
+            QStringLiteral("{\"error\":\"damaged recovery\"}")}) {
+        if (EngineClient::isUnsupportedStartup(2, QProcess::NormalExit, diagnostics)) return EXIT_FAILURE;
+    }
     const auto executable = qEnvironmentVariable("ENCAP_TEST_ENGINE");
     if (executable.isEmpty()) return EXIT_SUCCESS;
     EngineClient client(executable, QCoreApplication::applicationDirPath() + "/test-recovery.json");
