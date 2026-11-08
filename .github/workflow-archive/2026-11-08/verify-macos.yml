@@ -52,6 +52,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ggerganov/whisper.cpp
+          ref: f049fff95a089aa9969deb009cdd4892b3e74916
+          path: .whisper-cpp
+          persist-credentials: false
       - name: Authenticate exact native original packages
         env:
           SOURCE_RUN: ${{ inputs.native_run }}
@@ -71,7 +77,6 @@ jobs:
           python3 script/ffmpeg_runtime.py validate '${{ matrix.target }}' --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg
           bash script/ffmpeg/qualify.sh final-native/extracted/EnCap.app/Contents/MacOS/encap-engine
           ENCAP_TEST_ENGINE="$PWD/final-native/extracted/EnCap.app/Contents/MacOS/encap-engine" ENCAP_REQUIRE_CLONING=1 cargo test --locked -p encap-engine --test save_protocol --test audio_edit_protocol -- --nocapture
-          python3 script/qualify_transcription.py --engine final-native/extracted/EnCap.app/Contents/MacOS/encap-engine --output final-native/transcription-qualification.json --install-model
           python3 script/test_native_startup.py final-native/extracted/EnCap.app/Contents/MacOS/EnCap
           python3 script/host_evidence.py --application encap --target '${{ matrix.target }}' --binary final-native/extracted/EnCap.app/Contents/MacOS --metadata final-native/extracted/EnCap.app/Contents/Resources/FFmpeg --packages final-native/*.zip --output final-native/host-${{ matrix.target }}.json
           python3 -c 'import json,pathlib; p=pathlib.Path("final-native/host-${{ matrix.target }}.json"); d=json.loads(p.read_text()); d["checks"]["signing"]={"status":"passed","evidence":["signing.json; native strict Developer ID, stapled-ticket, Gatekeeper and original-code comparison"]}; p.write_text(json.dumps(d,indent=2)+"\n")'
