@@ -1,0 +1,62 @@
+{
+  "repository": "tlolabs/encap",
+  "archived_on": "2026-11-08",
+  "workflows": [
+    {
+      "name": "Build platform applications",
+      "workflow_id": 264977466,
+      "original_path": ".github/workflows/build-platforms.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/build-platforms.yml",
+      "sha256": "faae2e288cb88b44220b96237dd270473a41bdd2b8bb27339d6677d563015b6e"
+    },
+    {
+      "name": "Publish recovered platform artifacts",
+      "workflow_id": 381619204,
+      "original_path": ".github/workflows/publish-recovered-artifacts.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/publish-recovered-artifacts.yml",
+      "sha256": "859c775fbe759a56bb69af99da7ecf41cfcecda1526f1f183df38c902868e76d"
+    },
+    {
+      "name": "Report CI/CD failures",
+      "workflow_id": 381619208,
+      "original_path": ".github/workflows/report-ci-failures.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/report-ci-failures.yml",
+      "sha256": "6b7cc2765924fc2a62d0f772b5e7a8392ed5abad8c953c99f6c4cb45b6ecdbc7"
+    },
+    {
+      "name": "Retry failed verification workflows",
+      "workflow_id": 381619210,
+      "original_path": ".github/workflows/retry-failed-verification.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/retry-failed-verification.yml",
+      "sha256": "dfe5665cc4aa652ae389076b4253450eb19f8ef03028b92ea5237f5b97a594ce"
+    },
+    {
+      "name": "Sign Windows portable packages with Azure",
+      "workflow_id": 374797738,
+      "original_path": ".github/workflows/sign-windows.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/sign-windows.yml",
+      "sha256": "e926313bdcc14e515c62a5cde847a6b0d0b4ec9cedf568393ec6964eb5a6b770"
+    },
+    {
+      "name": "Authenticated updater contract",
+      "workflow_id": 374797739,
+      "original_path": ".github/workflows/updater-contract.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/updater-contract.yml",
+      "sha256": "48728bdb1d95afaa2c7a6d4355bc5b4c991c1f5fc4c8899bfdd1102ad3a38f7a"
+    },
+    {
+      "name": "Verify and attest native Linux AppImages",
+      "workflow_id": 374797740,
+      "original_path": ".github/workflows/verify-linux.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/verify-linux.yml",
+      "sha256": "47e7175e6de19f6c2c78344e8db8cae8e3ff2e59160fdc3a664b02f7817d2a6b"
+    },
+    {
+      "name": "Verify locally notarized Mac qualification packages",
+      "workflow_id": 374797743,
+      "original_path": ".github/workflows/verify-macos.yml",
+      "archive_path": ".github/workflow-archive/2026-11-08/verify-macos.yml",
+      "sha256": "dcb646fd0e60b60f4e6f490d5c9b90c6cb09fbfe5bab1e53d3e55739838d620d"
+    }
+  ]
+}

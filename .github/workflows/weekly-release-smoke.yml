@@ -1,0 +1,171 @@
+name: Weekly release smoke
+
+on:
+  schedule:
+    # Sunday 08:17 PST / 09:17 PDT. No push, pull-request, or tag event builds.
+    - cron: '17 16 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-release-smoke
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.run_attempt == 1
+    name: Select new release tags
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+      actions: read
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      has_new: ${{ steps.select.outputs.has_new }}
+    steps:
+      - name: Check out trusted workflow control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Select unprocessed version tags
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 control/.github/scripts/weekly_release_smoke.py select
+          --pattern '^v[0-9]+\.[0-9]+\.[0-9]+$'
+          --baseline-file control/.github/weekly-smoke-baseline.json
+          --targets linux-x64,linux-arm64,windows-x64,windows-arm64 --claim
+
+  smoke:
+    name: Smoke ${{ matrix.tag }} (${{ matrix.target }})
+    needs: select
+    if: github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","windows-x64":"windows-2025","windows-arm64":"windows-11-arm"}')[matrix.target] }}
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: source
+    env:
+      CARGO_TERM_COLOR: always
+      SMOKE_TARGET: ${{ matrix.target }}
+    steps:
+      - name: Check out exact tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Install Linux build and display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake pkg-config libglib2.0-dev libasound2-dev \
+            libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev \
+            libxi-dev libxcursor-dev qt6-base-dev qt6-base-dev-tools \
+            xvfb xauth dbus-x11
+      - name: Build Linux engine and Qt application
+        if: runner.os == 'Linux'
+        run: |
+          rustup show
+          cargo build --locked --release -p encap-engine -p encap-update
+          version="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+          cmake -S qt -B build/weekly-smoke -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF -DENCAP_VERSION="$version"
+          cmake --build build/weekly-smoke --config Release --target EnCap --parallel
+      - name: Smoke Linux engine and application startup
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        run: |
+          mkdir -p "$RUNNER_TEMP/encap-smoke"
+          export ENCAP_TEST_ENGINE="$PWD/target/release/encap-engine"
+          export ENCAP_TEST_UPDATER="$PWD/target/release/encap-update"
+          export ENCAP_RECOVERY_PATH="$RUNNER_TEMP/encap-smoke/recovery.json"
+          python3 -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py build/weekly-smoke/EnCap
+
+      - name: Install native Windows Qt
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'aqt installation failed' }
+          if ($env:SMOKE_TARGET -eq 'windows-arm64') {
+            python -m aqt install-qt windows_arm64 desktop 6.10.3 win64_msvc2022_arm64 --outputdir Qt
+          } else {
+            python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir Qt
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Qt installation failed' }
+      - name: Build Windows engine and Qt application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Build command failed: $LASTEXITCODE" } }
+          $arm = $env:SMOKE_TARGET -eq 'windows-arm64'
+          $target = if ($arm) { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $architecture = if ($arm) { 'ARM64' } else { 'x64' }
+          $qtName = if ($arm) { 'msvc2022_arm64' } else { 'msvc2022_64' }
+          $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
+          rustup show; Check-Exit
+          rustup target add $target; Check-Exit
+          cargo build --locked --release --target $target -p encap-engine -p encap-update -p encap-portable-update; Check-Exit
+          $version = python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])'
+          Check-Exit
+          cmake -S qt -B build/weekly-smoke -A $architecture -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DENCAP_VERSION=$version" "-DCMAKE_PREFIX_PATH=$qtPrefix"
+          Check-Exit
+          cmake --build build/weekly-smoke --config Release --target EnCap --parallel
+          Check-Exit
+          Copy-Item build/weekly-smoke/native/Release/encap-playback.dll build/weekly-smoke/Release/
+          Copy-Item build/weekly-smoke/native/Release/encap-media.dll build/weekly-smoke/Release/
+      - name: Smoke Windows engine and application startup
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $arm = $env:SMOKE_TARGET -eq 'windows-arm64'
+          $target = if ($arm) { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $qtName = if ($arm) { 'msvc2022_arm64' } else { 'msvc2022_64' }
+          $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
+          $env:PATH = "$qtPrefix/bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$qtPrefix/plugins"
+          $env:ENCAP_TEST_ENGINE = (Resolve-Path "target/$target/release/encap-engine.exe").Path
+          $env:ENCAP_TEST_UPDATER = (Resolve-Path "target/$target/release/encap-update.exe").Path
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/encap-smoke" | Out-Null
+          $env:ENCAP_RECOVERY_PATH = "$env:RUNNER_TEMP/encap-smoke/recovery.json"
+          python -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          if ($LASTEXITCODE -ne 0) { throw 'Engine startup smoke failed' }
+          python script/test_native_startup.py build/weekly-smoke/Release/EnCap.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Application startup smoke failed' }
+
+  finalize:
+    needs: [select, smoke]
+    if: always() && github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Record each native target outcome
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SMOKE_MATRIX: ${{ needs.select.outputs.matrix }}
+        run: python3 control/.github/scripts/weekly_release_smoke.py finalize --matrix-env SMOKE_MATRIX
