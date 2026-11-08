@@ -409,6 +409,7 @@ fn realign_with_bridge(
                 .get("segments")
                 .and_then(Value::as_array)
                 .and_then(|items| items.first())
+                .filter(|item| item.is_object())
                 .cloned()
                 .ok_or_else(|| message("The saved source transcription record is invalid."))?;
             raw_segment["text"] = Value::String(segment.text.clone());
@@ -1015,6 +1016,30 @@ mod tests {
                 "words":[{"text":"Hello", "start_seconds":2.5,"end_seconds":3.0,"confidence":0.9,"timing_method":"recognizer"},
                     {"text":"world.", "start_seconds":3.2,"end_seconds":4.0,"timing_method":"recognizer"}]}]
         })
+    }
+
+    #[test]
+    fn malformed_saved_segment_realign_returns_error_instead_of_panicking() {
+        let audio = source("clip", 10.0);
+        let mut previous = project_transcript(&record(), &audio, 0.0, true).unwrap();
+        let mut origin = previous[0].transcription_origin().unwrap();
+        origin.transcript["segments"][0] = json!("not a segment object");
+        previous[0].set_transcription_origin(origin);
+        let bridge = Bridge {
+            helper: PathBuf::from("must-not-start"),
+        };
+        let error = realign_with_bridge(
+            &bridge,
+            &[audio],
+            &previous,
+            "aligner",
+            None,
+            &CancellationToken::default(),
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("saved source transcription record is invalid"));
     }
 
     #[test]
