@@ -125,8 +125,8 @@ fn shared_validation_rejects_partial_mismatched_and_unidentified_pairs() {
 }
 
 #[test]
-fn audio_and_transcript_signals_cancel_shared_pair_validation() {
-    for mode in ["audio", "transcript", "validation"] {
+fn audio_and_validation_signals_cancel_shared_pair_validation() {
+    for mode in ["audio", "validation"] {
         let root = tempfile::tempdir().unwrap();
         let ready = root.path().join("ready");
         let ffmpeg = root.path().join("ffmpeg");
@@ -149,13 +149,8 @@ fn audio_and_transcript_signals_cancel_shared_pair_validation() {
         let mut command = Command::new(env!("CARGO_BIN_EXE_encap-engine"));
         if mode == "audio" {
             command.arg("export").arg(&payload).arg(&output);
-        } else if mode == "validation" {
-            command.arg("validate-tools");
         } else {
-            command
-                .arg("transcribe")
-                .arg(&payload)
-                .arg("whisper-base-en");
+            command.arg("validate-tools");
         }
         let child = command
             .env("ENCAP_FFMPEG", &ffmpeg)
@@ -181,4 +176,92 @@ fn audio_and_transcript_signals_cancel_shared_pair_validation() {
         assert_eq!(fs::read(&output).unwrap(), b"old output");
         assert_eq!(fs::read(&source).unwrap(), b"source audio");
     }
+}
+
+#[test]
+fn transcription_signal_cancels_owned_shared_helper_without_using_ffmpeg() {
+    let root = tempfile::tempdir().unwrap();
+    let ready = root.path().join("ready");
+    let cleanup = root.path().join("cleanup");
+    let helper = root.path().join("avid-transcriber");
+    shell(&helper, &format!("trap 'printf cleaned > {} ; exit 0' TERM\nprintf ready > {}\nprintf '{{\"event\":\"progress\",\"stage\":\"recognizing\"}}\\n' >&2\nwhile :; do /bin/sleep 0.05; done", cleanup.display(), ready.display()));
+    let source = root.path().join("source.wav");
+    fs::write(&source, b"source audio").unwrap();
+    let payload = root.path().join("payload.json");
+    let original = serde_json::to_vec(&json!({"audio_sources":[{"source_path":source,"duration_seconds":1.0}],
+        "transcript_segments":[{"id":"edited","text":"Original edited transcript","speaker":"Host","start_time_seconds":0.0,"end_time_seconds":1.0}]})).unwrap();
+    fs::write(&payload, &original).unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .args(["transcribe"])
+        .arg(&payload)
+        .arg("whisper-large-v3")
+        .env("ENCAP_AVID_TRANSCRIBER", &helper)
+        .env("ENCAP_FFMPEG", "/must-not-be-used")
+        .env("ENCAP_FFPROBE", "/must-not-be-used")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(ready.exists(), "shared transcription helper did not start");
+    assert!(Command::new("/bin/kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap()
+        .success());
+    let result = child.wait_with_output().unwrap();
+    assert!(!result.status.success());
+    let error: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert!(error["error"].as_str().unwrap().contains("cancelled"));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("recognizing"));
+    assert_eq!(fs::read_to_string(cleanup).unwrap(), "cleaned");
+    assert_eq!(fs::read(payload).unwrap(), original);
+    assert_eq!(fs::read(source).unwrap(), b"source audio");
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn transcription_failure_retains_bounded_native_diagnostics_only_on_stderr() {
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("avid-transcriber");
+    shell(&helper, "printf 'DIAGNOSTIC_START\\n' >&2\n/usr/bin/head -c 65536 /dev/zero | /usr/bin/tr '\\000' x >&2\nprintf '\\nMissing AVID resource bundle.\\n' >&2\nprintf '{\"error\":\"Missing shared resources.\"}'\nexit 1");
+    let invoke = || {
+        Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+            .arg("models")
+            .env("ENCAP_AVID_TRANSCRIBER", &helper)
+            .output()
+            .unwrap()
+    };
+    let failed = invoke();
+    assert!(!failed.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&failed.stdout).unwrap(),
+        json!({"error":"Missing shared resources."})
+    );
+    let diagnostics = String::from_utf8(failed.stderr).unwrap();
+    assert!(diagnostics.contains("Missing AVID resource bundle."));
+    assert!(!diagnostics.contains("DIAGNOSTIC_START"));
+    assert!(
+        diagnostics.len() <= 8192 + 100,
+        "native diagnostic tail must be bounded"
+    );
+    assert!(!String::from_utf8_lossy(&failed.stdout).contains("resource bundle"));
+
+    shell(
+        &helper,
+        "printf 'Nonfatal SDK diagnostic\\n' >&2\nprintf '[]'",
+    );
+    let succeeded = invoke();
+    assert!(succeeded.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&succeeded.stdout).unwrap(),
+        json!([])
+    );
+    assert!(
+        succeeded.stderr.is_empty(),
+        "raw SDK diagnostics stay private on success"
+    );
 }

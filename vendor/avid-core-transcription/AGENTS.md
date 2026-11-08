@@ -1,0 +1,15 @@
+# Repository development and CI/CD policy
+
+This repository follows a nonblocking development and CI/CD model. Automated tests, builds, security scans, and compatibility checks provide diagnostic information; they must not prevent commits, pushes, merges, or unrelated development. Their failures must remain visible and be tracked until resolved.
+
+No manual approvals, required reviews, or mandatory status checks are permitted. Do not add branch protection, repository rulesets, or workflow checks that enforce these gates. DCO trailers are a development convention, not an enforced requirement. Cryptographic commit/tag signing and distribution signing are not prerequisites for development or source releases.
+
+Releases are autonomous and platform-independent where the artifact format and its consumers support that safely. Never publish an artifact that fails its functional, integrity, dependency, or target-platform verification. Do not weaken runtime or update-signature verification to make publication easier. Preserve diagnostics and publish successful platforms independently when the release contract permits; document external or consumer-contract restrictions in the consolidated CI/CD failure issue.
+
+Verified FFmpeg/FFprobe direct downloads publish as independent, immutable platform releases. They never replace the authenticated six-target runtime manifest or change its pinned consumers. Build and test jobs remain read-only; only the per-platform publisher may write release assets.
+
+AVID Core owns FFmpeg/ffprobe source acquisition, compilation, dependencies, target configuration, native runtime tests, packaging, licenses, checksums, provenance, version identity, documentation, and publication. ATIV, EnCAP, and other consumers own their integration tests, application compatibility decisions, signing, notarization, and release schedules. No Core build or publisher may depend on a downstream repository or application approval. Each direct-download publisher depends only on its own platform; the preserved authenticated six-target promotion remains a separate consumer contract. Downstream failures are not Core release failures.
+
+The published `ffmpeg-9.0.1-r7.1` contract and its pinned Recipe 7 specification are immutable compatibility evidence. The specification's historical `qualification_policy.host_packaging: required` field is not an executable gate. Current release policy is enforced by `script/core_release.py` and the schema-3 ledger, which require host evidence to remain optional. Do not change the pinned specification or weaken authenticated acquisition to remove that historical field. See [the provider contract](docs/ffmpeg/provider-contract.md).
+
+Future development must not reintroduce blocking gates without explicit authorization from the repository owner. Keep workflows and documentation consistent with this policy. Every task's final report must include a concise summary of failed or unrun checks and unresolved restrictions; do not present a failure as success.

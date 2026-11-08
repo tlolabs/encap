@@ -20,8 +20,6 @@ env:
   CARGO_TERM_COLOR: always
   ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
   MACOSX_DEPLOYMENT_TARGET: "13.0"
-  WHISPER_CPP_VERSION: "v1.9.1"
-  WHISPER_CPP_COMMIT: "f049fff95a089aa9969deb009cdd4892b3e74916"
 
 jobs:
   quality:
@@ -52,6 +50,7 @@ jobs:
           python3 script/test_desktop_distribution.py
           python3 script/test_platform_runtime.py
           python3 script/test_publish_verified_artifacts.py
+          python3 script/test_transcription_packaging.py
       - name: Build native engine
         run: cargo build --package encap-engine --locked
 
@@ -94,6 +93,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+          ENCAP_QUALIFICATION_INSTALL_MODELS: "1"
         run: ./script/build_and_run.sh --package
       - name: Test complete native Rust workspace
         if: ${{ !cancelled() }}
@@ -206,7 +206,7 @@ jobs:
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'x86_64-pc-windows-msvc'
-      - name: Install native packaging and Whisper build tools
+      - name: Install native packaging tools
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: UCRT64
@@ -228,16 +228,6 @@ jobs:
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
-      - name: Build local Whisper runtime
-        shell: pwsh
-        run: |
-          git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
-          if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
-          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', 'x64')
-          if ('') { $configure += @('-T', '') }
-          $configure += @('-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DWHISPER_BUILD_TESTS=OFF', '-DWHISPER_BUILD_SERVER=OFF')
-          cmake @configure
-          cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
         run: |
@@ -264,12 +254,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
           msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
           if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
-          $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
-          if (!$whisper) { throw 'whisper-cli build is missing' }
-          Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
+          python script/qualify_transcription.py --engine "$stage/encap-engine.exe" --output "$stage/transcription-qualification.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Transcription qualification failed' }
           python script/build_qt.py --rid 'win-x64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
@@ -284,7 +273,7 @@ jobs:
             if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
           }
           $expectedMachine = [Convert]::ToUInt16('8664', 16)
-          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
+          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
           & {
@@ -348,7 +337,7 @@ jobs:
       - name: Install Rust target
         shell: pwsh
         run: rustup target add 'aarch64-pc-windows-msvc'
-      - name: Install native packaging and Whisper build tools
+      - name: Install native packaging tools
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: CLANGARM64
@@ -370,16 +359,6 @@ jobs:
       - name: Verify synthetic portrait pipeline
         shell: msys2 {0}
         run: bash script/ffmpeg/probe-portrait.sh "$ENCAP_FFMPEG_RUNTIME/ffmpeg.exe"
-      - name: Build local Whisper runtime
-        shell: pwsh
-        run: |
-          git clone --branch $env:WHISPER_CPP_VERSION --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
-          if ((git -C .whisper-cpp rev-parse HEAD) -ne $env:WHISPER_CPP_COMMIT) { throw 'whisper.cpp commit mismatch' }
-          $configure = @('-S', '.whisper-cpp', '-B', '.whisper-cpp/build', '-A', 'ARM64')
-          if ('ClangCL') { $configure += @('-T', 'ClangCL') }
-          $configure += @('-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DWHISPER_BUILD_TESTS=OFF', '-DWHISPER_BUILD_SERVER=OFF')
-          cmake @configure
-          cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build shared Rust engine
         shell: pwsh
         run: |
@@ -406,12 +385,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Updater package identity failed' }
           msys2 -c 'bash script/ffmpeg/stage.sh "$ENCAP_FFMPEG_RUNTIME" build/desktop-tools'
           if ($LASTEXITCODE -ne 0) { throw 'Core FFmpeg staging failed' }
-          $whisper = Get-ChildItem .whisper-cpp/build -Recurse -Filter whisper-cli.exe | Select-Object -First 1
-          if (!$whisper) { throw 'whisper-cli build is missing' }
-          Copy-Item $whisper.FullName "$stage/whisper-cli.exe"
           Copy-Item THIRD_PARTY_NOTICES.md "$stage/THIRD_PARTY_NOTICES.md"
           Copy-Item 'runtime/AVID_CORE_LICENSE.txt' "$stage/AVID_CORE_LICENSE.txt"
           (& "$stage/ffmpeg.exe" -buildconf 2>&1) | Set-Content "$stage/FFMPEG_BUILD_CONFIGURATION.txt"
+          python script/qualify_transcription.py --engine "$stage/encap-engine.exe" --output "$stage/transcription-qualification.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Transcription qualification failed' }
           python script/build_qt.py --rid 'win-arm64' --tools build/desktop-tools --qt-prefix 'Qt/6.10.3/msvc2022_arm64'
           if ($LASTEXITCODE -ne 0) { throw 'Shared desktop build failed' }
           $stage = Resolve-Path dist/staging/EnCap
@@ -426,7 +404,7 @@ jobs:
             if ($machine -ne $expected) { throw "$path has PE machine 0x$($machine.ToString('X4')); expected 0x$($expected.ToString('X4'))" }
           }
           $expectedMachine = [Convert]::ToUInt16('AA64', 16)
-          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe', 'whisper-cli.exe')) {
+          foreach ($executable in @('EnCap.exe', 'encap-engine.exe', 'encap-update.exe', 'encap-portable-update.exe', 'ffmpeg.exe', 'ffprobe.exe')) {
             Assert-PeMachine "$stage/$executable" $expectedMachine
           }
           & {
@@ -497,12 +475,6 @@ jobs:
         run: |
           cargo test --workspace --locked --all-features
           cargo build --package encap-engine --package encap-update --release --locked
-      - name: Build local Whisper runtime
-        run: |
-          git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
-          test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
-          cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
-          cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build and assemble Qt AppImage
         env:
           GH_TOKEN: ${{ github.token }}
@@ -514,7 +486,6 @@ jobs:
           cp target/release/encap-update "$prefix/bin/encap-update"
           python3 script/update_config.py "$prefix/bin" 'linux-x64-appimage'
           bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
-          cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
           cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
@@ -523,6 +494,7 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
+          python3 script/qualify_transcription.py --engine "$prefix/bin/encap-engine" --output "$prefix/bin/transcription-qualification.json"
           python3 script/build_qt.py --rid 'linux-x64' --tools "$prefix/bin"
           prefix="$PWD/dist/staging/EnCap"
           mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
@@ -571,12 +543,6 @@ jobs:
         run: |
           cargo test --workspace --locked --all-features
           cargo build --package encap-engine --package encap-update --release --locked
-      - name: Build local Whisper runtime
-        run: |
-          git clone --branch "$WHISPER_CPP_VERSION" --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-cpp
-          test "$(git -C .whisper-cpp rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
-          cmake -S .whisper-cpp -B .whisper-cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
-          cmake --build .whisper-cpp/build --config Release --target whisper-cli
       - name: Build and assemble Qt AppImage
         env:
           GH_TOKEN: ${{ github.token }}
@@ -588,7 +554,6 @@ jobs:
           cp target/release/encap-update "$prefix/bin/encap-update"
           python3 script/update_config.py "$prefix/bin" 'linux-arm64-appimage'
           bash script/ffmpeg/stage.sh "$ffmpeg_prefix" "$prefix/bin"
-          cp .whisper-cpp/build/bin/whisper-cli "$prefix/bin/whisper-cli"
           cp THIRD_PARTY_NOTICES.md "$prefix/THIRD_PARTY_NOTICES.md"
           cp 'runtime/AVID_CORE_LICENSE.txt' "$prefix/AVID_CORE_LICENSE.txt"
           "$prefix/bin/ffmpeg" -buildconf > "$prefix/FFMPEG_BUILD_CONFIGURATION.txt" 2>&1
@@ -597,6 +562,7 @@ jobs:
           cargo test --locked -p encap-ffmpeg
           "$prefix/bin/encap-engine" validate-tools
           "$prefix/bin/ffmpeg" -hide_banner -version
+          python3 script/qualify_transcription.py --engine "$prefix/bin/encap-engine" --output "$prefix/bin/transcription-qualification.json"
           python3 script/build_qt.py --rid 'linux-arm64' --tools "$prefix/bin"
           prefix="$PWD/dist/staging/EnCap"
           mkdir -p "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"

@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-EnCap includes the `whisper.cpp` inference runtime but does not include any
-speech-recognition model weights. Optional OpenAI Whisper model weights are
-downloaded only at the user's request.
+EnCap uses AVID Core transcription SDKs on supported Apple-silicon Macs.
+Speech-recognition model weights are acquired separately at the user's request;
+they are not bundled in the application.
 
 ## FFmpeg, ffprobe, and codec libraries
 
@@ -30,33 +30,10 @@ https://zlib.net/
 
 EnCap Video uses `avid-core` under GPL-3.0-or-later. Its license is distributed as
 `AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
-Pinned revision: 25d19098a22936638b0e2a70616083d929fe409c (v0.3.0).
-
-## whisper.cpp
-
-MIT License
-
-Copyright (c) 2023-2026 The ggml authors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Source: https://github.com/ggml-org/whisper.cpp
+Rust media revision: 15f28236142c100d0a83bf19154ed6f9f5b44e75 (v0.3.1).
+The separately vendored Swift transcription export is identified by archive
+SHA-256 f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a.
+Its original GPL license is retained in vendor/avid-core-transcription/LICENSE.
 
 ## OpenAI Whisper
 
@@ -366,3 +343,22 @@ for EnCap's read-only playback adapter, with reviewed local hash
 Linux media-session integration dynamically links the system GLib/GIO libraries
 under LGPL-2.1-or-later. No GTK, libadwaita, GStreamer or WinUI runtime remains.
 Windows media-session integration uses the operating system Windows SDK APIs.
+
+## Shared AVID transcription SDK and model notices
+
+The exact source snapshot and SDK pins are recorded in `vendor/README.md` and
+`vendor/AVID_CORE_TRANSCRIPTION_SOURCE_MANIFEST.json`. Direct engine pins:
+
+- Argmax OSS / WhisperKit: `9f99b5cb6a907730543823ad271b82532782a899` (MIT).
+- FluidAudio: `ee78635d23d52379117554ba72358b65a0612447` (Apache-2.0).
+- MLX Audio Swift: `df2a2546705f50ca267037702a34cd63aa6e35a6` (MIT).
+- MLX Swift: exact `0.33.0` (MIT), resolved revision retained in Package.resolved.
+
+Complete SDK attributions, including the adapted Whisper tokenizer, are retained
+in `vendor/avid-core-transcription/apple/AVIDTranscriptionEngines/THIRD_PARTY_NOTICES.md`.
+Model publisher, artifact, revision and license details are retained in
+`vendor/avid-core-transcription/apple/AVIDTranscription/MODEL_NOTICES.md` and
+the bundled catalog. Qwen recognition/alignment, Parakeet, and Whisper model
+licenses are separate from their SDK licenses. Preserve these notices with
+packaged helper resources and obtain exact dependency license texts from the
+resolved source checkouts when redistributing SDK binaries.

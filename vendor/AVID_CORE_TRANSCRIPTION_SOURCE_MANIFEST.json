@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "scope": "Reviewed Apple transcription components, catalog tooling, documentation, repository policy and license; not the complete Rust repository or model weights",
+  "repository": "/Users/tlothian/Documents/Projects/AVID Core",
+  "baseline_head": "7e124a3387349e38cc99e5db7e89a73cc23068ad",
+  "review_task_id": "desktop-transcription-20261102-e8b98234",
+  "review_round": 3,
+  "review_snapshot_sha256": "0cac6c3611b74b7a65cb1ccae27bcc39a712c1602c31bf4c85c52d505451dfdd",
+  "review_provider": "antigravity",
+  "review_status": "reviewed",
+  "review_coverage": "complete",
+  "validation": "passed",
+  "source_bundle": "AVID_CORE_TRANSCRIPTION_SOURCE.tar.gz",
+  "source_bundle_sha256": "f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a",
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "f75132fb867471c13f75628cfba1d8dcf1ea9bd60c18158363729ffb2046baea",
+      "size_bytes": 3022,
+      "mode": 420
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "4f3f7c93cdca3024f362e168270c8f16220cf7cdfc29ec51cfb88634ea87e6b7",
+      "size_bytes": 34213,
+      "mode": 420
+    },
+    {
+      "path": "README.md",
+      "sha256": "1976f039e7d3342cc3b3a0ac362c3b74540488cfc21e5bffba2711cab6d4497d",
+      "size_bytes": 18812,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/.gitignore",
+      "sha256": "0127b47d29f25aa72765aeae42b027a0ef39344d8917cebcc56ffcc8494076b3",
+      "size_bytes": 28,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/MODEL_NOTICES.md",
+      "sha256": "247c14e964312f3b07a3cb74864d5de25c86825e75d24026dcf92fb095d51aae",
+      "size_bytes": 4587,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Package.swift",
+      "sha256": "b9d501c0d3e4989bb066e8bcd0f5c1941bc379c2e8217f2ae93f670b98002f3c",
+      "size_bytes": 607,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Captioning.swift",
+      "sha256": "86e072bfc6a18d42ad75a90000c55c2c6d5a5caba4ce052fe6129a9148317988",
+      "size_bytes": 10968,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/HTTPModelDownloadTransport.swift",
+      "sha256": "d6d2349fd6fcfb4fe51ca702398c92dff461399e57149d5e7b4ead4ff6dc3ab8",
+      "size_bytes": 9033,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/ModelCatalog.swift",
+      "sha256": "b2967d5765c362622644a4308310d36b1b1d30e2ac8b2ccceefc1ec3dfa44d16",
+      "size_bytes": 8623,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/ModelStore.swift",
+      "sha256": "db234fecee5fc19ecf85e1323f9a1291b57ef0543a6127fbb7b3c677927fbf0d",
+      "size_bytes": 15226,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Providers.swift",
+      "sha256": "cfac96dc5a1241de08f24e05857f87bfb69a1a3a332b5ef6d0c0c769c331cab6",
+      "size_bytes": 3067,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Resources/models.json",
+      "sha256": "99e463edfce532caa3c3ed7c82e9721a8e1119d830e014c1fd5220228156eca4",
+      "size_bytes": 34071,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Transcript.swift",
+      "sha256": "a5ec85d25f5584bc287f3acefddf78a0bb47a135e6715a1db11204478282f761",
+      "size_bytes": 7751,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/avid-transcription/Command.swift",
+      "sha256": "c949991aeb49a21a6e3e6e4efd2a5ce3895e209361f3267836cf61e82a2178a8",
+      "size_bytes": 5539,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/CaptioningTests.swift",
+      "sha256": "28e6d54f5188beda727f7c77843b0803620c515e834c7a163a890761e9d1b39f",
+      "size_bytes": 5145,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/HTTPTransportTests.swift",
+      "sha256": "af1379743c951fd62508bc1f09aeb415453186d914642f323e00345d83225f14",
+      "size_bytes": 8751,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/ModelStoreTests.swift",
+      "sha256": "078b106db9b10de370e5c75ca1bc0c6283ee8be0efb24c37e2bc39ed80becb6a",
+      "size_bytes": 15520,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/TranscriptTests.swift",
+      "sha256": "eca08d1111c84cab85a91f020aae9a0a9dff4dd1e2967aec5d4894c164963485",
+      "size_bytes": 4363,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/.gitignore",
+      "sha256": "0127b47d29f25aa72765aeae42b027a0ef39344d8917cebcc56ffcc8494076b3",
+      "size_bytes": 28,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Package.resolved",
+      "sha256": "ba45f4a275ad192db881194371ac6a007eb0fc591d4c56f6ebc09c676d54e21e",
+      "size_bytes": 4134,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Package.swift",
+      "sha256": "1993f266eb317cef6d7762a7d41ceca2d297271fea253c7b5f6d4b4c12bebeda",
+      "size_bytes": 1655,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/AudioInput.swift",
+      "sha256": "0c92e4f187bb49aa6a01d83ac776eba3ab62242ffdfc79ded2f60d32a36afe2b",
+      "size_bytes": 8049,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/FluidAudioProvider.swift",
+      "sha256": "c68ace748aee47e6cd6c7ccb1c084b6f480d04442f92323b20cac92ceafee6d3",
+      "size_bytes": 3199,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/LanguageInput.swift",
+      "sha256": "4da861c98dc9d4056d00d442cca51012a81f297f311d30a259df6a4e987fb1f1",
+      "size_bytes": 537,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/ModelLifecycle.swift",
+      "sha256": "7bd48317ccea2134f68c0a23b9e7a4d0275520d8a40e6eb5433ed32c2ec8fdee",
+      "size_bytes": 517,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/QwenProviders.swift",
+      "sha256": "2b39bf38dbd2b0e42e5365a6f36d99c281fd14d1b5c0bbf49d3212de9f2d9c22",
+      "size_bytes": 11338,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/WhisperKitProvider.swift",
+      "sha256": "ba564969fe42e2a4fc468939bffbab9b6d0be7de949f40040c8023dacd0afdbd",
+      "size_bytes": 8391,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Sources/avid-transcribe/Command.swift",
+      "sha256": "d8e9ddf70d0e766abfd0009cc5eeae0eed45c97e0a04bdce61e5f576955bdb12",
+      "size_bytes": 10304,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/THIRD_PARTY_NOTICES.md",
+      "sha256": "4e12a80975defe4ce5a37607759090d8c5dc35d603b97ab802e5ad394965374d",
+      "size_bytes": 1560,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscriptionEngines/Tests/AVIDTranscriptionEnginesTests/AdapterContractTests.swift",
+      "sha256": "a4c42f1fb09d49c3479ab2f05e57b47c3593e8bcacc32fd7fb9610205143e730",
+      "size_bytes": 13258,
+      "mode": 420
+    },
+    {
+      "path": "apple/README.md",
+      "sha256": "0995bc67d7194b72afcc0e169dbb845c717e6a3ae076bf1beb717279d61748aa",
+      "size_bytes": 9362,
+      "mode": 420
+    },
+    {
+      "path": "apple/VERIFICATION.md",
+      "sha256": "2cc8ce8446feb2f8ba81369011bd4dd7e72fc234a04b66e83544126057817ed9",
+      "size_bytes": 3815,
+      "mode": 420
+    },
+    {
+      "path": "script/test_transcription_catalog.py",
+      "sha256": "f40fd805ae0e554572c25746b97bbe628e83a0c96451f54c83a19cd758eeb9d0",
+      "size_bytes": 4871,
+      "mode": 420
+    },
+    {
+      "path": "script/update_transcription_catalog.py",
+      "sha256": "2837a4cdb13cce81e3b442f9b1b856b07d4159024ede6b01ab6e4ab6fcf4f9a6",
+      "size_bytes": 14587,
+      "mode": 493
+    }
+  ]
+}

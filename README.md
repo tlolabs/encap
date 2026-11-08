@@ -17,7 +17,7 @@ EnCap has three peer application modes over one shared project format:
 
 - **Audio** imports and validates recordings, normalizes mismatched
   sources, maintains chapter and episode metadata, and exports MP3 or AAC/M4A.
-- **Transcript** discovers local providers, manages optional Whisper models,
+- **Transcript** uses AVID Core's shared verified model store and local engines,
   transcribes without uploading audio, edits timestamped segments and speakers,
   and exports TXT or SRT. Word timestamps are optional and persist in the project.
 - **Video** selects and independently reorders chapters, previews the continuous
@@ -68,8 +68,9 @@ generated for unsigned packages.
 - WAV and AIFF inspection, natural filename sorting, and FFmpeg normalization.
 - MP3 through libmp3lame and AAC/M4A through FFmpeg or Apple AudioToolbox.
 - Episode metadata, artwork, chapter titles, links, and source-boundary timing.
-- Apple on-device Speech on macOS and verified local `whisper.cpp` models on all
-  supported platforms.
+- AVID Core local recognition and optional forced alignment on Apple silicon,
+  macOS 14+. Other transcription targets await a support decision; existing
+  transcripts remain editable and exportable.
 - Editable transcript text, timestamps, and speaker names with TXT/SRT export.
 - Hard-cut multi-chapter MP4 timelines with AVID's blurred full-canvas background,
   sharp centered artwork, horizontal/vertical flips, and capability-tested encoders.
@@ -80,22 +81,29 @@ generated for unsigned packages.
 
 ## Local transcription and privacy
 
-EnCap does not bundle model weights. Apple On-Device transcription requests
-system-managed recognition and requires on-device processing. Optional Whisper
-models are downloaded only when selected in **Manage Models**, stored in the
-platform application-data directory, streamed to a temporary file, verified
-against a pinned SHA-256 digest, and installed atomically. Inference has no
-network fallback.
+The AVID integration described here is a development change. It has not been
+published; the existing 2.0.9 download is a separate, earlier artifact.
 
-The model manager currently offers Base English, Small, and Large v3 Turbo.
-Removing a model deletes only EnCap's catalog-owned file. On supported Macs,
-EnCap first reuses a compatible Superwhisper model after size and full SHA-256
-verification. Apple-silicon Macs running macOS 14 or newer can also reuse a
-structurally validated local WhisperKit package installed by Whisper
-Transcription (MacWhisper); the helper is forced into offline mode and copies
-only small tokenizer metadata into a private temporary directory. While a
-compatible shared model is available, duplicate EnCap model downloads are
-disabled.
+EnCap does not bundle model weights. The shared AVID Core catalog offers full
+Whisper large-v3 as the quality default, Whisper Turbo, Parakeet, Qwen recognition,
+and a separate Qwen forced aligner. Model installation uses anonymous public
+upstream downloads with pinned size/hash checks and resumable partial files.
+Inference uses verified local files without an audio upload or network fallback.
+Recognition and word-alignment language support are separate capabilities.
+
+Models use AVID's shared cache at
+`~/Library/Application Support/AVID/Transcription/Models`. Manual import must
+match the exact catalog artifacts; removal affects the managed copy. Existing
+EnCap GGML files and Superwhisper/MacWhisper caches are left untouched. GGML
+weights cannot be relabeled as Core ML/MLX models; a replacement download or
+verified compatible import is needed.
+
+The base application still targets macOS 13 and retains its desktop platform
+configuration. The new inference helper supports Apple silicon on macOS 14+;
+Intel, macOS 13, Windows, and Linux transcription need an owner support decision
+or additional shared backends before this replacement can ship there. This is
+not a claim of six-platform transcription parity. See the
+[integration and migration record](docs/transcription-avid-core.md).
 
 ## Build from source
 
@@ -110,7 +118,10 @@ EnCAP no longer compiles FFmpeg or owns its recipe. Build-time acquisition needs
 Python 3.12+, authenticated GitHub CLI, and network access; packaged tools run
 offline.
 See the [Core runtime packaging guide](docs/ffmpeg-source-runtime.md).
-Platform development prerequisites are Xcode 26 on macOS, Qt 6.4+ with CMake and the Visual Studio C++/Windows SDK on Windows, or Qt 6.4+, CMake, X11/fontconfig and GLib development packages on Linux. First-time packaging also needs network access to
+The Apple transcription helper additionally requires Swift 6.3+, Xcode's Metal
+toolchain, and the immutable SDK snapshot in `vendor/`; run
+`ruby script/verify_avid_snapshot.rb` to verify its archive and source identity.
+Platform development prerequisites are Xcode on macOS, Qt 6.4+ with CMake and the Visual Studio C++/Windows SDK on Windows, or Qt 6.4+, CMake, X11/fontconfig and GLib development packages on Linux. First-time packaging also needs network access to
 download hash-pinned open-source dependencies.
 
 On macOS, the project run action and the shell use the same entrypoint:
@@ -121,7 +132,7 @@ On macOS, the project run action and the shell use the same entrypoint:
 
 Useful modes are `--verify`, `--debug`, `--logs`, `--telemetry`, and
 `--package`. The script builds the release Rust engine, native SwiftUI app and
-local transcription helpers, then bundles the Core-built FFmpeg/ffprobe pair
+the AVID transcription sidecar on supported hosts, then bundles the Core-built FFmpeg/ffprobe pair
 at `dist/EnCap.app`. All modes use this verified pair with no production PATH
 fallback. Clean qualification uses the same normal application and packaging path.
 

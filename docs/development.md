@@ -34,8 +34,9 @@ The Rust workspace is intentionally layered:
   logging, and cancellation.
 - `encap-audio`: folder ingest, normalization, chapter editing, metadata,
   and MP3/AAC export.
-- `encap-transcript`: local provider discovery, model lifecycle, Apple Speech,
-  and whisper.cpp execution.
+- `encap-transcript`: typed AVID sidecar protocol, owned child cancellation,
+  source-to-episode timing projection, and project provenance integration.
+  The shared Swift packages own model lifecycle and inference.
 - `encap-video`: project preflight, selected chapter/source mapping, and host diagnostics
   over `avid-core`, which owns Video presets, settings, graphs, processes, and publication.
 - `encap-engine`: a small JSON command boundary consumed by native apps.
@@ -61,12 +62,21 @@ detailed diagnostics remain in the local rotating log.
 
 Commands are `build-info`, `inspect`, `open`, `save`, `export`, `export-video`, `video-presets`,
 `video-capabilities`, `inspect-artwork`, `preview-video`, `export-transcript`,
-`transcribe`, `providers`, `models`, `install-model`, `remove-model`, and
+`export-captions`, `transcribe`, `realign`, `transcription-status`, `providers`,
+`models`, `install-model`, `import-model`, `remove-model`, and
 `validate-tools`, plus `save-recovery`, `load-recovery`, and `clear-recovery`
 for the crash-safe edit journal. Long-running native tasks keep a handle only to the process
 they own. Cancellation terminates that process and the Rust runner terminates
 its owned FFmpeg/transcription child, so unrelated system processes are never
 targeted.
+
+`transcribe <payload> <model> [--word-timestamps] [--language CODE]
+[--alignment-model ID]` and `realign <payload> <aligner> [--language CODE]`
+retain the final segment-array response. New `export-captions <payload> <output>
+srt|vtt` uses shared word grouping and requires real valid word timing; ordinary
+`export-transcript` TXT/SRT preserves its existing contract. `import-model <id>
+<directory>` verifies/copies into the shared store without owning the original
+directory. Progress uses typed stderr events, leaving stdout as the final JSON.
 
 `preview-video <payload> <output> [--chapter-id <id>]` composes a PNG through Core
 using saved Video settings and chapter artwork with main-artwork fallback.
@@ -92,8 +102,8 @@ record for manual recovery, and never overwrites a known-good project file.
 
 This is the canonical build-and-launch path used by the Codex Run action. It
 builds the Xcode SwiftUI target for the host architecture, the release Rust
-engine, the Core-built FFmpeg/ffprobe 9.0.1 pair, whisper.cpp, Apple
-helpers, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
+engine, the Core-built FFmpeg/ffprobe 9.0.1 pair, the AVID transcription helper
+on supported Apple-silicon hosts, and Sparkle. It stages `dist/EnCap.app`, validates its tools and bundle,
 ad-hoc signs it, launches it, and confirms that the process remains alive.
 
 The local Sparkle verification key belongs in `.encap-update-public-key` at the
@@ -115,8 +125,13 @@ ENCAP_BUILD_ARCH=x86_64 \
 
 The cross-built app is staged at `dist/intel/EnCap.app`; its tests run under
 Rosetta. Physical Intel hardware testing remains a separate validation step.
-WhisperKit is Apple-silicon-only; Intel packages retain whisper.cpp and the
-Apple Speech helper.
+The new transcription helper requires Apple silicon and macOS 14+. Intel and
+macOS 13 retain base-app compatibility, transcript editing, and export; inference
+is unavailable pending an owner support decision or shared-backend expansion.
+Windows/Linux have the same unresolved inference gap. Do not advertise platform
+parity or publish an artifact whose promised functionality has not been verified.
+See [AVID transcription integration](transcription-avid-core.md) for source
+pins, migration semantics, and verification limitations.
 
 To optionally sign and notarize the tested Intel bundle, use a saved Keychain profile:
 
@@ -369,7 +384,9 @@ Run all media/discovery checks on the normal packaged release engine:
 bash script/ffmpeg/qualify.sh "$PWD/dist/EnCap.app/Contents/MacOS/encap-engine"
 ```
 
-This requires the normal packaged Whisper helper and pinned whisper.cpp checkout
-for its speech fixture; the harness fetches and verifies a test model separately.
+The supported Apple transcription check uses the actual packaged AVID helper
+and verified shared-cache model. Offline checks do not substitute for real
+packaged inference. Missing/unqualified transcription is recorded explicitly;
+there is no retained whisper.cpp qualification path.
 Release discovery ignores FFmpeg overrides and PATH; debug fixture overrides must
 specify both absolute tool paths. Application project and file formats are unchanged.

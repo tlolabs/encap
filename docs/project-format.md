@@ -18,7 +18,7 @@ The top-level object contains:
 | `audio_sources` | array | Ordered display name, duration, and archive path for every source. |
 | `chapters` | array | Start, duration, number, title, link, and optional stored image path. |
 | `transcript_segments` | array | Stable ID, start/end times, speaker, text, and optional word timings. |
-| `transcript_settings` | object | Whether word-level timestamps were requested. |
+| `transcript_settings` | object | Word-timestamp preference and optional recognition model, alignment model, and language selection. |
 | `export_settings` | object | Output format, encoder, bitrate preset, and channel count. |
 | `active_mode` | string | `audio`, `transcript`, or `video`; legacy mode aliases migrate. |
 | `video` | object | Versioned current Video export state and future composition extension point. |
@@ -33,6 +33,55 @@ names are normalized during migration. A native client carries
 an opaque compatibility payload across its Rust process boundary. Unknown fields
 at the manifest, metadata, audio-source, chapter, transcript-segment, and export
 settings levels are merged back during save rather than silently discarded.
+
+### AVID transcription extensions
+
+The schema remains 2. New imports receive a per-instance UUID `avid_source_id`,
+pinned before their paths change during save or extraction. Persisted IDs and
+the deterministic legacy fallback remain compatible; reimporting original media
+after extraction creates a distinct source instance. A new transcript segment carries
+an optional `avid_core` version-1 extension with `source_id`,
+`source_duration_seconds`, `source_timeline_offset_seconds`,
+`source_offset_seconds`, `segment_index`, `timing_status`, and `transcript`.
+The nested transcript envelope stores the original one-segment shared record,
+including source-clock words, confidence, language and recognition/alignment
+provenance. `alignment_record` holds the latest alignment separately; initial
+recognition remains immutable. Model provenance includes complete manifest
+installation identities and the frozen SDK source identity.
+Storage stays linear in transcript length. Unknown extension fields
+remain preserved.
+
+Editable `start_time_seconds`/`end_time_seconds` and words use the assembled
+episode clock. The reversible mapping is
+`episode = original_source - source_offset + source_timeline_offset`.
+Source edits change projected times and the timeline offset; they do not rewrite
+the original recognition record. Text edits clear the affected word array and
+mark alignment invalidated. Speakers and stable host IDs remain host data.
+Source identity determines whether a segment survives removal. Slight native
+timing overshoot is clipped to the retained source's playable interval while
+original raw boundaries remain unchanged; collapsed timing remains untimed text.
+
+Untimed recognition has `timing_status: "untimed"`; zero-length host positions
+are placeholders for editing rather than speech boundaries. TXT export is
+available, while timed subtitle/caption export requires usable real timing.
+Old projects without `avid_core` retain their existing TXT/SRT interpretation.
+Reopening an old project does not trigger recognition, model conversion, or
+replacement of user-edited text.
+
+Explicit rerecognition reuses IDs only for confidently matching source/text/time
+records and transfers speakers only across unambiguous timing regions. Unmatched
+prior editable segments are retained once in `avid_core.previous_transcript` on
+the first replacement segment, including their IDs, speakers and unknown fields.
+`reconciliation_warning` is shown by both clients if manual assignments need
+review. This history does not silently apply an ambiguous speaker to a newly
+segmented transcript.
+
+Removing a history carrier transfers and deduplicates its archive onto a surviving
+AVID segment. If audio remains with no suitable active segment, optional top-level
+`avid_transcript_history` and `avid_reconciliation_warning` preserve that data and
+keep its warning visible. Removing all audio intentionally clears the transcript
+and archived history; explicit null values prevent opaque compatibility payloads
+from restoring cleared history on save.
 
 ## Compatibility behavior
 

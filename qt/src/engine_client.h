@@ -23,6 +23,7 @@ public:
 
 signals:
     void busyChanged(bool busy);
+    void transcriptionProgress(const QJsonObject& event);
 
 private:
     QString executable_;
@@ -31,4 +32,8 @@ private:
     std::unique_ptr<QTemporaryFile> payload_;
     Completion completed_;
     bool unsupportedStartup_ = false;
+    QByteArray pendingDiagnostics_;
+    bool discardingDiagnosticLine_ = false;
+    QString diagnostics_;
+    void drainDiagnostics(QProcess* process, bool finished = false);
 };

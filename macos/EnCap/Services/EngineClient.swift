@@ -17,6 +17,33 @@ enum EngineError: LocalizedError {
     }
 }
 
+struct TranscriptionAvailability: Decodable, Sendable {
+    var available: Bool
+    var reason: String?
+}
+
+/// Versioned stderr events never change the single final JSON value on stdout.
+struct EngineProgress: Decodable, Sendable {
+    var event: String
+    var stage: String?
+    var phase: String?
+    var message: String?
+    var completedBytes: Int64?
+    var totalBytes: Int64?
+    var fraction: Double?
+
+    var status: String {
+        let detail = message ?? stage ?? phase ?? "Working locally…"
+        if let completedBytes, let totalBytes, totalBytes > 0 {
+            return "\(detail) · \(ByteCountFormatter.string(fromByteCount: completedBytes, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))"
+        }
+        if let fraction, fraction.isFinite {
+            return "\(detail) · \(Int(min(1, max(0, fraction)) * 100))%"
+        }
+        return detail
+    }
+}
+
 final class EngineClient: @unchecked Sendable {
     private struct ErrorResponse: Decodable { let error: String }
     private let processLock = NSLock()
@@ -109,8 +136,16 @@ final class EngineClient: @unchecked Sendable {
         try decode([TranscriptionModelInfo].self, from: await run(["models"]))
     }
 
-    func installModel(id: String) async throws -> TranscriptionModelInfo {
-        try decode(TranscriptionModelInfo.self, from: await run(["install-model", id]))
+    func transcriptionStatus() async throws -> TranscriptionAvailability {
+        try decode(TranscriptionAvailability.self, from: await run(["transcription-status"]))
+    }
+
+    func installModel(id: String, progress: (@Sendable (EngineProgress) -> Void)? = nil) async throws -> TranscriptionModelInfo {
+        try decode(TranscriptionModelInfo.self, from: await run(["install-model", id], progress: progress))
+    }
+
+    func importModel(id: String, from source: URL, progress: (@Sendable (EngineProgress) -> Void)? = nil) async throws -> TranscriptionModelInfo {
+        try decode(TranscriptionModelInfo.self, from: await run(["import-model", id, source.path], progress: progress))
     }
 
     func removeModel(id: String) async throws -> TranscriptionModelInfo {
@@ -120,14 +155,32 @@ final class EngineClient: @unchecked Sendable {
     func transcribe(
         _ project: ProjectDocument,
         providerID: String,
-        wordTimestamps: Bool
+        wordTimestamps: Bool,
+        language: String = "",
+        alignmentModelID: String = "",
+        progress: (@Sendable (EngineProgress) -> Void)? = nil
     ) async throws -> [TranscriptSegment] {
         let payload = try temporaryPayload(for: project)
         defer { try? FileManager.default.removeItem(at: payload) }
         var arguments = ["transcribe", payload.path, providerID]
         if wordTimestamps { arguments.append("--word-timestamps") }
-        let data = try await run(arguments)
+        if !language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["--language", language]
+        }
+        if !alignmentModelID.isEmpty { arguments += ["--alignment-model", alignmentModelID] }
+        let data = try await run(arguments, progress: progress)
         return try decode([TranscriptSegment].self, from: data)
+    }
+
+    func realign(_ project: ProjectDocument, modelID: String, language: String,
+                 progress: (@Sendable (EngineProgress) -> Void)? = nil) async throws -> [TranscriptSegment] {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        var arguments = ["realign", payload.path, modelID]
+        if !language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["--language", language]
+        }
+        return try decode([TranscriptSegment].self, from: await run(arguments, progress: progress))
     }
 
     func exportTranscript(
@@ -138,6 +191,13 @@ final class EngineClient: @unchecked Sendable {
         let payload = try temporaryPayload(for: project)
         defer { try? FileManager.default.removeItem(at: payload) }
         let data = try await run(["export-transcript", payload.path, destination.path, format])
+        return try decode(PathResponse.self, from: data).url
+    }
+
+    func exportCaptions(_ project: ProjectDocument, to destination: URL, format: String) async throws -> URL {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        let data = try await run(["export-captions", payload.path, destination.path, format])
         return try decode(PathResponse.self, from: data).url
     }
 
@@ -183,13 +243,15 @@ final class EngineClient: @unchecked Sendable {
         }
     }
 
-    private func run(_ arguments: [String], priority: TaskPriority = .userInitiated) async throws -> Data {
+    private func run(_ arguments: [String], priority: TaskPriority = .userInitiated,
+                     progress: (@Sendable (EngineProgress) -> Void)? = nil) async throws -> Data {
         let invocation = try invocation(arguments: arguments)
         return try await Self.runProcess(
             executable: invocation.executable,
             arguments: invocation.arguments,
             environment: invocation.environment,
             priority: priority,
+            progress: progress,
             processChanged: { [weak self] process, started in
                 self?.updateCurrentProcess(process, started: started)
             }
@@ -213,6 +275,7 @@ final class EngineClient: @unchecked Sendable {
         arguments: [String],
         environment: [String: String],
         priority: TaskPriority = .userInitiated,
+        progress: (@Sendable (EngineProgress) -> Void)? = nil,
         processChanged: (@Sendable (Process, Bool) -> Void)? = nil
     ) async throws -> Data {
         let cancellation = ProcessCancellation()
@@ -230,7 +293,7 @@ final class EngineClient: @unchecked Sendable {
                 processChanged?(process, true)
                 defer { processChanged?(process, false) }
                 let errorReader = Task.detached {
-                    stderr.fileHandleForReading.readDataToEndOfFile()
+                    Self.readDiagnostics(stderr.fileHandleForReading, progress: progress)
                 }
                 let output = stdout.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
@@ -253,6 +316,36 @@ final class EngineClient: @unchecked Sendable {
         } onCancel: {
             cancellation.cancel()
         }
+    }
+
+    // Read chunks continuously; split complete event lines and retain a bounded
+    // diagnostic tail for failures. Neither a verbose backend nor a split UTF-8
+    // event may fill the child's pipe or consume unbounded diagnostic memory.
+    static func readDiagnostics(_ handle: FileHandle,
+                                progress: (@Sendable (EngineProgress) -> Void)?) -> Data {
+        var pending = Data()
+        var tail = Data()
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            tail.append(chunk)
+            if tail.count > 65_536 { tail = Data(tail.suffix(65_536)) }
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: 10) {
+                let line = Data(pending[..<newline])
+                pending.removeSubrange(...newline)
+                if let event = try? decoder.decode(EngineProgress.self, from: line), event.event == "progress" {
+                    progress?(event)
+                }
+            }
+            if pending.count > 65_536 { pending.removeAll(keepingCapacity: true) }
+        }
+        if let event = try? decoder.decode(EngineProgress.self, from: pending), event.event == "progress" {
+            progress?(event)
+        }
+        return tail
     }
 
     private func invocation(arguments: [String]) throws -> (

@@ -30,8 +30,6 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>EnCap uses audio playback while you edit episode chapters and transcripts.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>EnCap uses on-device speech recognition to transcribe audio files you select.</string>
     <key>UTExportedTypeDeclarations</key>
     <array>
         <dict>

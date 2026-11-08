@@ -4,7 +4,9 @@
 SwiftUI/AppKit (production macOS) ----------> encap-engine (one JSON response)
 Qt 6 Widgets (Windows/Linux/internal Mac) --> |
                         |-- encap-core: project model and ZIP persistence
-                        |-- encap-audio / encap-transcript -> encap-ffmpeg
+                        |-- encap-audio -> encap-ffmpeg
+                        |-- encap-transcript -> avid-transcriber JSON sidecar
+                        |                         `-- AVIDTranscription / Engines
                         `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
 
 All modes resolve the same Core-built FFmpeg/ffprobe pair.
@@ -23,8 +25,11 @@ cancellation token. Video receives that same validated pair without rediscovery.
 Release builds never use environment or PATH FFmpeg. Debug fixture overrides
 require both absolute paths; invalid, partial or mismatched pairs fail.
 AVID Core owns Video probing, capabilities, graphs and rendering. Audio export,
-Transcript providers, native WAV/AIFF parsing, waveform/editing and project archives
-remain EnCAP responsibilities. One Core cancellation token connects the signal
+native WAV/AIFF parsing, waveform/editing and project archives remain EnCAP
+responsibilities. AVID Core's Swift packages own transcription catalog,
+verified model acquisition/cache leases, recognition, alignment, and reusable
+caption contracts. EnCAP owns its machine-readable sidecar adapter and projection
+into editable project segments. One Core cancellation token connects the signal
 handler to all three modes; EnCAP's Audio/Transcript runner still owns and reaps
 its processes. Acquisition uses the pinned Core CI artifacts; a sibling checkout is unnecessary.
 
@@ -34,6 +39,15 @@ snake case, every invocation returns one JSON value on stdout, and failures
 return `{ "error": "plain-language explanation" }` with a nonzero status.
 Keeping the boundary identical makes the Qt and SwiftUI clients thin
 and independently crash-isolated while the mode crates remain reusable.
+
+The Apple transcription sidecar is a separately packaged higher-minimum-OS
+executable; it does not raise the base app's macOS 13 deployment target. It
+imports the verified immutable snapshot under `vendor/avid-core-transcription`,
+with both Swift packages in their original sibling layout. It never parses
+Core's display-oriented command output. Model and inference progress travels
+as structured stderr events while stdout retains the final JSON contract.
+Unsupported targets report unavailable transcription rather than advertising
+an old backend as the new engine. See [migration details](transcription-avid-core.md).
 
 No UI layer owns persistence, media command construction, schema migration, or
 transcription routing. Platform code owns dialogs, windows, menus, accessibility,

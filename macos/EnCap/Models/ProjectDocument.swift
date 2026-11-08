@@ -27,8 +27,15 @@ struct AudioSource: Codable, Identifiable, Hashable {
     var sourcePath: String
     var displayName: String
     var durationSeconds: Double
+    var storedPath: String? = nil
+    var avidSourceId: String? = nil
 
     var id: String { sourcePath }
+    var transcriptionSourceID: String {
+        if let avidSourceId, !avidSourceId.isEmpty { return avidSourceId }
+        if let storedPath { return "stored:\(storedPath)" }
+        return "path:\(sourcePath)"
+    }
 
     var fileTypeLabel: String {
         switch URL(fileURLWithPath: sourcePath).pathExtension.lowercased() {
@@ -81,9 +88,10 @@ struct TranscriptSegment: Codable, Identifiable, Hashable {
     var speaker: String
     var text: String
     var words: [TranscriptWord] = []
+    var avidCore: TranscriptOrigin?
 
     enum CodingKeys: String, CodingKey {
-        case id, startTimeSeconds, endTimeSeconds, speaker, text, words
+        case id, startTimeSeconds, endTimeSeconds, speaker, text, words, avidCore
     }
 
     init(
@@ -92,7 +100,8 @@ struct TranscriptSegment: Codable, Identifiable, Hashable {
         endTimeSeconds: Double,
         speaker: String,
         text: String,
-        words: [TranscriptWord] = []
+        words: [TranscriptWord] = [],
+        avidCore: TranscriptOrigin? = nil
     ) {
         self.id = id
         self.startTimeSeconds = startTimeSeconds
@@ -100,6 +109,7 @@ struct TranscriptSegment: Codable, Identifiable, Hashable {
         self.speaker = speaker
         self.text = text
         self.words = words
+        self.avidCore = avidCore
     }
 
     init(from decoder: Decoder) throws {
@@ -110,6 +120,57 @@ struct TranscriptSegment: Codable, Identifiable, Hashable {
         speaker = try container.decodeIfPresent(String.self, forKey: .speaker) ?? ""
         text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
         words = try container.decodeIfPresent([TranscriptWord].self, forKey: .words) ?? []
+        avidCore = try container.decodeIfPresent(TranscriptOrigin.self, forKey: .avidCore)
+    }
+
+    mutating func replaceText(_ replacement: String) {
+        guard text != replacement else { return }
+        text = replacement
+        words = []
+        if avidCore?.timingStatus != "untimed" { avidCore?.timingStatus = "invalidated" }
+    }
+}
+
+/// An opaque shared record keeps original source-clock timing, confidence,
+/// provenance, and future fields intact through native editing/recovery.
+/// Only the explicit episode projection and word-validity state are mutable.
+struct TranscriptOrigin: Codable, Hashable {
+    var payload: JSONValue
+
+    init(payload: JSONValue) { self.payload = payload }
+    init(from decoder: Decoder) throws { payload = try JSONValue(from: decoder) }
+    func encode(to encoder: Encoder) throws { try payload.encode(to: encoder) }
+
+    var sourceID: String? {
+        guard case .object(let fields) = payload,
+              case .string(let value)? = fields["source_id"] else { return nil }
+        return value
+    }
+
+    var timingStatus: String? {
+        get {
+            guard case .object(let fields) = payload,
+                  case .string(let value)? = fields["timing_status"] else { return nil }
+            return value
+        }
+        set {
+            guard case .object(var fields) = payload else { return }
+            fields["timing_status"] = newValue.map(JSONValue.string)
+            payload = .object(fields)
+        }
+    }
+
+    var sourceTimelineOffsetSeconds: Double? {
+        get {
+            guard case .object(let fields) = payload,
+                  case .number(let value)? = fields["source_timeline_offset_seconds"] else { return nil }
+            return value
+        }
+        set {
+            guard case .object(var fields) = payload else { return }
+            fields["source_timeline_offset_seconds"] = newValue.map(JSONValue.number)
+            payload = .object(fields)
+        }
     }
 }
 
@@ -122,6 +183,22 @@ struct TranscriptWord: Codable, Identifiable, Hashable {
 
 struct TranscriptSettings: Codable, Hashable {
     var includeWordTimestamps = false
+    var recognitionModelId: String?
+    var alignmentModelId: String?
+    var language: String?
+
+    enum CodingKeys: String, CodingKey {
+        case includeWordTimestamps, recognitionModelId, alignmentModelId, language
+    }
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        includeWordTimestamps = try container.decodeIfPresent(Bool.self, forKey: .includeWordTimestamps) ?? false
+        recognitionModelId = try container.decodeIfPresent(String.self, forKey: .recognitionModelId)
+        alignmentModelId = try container.decodeIfPresent(String.self, forKey: .alignmentModelId)
+        language = try container.decodeIfPresent(String.self, forKey: .language)
+    }
 }
 
 struct VideoPreset: Codable, Identifiable, Hashable {
@@ -276,11 +353,14 @@ struct ProjectDocument: Codable, Hashable {
     var activeMode = WorkspaceMode.audio
     var video = VideoProjectState()
     var compatibilityPayload: String?
+    var avidTranscriptHistory: [JSONValue]?
+    var avidReconciliationWarning: String?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion, projectTitle, sourceFolder, projectPath, workingDir, metadata
         case audioSources, chapters, transcriptSegments, transcriptSettings, exportSettings
         case activeMode, workspace, video, compatibilityPayload
+        case avidTranscriptHistory, avidReconciliationWarning
     }
 
     init() {}
@@ -303,6 +383,8 @@ struct ProjectDocument: Codable, Hashable {
             ?? .audio
         video = try container.decodeIfPresent(VideoProjectState.self, forKey: .video) ?? VideoProjectState()
         compatibilityPayload = try container.decodeIfPresent(String.self, forKey: .compatibilityPayload)
+        avidTranscriptHistory = try container.decodeIfPresent([JSONValue].self, forKey: .avidTranscriptHistory)
+        avidReconciliationWarning = try container.decodeIfPresent(String.self, forKey: .avidReconciliationWarning)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -321,6 +403,10 @@ struct ProjectDocument: Codable, Hashable {
         try container.encode(activeMode, forKey: .activeMode)
         try container.encode(video, forKey: .video)
         try container.encodeIfPresent(compatibilityPayload, forKey: .compatibilityPayload)
+        // Null tombstones override any older opaque compatibility value after
+        // the user intentionally removes every source and its transcript.
+        try container.encode(avidTranscriptHistory, forKey: .avidTranscriptHistory)
+        try container.encode(avidReconciliationWarning, forKey: .avidReconciliationWarning)
     }
 
     var outputBaseName: String {
@@ -350,6 +436,12 @@ struct TranscriptionProvider: Codable, Identifiable, Hashable {
     var detail: String
 }
 
+struct TranscriptionModelLicense: Codable, Hashable {
+    var identifier: String
+    var notice: String
+    var url: String?
+}
+
 struct TranscriptionModelInfo: Codable, Identifiable, Hashable {
     var id: String
     var name: String
@@ -358,4 +450,26 @@ struct TranscriptionModelInfo: Codable, Identifiable, Hashable {
     var description: String
     var installed: Bool
     var downloadAllowed: Bool
+    var downloadSizeBytes: Int64?
+    var role: String?
+    var engine: String?
+    var recognitionLanguages: [String]?
+    var timingLanguages: [String]?
+    var license: TranscriptionModelLicense?
+    var installationId: String?
+    var repository: String?
+    var revision: String?
+    var installationState: String?
+    var isDefault: Bool?
+
+    var isAligner: Bool { role == "aligner" }
+    var recognitionLanguageSummary: String { recognitionLanguages?.joined(separator: ", ") ?? languages }
+    var timingLanguageSummary: String { timingLanguages?.joined(separator: ", ") ?? "Not provided" }
+    var installationSummary: String {
+        switch installationState {
+        case "verified": return "Verified installation"
+        case "present_unverified": return "Files present; verified before inference"
+        default: return installed ? "Files present; verified before inference" : "Not installed"
+        }
+    }
 }

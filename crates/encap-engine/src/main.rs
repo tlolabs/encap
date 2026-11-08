@@ -81,12 +81,30 @@ enum Commands {
         #[arg(value_enum)]
         format: TranscriptFormat,
     },
+    ExportCaptions {
+        payload: PathBuf,
+        output: PathBuf,
+        #[arg(value_enum)]
+        format: CaptionFormat,
+    },
     Transcribe {
         payload: PathBuf,
         provider: String,
         #[arg(long)]
         word_timestamps: bool,
+        #[arg(long)]
+        language: Option<String>,
+        #[arg(long)]
+        alignment_model: Option<String>,
     },
+    /// Restore word alignment for the current edited text without recognition.
+    Realign {
+        payload: PathBuf,
+        model: String,
+        #[arg(long)]
+        language: Option<String>,
+    },
+    TranscriptionStatus,
     Providers,
     Models,
     InstallModel {
@@ -94,6 +112,10 @@ enum Commands {
     },
     RemoveModel {
         model: String,
+    },
+    ImportModel {
+        model: String,
+        source: PathBuf,
     },
     SaveRecovery {
         payload: PathBuf,
@@ -111,6 +133,12 @@ enum Commands {
 enum TranscriptFormat {
     Txt,
     Srt,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum CaptionFormat {
+    Srt,
+    Vtt,
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -179,7 +207,8 @@ fn run(
                 "revision": encap_core::CORE_REVISION, "source": encap_core::CORE_SOURCE }
         })),
         Commands::Startup => Ok(serde_json::json!({
-            "providers": encap_transcript::providers(),
+            "providers": encap_transcript::providers(cancellation).unwrap_or_default(),
+            "transcription_status": encap_transcript::status(),
             "presets": encap_video::PRESETS,
             "recovery": RecoveryResponse {
                 project: load_recovery_at(&recovery_path()?)?,
@@ -274,14 +303,46 @@ fn run(
             output,
             format,
         } => {
+            if encap_core::conflicts_with_path(&output, &payload) {
+                return Err(EncapError::Message(
+                    "Transcript output cannot replace its project payload.".into(),
+                ));
+            }
             let project = read_payload(&payload)?;
             encap_core::validate_transcript_export(&project, &output)?;
             let content = match format {
                 TranscriptFormat::Txt => {
                     encap_core::render_transcript_text(&project.transcript_segments)
                 }
-                TranscriptFormat::Srt => encap_core::render_srt(&project.transcript_segments),
+                TranscriptFormat::Srt => {
+                    encap_core::validate_timed_transcript(&project.transcript_segments)?;
+                    encap_core::render_srt(&project.transcript_segments)
+                }
             };
+            atomic_write(&output, content.as_bytes())?;
+            json(PathResponse { path: output })
+        }
+        Commands::ExportCaptions {
+            payload,
+            output,
+            format,
+        } => {
+            if encap_core::conflicts_with_path(&output, &payload) {
+                return Err(EncapError::Message(
+                    "Caption output cannot replace its project payload.".into(),
+                ));
+            }
+            let project = read_payload(&payload)?;
+            encap_core::validate_transcript_export(&project, &output)?;
+            let format = match format {
+                CaptionFormat::Srt => "srt",
+                CaptionFormat::Vtt => "vtt",
+            };
+            let content = encap_transcript::render_captions(
+                &project.transcript_segments,
+                format,
+                cancellation,
+            )?;
             atomic_write(&output, content.as_bytes())?;
             json(PathResponse { path: output })
         }
@@ -289,22 +350,51 @@ fn run(
             payload,
             provider,
             word_timestamps,
+            language,
+            alignment_model,
         } => {
             let project = read_payload(&payload)?;
             let segments = encap_transcript::transcribe(
                 &project.audio_sources,
                 &provider,
-                word_timestamps,
+                &encap_transcript::TranscribeOptions {
+                    word_timestamps,
+                    language: language.as_deref(),
+                    alignment_model: alignment_model.as_deref(),
+                },
+                &project.transcript_segments,
                 cancellation,
             )?;
             json(segments)
         }
-        Commands::Providers => json(encap_transcript::providers()),
-        Commands::Models => json(encap_transcript::models()),
+        Commands::Realign {
+            payload,
+            model,
+            language,
+        } => {
+            let project = read_payload(&payload)?;
+            json(encap_transcript::realign(
+                &project.audio_sources,
+                &project.transcript_segments,
+                &model,
+                language.as_deref(),
+                cancellation,
+            )?)
+        }
+        Commands::TranscriptionStatus => json(encap_transcript::status()),
+        Commands::Providers => json(encap_transcript::providers(cancellation)?),
+        Commands::Models => json(encap_transcript::models(cancellation)?),
         Commands::InstallModel { model } => {
             json(encap_transcript::install_model(&model, cancellation)?)
         }
-        Commands::RemoveModel { model } => json(encap_transcript::remove_model(&model)?),
+        Commands::RemoveModel { model } => {
+            json(encap_transcript::remove_model(&model, cancellation)?)
+        }
+        Commands::ImportModel { model, source } => json(encap_transcript::import_model(
+            &model,
+            &source,
+            cancellation,
+        )?),
         Commands::SaveRecovery { payload } => {
             let project = read_payload(&payload)?;
             save_recovery_at(&project, &recovery_path()?)?;
@@ -411,7 +501,10 @@ fn migrate_payload(project: &mut ProjectDocument) {
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
     fs::create_dir_all(parent).map_err(|source| EncapError::Write {
         path: parent.to_path_buf(),
         source,

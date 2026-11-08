@@ -47,11 +47,7 @@ fn startup_matches_legacy_commands_and_preserves_recovery_errors() {
             .unwrap()
     };
     let startup: Value = serde_json::from_slice(&run("startup").stdout).unwrap();
-    for (field, command) in [
-        ("providers", "providers"),
-        ("presets", "video-presets"),
-        ("recovery", "load-recovery"),
-    ] {
+    for (field, command) in [("presets", "video-presets"), ("recovery", "load-recovery")] {
         let output = run(command);
         assert!(output.status.success());
         assert_eq!(
@@ -59,6 +55,24 @@ fn startup_matches_legacy_commands_and_preserves_recovery_errors() {
             serde_json::from_slice::<Value>(&output.stdout).unwrap()
         );
     }
+    let providers = run("providers");
+    if providers.status.success() {
+        assert_eq!(
+            startup["providers"],
+            serde_json::from_slice::<Value>(&providers.stdout).unwrap()
+        );
+    } else {
+        assert_eq!(startup["providers"], serde_json::json!([]));
+        assert!(serde_json::from_slice::<Value>(&providers.stdout).unwrap()["error"].is_string());
+    }
+    assert_eq!(
+        startup["transcription_status"],
+        serde_json::from_slice::<Value>(&run("transcription-status").stdout).unwrap()
+    );
+    assert_eq!(
+        startup["transcription_status"]["default_model"],
+        "whisper-large-v3"
+    );
     let media = root.path().join("audio.wav");
     std::fs::write(&media, b"referenced media").unwrap();
     let mut project = encap_core::ProjectDocument::default();

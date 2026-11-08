@@ -120,6 +120,18 @@ MainWindow::MainWindow() {
     waveformEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     buildUi();
     buildMenus();
+    connect(engine_, &EngineClient::transcriptionProgress, this, [this](const QJsonObject& event) {
+        if (!busy_) return;
+        const auto stage = event.value("stage").toString(event.value("phase").toString("Working"));
+        setStatus(stage);
+        if (event.value("fraction").isDouble()) {
+            const auto fraction = event.value("fraction").toDouble();
+            if (std::isfinite(fraction)) {
+                progress_->setRange(0, 1000);
+                progress_->setValue(static_cast<int>(std::clamp(fraction, 0.0, 1.0) * 1000));
+            }
+        }
+    });
     connect(sources_, &QTableWidget::currentCellChanged, this, [this] {
         if (hasProject_ && !loading_) tick();
     });
@@ -173,9 +185,7 @@ MainWindow::MainWindow() {
 #endif
     auto runLegacy = [this] {
         runEngine("Loading local engines and recovery…", {"providers"}, [this](const QJsonValue& result) {
-            providers_ = result.toArray();
-            provider_->clear();
-            for (const auto& entry : providers_) provider_->addItem(entry.toObject().value("name").toString(), entry.toObject().value("id"));
+            setTranscriptionProviders(result.toArray());
             runEngine("Loading video presets…", {"video-presets"}, [this](const QJsonValue& presets) {
                 presets_ = presets.toArray();
                 preset_->clear();
@@ -219,9 +229,9 @@ MainWindow::MainWindow() {
             return;
         }
         const auto root = initData.toObject();
-        providers_ = root.value("providers").toArray();
-        provider_->clear();
-        for (const auto& entry : providers_) provider_->addItem(entry.toObject().value("name").toString(), entry.toObject().value("id"));
+        setTranscriptionProviders(root.value("providers").toArray());
+        if (root.value("transcription_status").isObject())
+            applyTranscriptionStatus(root.value("transcription_status").toObject());
         presets_ = root.value("presets").toArray();
         preset_->clear();
         for (const auto& entry : presets_) {
@@ -319,6 +329,7 @@ void MainWindow::setBusy(bool busy) {
     cancel_->setVisible(busy);
     modes_->setEnabled(!busy);
     if (saveAction_) saveAction_->setEnabled(!busy && hasProject_);
+    updateTranscriptionControls();
 }
 void MainWindow::setStatus(const QString& message, bool error) {
     const auto description = error ? "Error: " + message : message;
@@ -379,11 +390,22 @@ void MainWindow::present(const QJsonObject& project, bool changed) {
     dirty_ = changed;
     videoOrder_.clear();
     const auto chapters = project_.value("chapters").toArray();
+    QStringList knownChapterIds;
+    for (const auto& value : chapters) knownChapterIds.append(value.toObject().value("id").toString());
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
-    for (const auto& value : selected) videoOrder_.append(value.toString());
-    for (const auto& value : chapters) {
-        const auto id = value.toObject().value("id").toString();
+    QJsonArray validatedSelected;
+    for (const auto& value : selected) {
+        const auto id = value.toString();
+        if (knownChapterIds.contains(id)) {
+            validatedSelected.append(id);
+            if (!videoOrder_.contains(id)) videoOrder_.append(id);
+        }
+    }
+    for (const auto& id : knownChapterIds) {
         if (!videoOrder_.contains(id)) videoOrder_.append(id);
+    }
+    if (validatedSelected.size() != selected.size()) {
+        project_ = replacePath(project_, {"video", "export_settings", "selected_chapter_ids"}, validatedSelected);
     }
     if (!field({"video", "export_settings", "selection_initialized"}).toBool()) {
         QJsonArray all;
@@ -417,6 +439,10 @@ void MainWindow::refreshUi() {
     }
     syncAudioBitrateOptions(false);
     wordTimestamps_->setChecked(field({"transcript_settings", "include_word_timestamps"}).toBool());
+    transcriptionLanguage_->setText(field({"transcript_settings", "language"}).toString());
+    setTranscriptionProviders(providers_);
+    const auto savedAlignment = field({"transcript_settings", "alignment_model_id"}).toString();
+    alignmentModel_->setCurrentIndex(alignmentModel_->findData(savedAlignment));
     codec_->setCurrentText(video.value("codec").toString("h264"));
     encoding_->setCurrentText(video.value("encoding").toString("automatic"));
     videoBitrate_->setCurrentText(video.value("audio_bitrate").toString("128k"));
@@ -431,6 +457,7 @@ void MainWindow::refreshUi() {
     refreshSources();
     refreshChapters();
     refreshSegments();
+    updateTranscriptionControls();
     refreshVideo();
     loading_ = false;
     updateTitle();
@@ -475,7 +502,24 @@ void MainWindow::refreshSegments() {
         const auto segment = list[i].toObject();
         segments_->setItem(i, 0, new QTableWidgetItem(segment.value("speaker").toString()));
         segments_->setItem(i, 1, new QTableWidgetItem(segment.value("text").toString()));
+        const auto timing = segment.value("avid_core").toObject().value("timing_status").toString();
+        if (timing == "invalidated" || timing == "untimed")
+            segments_->item(i, 1)->setToolTip("Word timing unavailable. Select an installed aligner and Realign Edited Text to create timing without rerecognition.");
     }
+    updateTranscriptWarnings();
+}
+void MainWindow::updateTranscriptWarnings() {
+    if (!transcriptWarning_) return;
+    QStringList warnings;
+    const auto projectWarning = project_.value("avid_reconciliation_warning").toString().trimmed();
+    if (!projectWarning.isEmpty()) warnings.append(projectWarning);
+    for (const auto& value : project_.value("transcript_segments").toArray()) {
+        const auto warning = value.toObject().value("avid_core").toObject()
+            .value("reconciliation_warning").toString().trimmed();
+        if (!warning.isEmpty() && !warnings.contains(warning)) warnings.append(warning);
+    }
+    transcriptWarning_->setText(warnings.isEmpty() ? QString{} : "Transcript needs review: " + warnings.join('\n'));
+    transcriptWarning_->setVisible(!warnings.isEmpty());
 }
 
 void MainWindow::refreshVideo() {
@@ -647,7 +691,7 @@ void MainWindow::addFiles(const QStringList& requested) {
                 const auto entry = chapters[i].toObject();
                 if (previous.contains(entry.value("id").toString())) continue;
                 auto changed = entry;
-                const int sourceIndex = entry.value("chapter_number").toInt() - 1;
+                const int sourceIndex = audioSourceIndexForChapter(entry);
                 const auto sources = project_.value("audio_sources").toArray();
                 const auto source = sourceIndex >= 0 && sourceIndex < sources.size() ? sources[sourceIndex].toObject() : QJsonObject{};
                 const auto name = source.value("display_name").toString();
@@ -756,18 +800,48 @@ void MainWindow::chooseArtwork(bool chapter) {
     markDirty();
     refreshUi();
 }
+int MainWindow::audioSourceIndexAt(double timestamp) const {
+    const auto sources = project_.value("audio_sources").toArray();
+    if (sources.isEmpty()) return 0;
+    double cumulative = 0.0;
+    for (int i = 0; i < sources.size(); ++i) {
+        cumulative += sources[i].toObject().value("duration_seconds").toDouble();
+        if (timestamp < cumulative) return i;
+    }
+    return sources.size() - 1;
+}
+int MainWindow::audioSourceIndexForChapter(const QJsonObject& chapter) const {
+    const auto sources = project_.value("audio_sources").toArray();
+    if (sources.isEmpty()) return -1;
+    const int source = chapter.value("chapter_number").toInt() - 1;
+    if (source >= 0 && source < sources.size()) return source;
+    if (sources.size() == 1) return 0;
+    const int fallback = audioSourceIndexAt(chapter.value("start_time_seconds").toDouble());
+    return (fallback >= 0 && fallback < sources.size()) ? fallback : -1;
+}
+void MainWindow::renumberChapters() {
+    auto values = project_.value("chapters").toArray();
+    const auto sources = project_.value("audio_sources").toArray();
+    const int sourceCount = std::max(1, static_cast<int>(sources.size()));
+    double start = 0.0;
+    for (int i = 0; i < values.size(); ++i) {
+        auto chapter = values[i].toObject();
+        const int sourceIndex = audioSourceIndexAt(start);
+        chapter.insert("chapter_number", std::min(sourceIndex + 1, sourceCount));
+        chapter.insert("start_time_seconds", start);
+        start += chapter.value("duration_seconds").toDouble();
+        values[i] = chapter;
+    }
+    project_.insert("chapters", values);
+}
 void MainWindow::addChapter() {
     if (!hasProject_) return;
     auto values = project_.value("chapters").toArray();
     const auto sources = project_.value("audio_sources").toArray();
     double start = 0;
     for (const auto& value : values) start += value.toObject().value("duration_seconds").toDouble();
-    int sourceNumber = 1;
-    double end = 0;
-    for (int i = 0; i < sources.size(); ++i) {
-        end += sources[i].toObject().value("duration_seconds").toDouble();
-        if (start < end) { sourceNumber = i + 1; break; }
-    }
+    const int sourceIndex = audioSourceIndexAt(start);
+    const int sourceNumber = std::min(sourceIndex + 1, std::max(1, static_cast<int>(sources.size())));
     values.append(QJsonObject{{"id", QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-')},
         {"chapter_number", sourceNumber}, {"title", QStringLiteral("Chapter %1").arg(values.size() + 1)},
         {"start_time_seconds", start}, {"duration_seconds", 30.0}});
@@ -785,14 +859,8 @@ void MainWindow::removeChapter() {
     const auto removedId = values[row].toObject().value("id").toString();
     videoOrder_.removeAll(removedId);
     values.removeAt(row);
-    double start = 0;
-    for (int i = 0; i < values.size(); ++i) {
-        auto chapter = values[i].toObject();
-        chapter.insert("start_time_seconds", start);
-        start += chapter.value("duration_seconds").toDouble();
-        values[i] = chapter;
-    }
     project_.insert("chapters", values);
+    renumberChapters();
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
     QJsonArray cleanedSelected;
     for (const auto& v : selected) {
@@ -811,7 +879,7 @@ void MainWindow::applyChapterNames() {
     const auto sources = project_.value("audio_sources").toArray();
     for (int i = 0; i < values.size(); ++i) {
         auto chapter = values[i].toObject();
-        const int sourceIndex = chapter.value("chapter_number").toInt() - 1;
+        const int sourceIndex = audioSourceIndexForChapter(chapter);
         const auto source = sourceIndex >= 0 && sourceIndex < sources.size() ? sources[sourceIndex].toObject() : QJsonObject{};
         const auto name = source.value("display_name").toString();
         if (style == 0 && !name.isEmpty()) chapter.insert("title", name);
@@ -830,6 +898,12 @@ void MainWindow::applyChapterNames() {
 
 void MainWindow::exportFile(const QString& kind) {
     if (!hasProject_ || busy_) return;
+    const bool wordCaptions = kind == "captions-srt" || kind == "captions-vtt";
+    const QString captionFormat = kind == "captions-srt" ? "srt" : "vtt";
+    if (wordCaptions && !canExportWordCaptions()) {
+        fail("Word timing is unavailable or invalidated. Realign the transcript before exporting word captions.");
+        return;
+    }
     if (kind == "video") {
         syncVideoSelection();
         if (field({"video", "export_settings", "selected_chapter_ids"}).toArray().isEmpty() ||
@@ -839,7 +913,7 @@ void MainWindow::exportFile(const QString& kind) {
         }
     }
     const QString extension = kind == "audio" ? (field({"export_settings", "output_format"}).toString() == "aac" ? "m4a" : "mp3")
-        : kind == "video" ? "mp4" : kind;
+        : kind == "video" ? "mp4" : wordCaptions ? captionFormat : kind;
     const auto episodeTitle = field({"metadata", "episode_title"}).toString().trimmed();
     const auto defaultBase = episodeTitle.isEmpty() ? QStringLiteral("episode") : episodeTitle;
     const auto path = QFileDialog::getSaveFileName(this, "Export " + kind,
@@ -849,53 +923,184 @@ void MainWindow::exportFile(const QString& kind) {
     QStringList arguments;
     if (kind == "audio") arguments = {"export", "@payload", path};
     else if (kind == "video") arguments = {"export-video", "@payload", path};
+    else if (wordCaptions) arguments = {"export-captions", "@payload", path, captionFormat};
     else arguments = {"export-transcript", "@payload", path, kind};
     runEngine("Exporting " + kind + "…", arguments, [this](const QJsonValue& value) {
         setStatus("Exported " + QFileInfo(value.toObject().value("path").toString()).fileName() + ".");
     }, project_);
 }
+bool MainWindow::canExportWordCaptions() const {
+    if (!hasProject_ || !transcriptionAvailable_) return false;
+    bool hasWords = false;
+    for (const auto& value : project_.value("transcript_segments").toArray()) {
+        const auto segment = value.toObject();
+        if (segment.value("text").toString().trimmed().isEmpty()) continue;
+        const auto timing = segment.value("avid_core").toObject().value("timing_status").toString();
+        if (segment.value("words").toArray().isEmpty() || timing == "invalidated" || timing == "untimed") return false;
+        hasWords = true;
+    }
+    return hasWords;
+}
 void MainWindow::transcribe() {
-    if (!hasProject_ || provider_->currentIndex() < 0) return;
+    if (!hasProject_ || !transcriptionAvailable_ || provider_->currentIndex() < 0 || alignmentModel_->currentIndex() < 0) return;
     QStringList arguments = {"transcribe", "@payload", provider_->currentData().toString()};
     if (wordTimestamps_->isChecked()) arguments.append("--word-timestamps");
+    const auto language = transcriptionLanguage_->text().trimmed();
+    if (!language.isEmpty()) arguments << "--language" << language;
+    const auto alignment = alignmentModel_->currentData().toString();
+    if (!alignment.isEmpty()) arguments << "--alignment-model" << alignment;
     runEngine("Transcribing locally…", arguments, [this](const QJsonValue& result) {
+        if (!result.isArray()) { fail("The transcription engine returned invalid segments. The previous transcript was preserved."); return; }
         project_.insert("transcript_segments", result.toArray());
         loading_ = true;
         refreshSegments();
         loading_ = false;
         markDirty();
+        updateTranscriptionControls();
         setStatus("Transcription ready.");
     }, project_);
 }
-void MainWindow::refreshModels() {
-    runEngine("Loading local models…", {"models"}, [this](const QJsonValue& result) {
-        models_ = result.toArray();
-        modelList_->setRowCount(models_.size());
-        for (int row = 0; row < models_.size(); ++row) {
-            const auto model = models_[row].toObject();
-            modelList_->setItem(row, 0, new QTableWidgetItem(model.value("name").toString()));
-            modelList_->setItem(row, 1, new QTableWidgetItem(model.value("download_size").toString()));
-            modelList_->setItem(row, 2, new QTableWidgetItem(model.value("languages").toString()));
-            modelList_->setItem(row, 3, new QTableWidgetItem(model.value("installed").toBool() ? "Yes" : "No"));
+void MainWindow::realignTranscript() {
+    const auto model = alignmentModel_->currentData().toString();
+    if (!hasProject_ || !transcriptionAvailable_ || model.isEmpty() ||
+        project_.value("transcript_segments").toArray().isEmpty()) return;
+    QStringList arguments = {"realign", "@payload", model};
+    const auto language = transcriptionLanguage_->text().trimmed();
+    if (!language.isEmpty()) arguments << "--language" << language;
+    runEngine("Aligning edited text locally…", arguments, [this](const QJsonValue& result) {
+        if (!result.isArray()) { fail("The alignment engine returned invalid segments. The previous transcript was preserved."); return; }
+        project_.insert("transcript_segments", result.toArray());
+        loading_ = true;
+        refreshSegments();
+        loading_ = false;
+        markDirty();
+        updateTranscriptionControls();
+        setStatus("Alignment ready. Recognition text and speaker names were preserved.");
+    }, project_);
+}
+void MainWindow::setTranscriptionProviders(const QJsonArray& providers) {
+    const auto saved = field({"transcript_settings", "recognition_model_id"}).toString();
+    const auto selected = saved.isEmpty() ? provider_->currentData().toString() : saved;
+    providers_ = providers;
+    provider_->clear();
+    for (const auto& value : providers_) {
+        const auto entry = value.toObject();
+        provider_->addItem(entry.value("name").toString(), entry.value("id").toString());
+        provider_->setItemData(provider_->count() - 1, entry.value("detail").toString(), Qt::ToolTipRole);
+    }
+    const auto preferred = selected.isEmpty() ? QStringLiteral("whisper-large-v3") : selected;
+    provider_->setCurrentIndex(provider_->findData(preferred));
+    provider_->setPlaceholderText(preferred + " — install or select a recognizer");
+    if (!providers_.isEmpty()) transcriptionAvailable_ = true;
+    updateTranscriptionControls();
+}
+void MainWindow::applyTranscriptionStatus(const QJsonObject& status) {
+    transcriptionAvailable_ = status.value("available").toBool();
+    const auto reason = status.value("reason").toString();
+    transcriptionStatus_->setText(reason.isEmpty() && transcriptionAvailable_
+        ? "AVID Core: local inference; models are verified before use. Recognition and alignment languages may differ."
+        : reason);
+    if (!transcriptionAvailable_) {
+        setTranscriptionProviders({});
+        populateModels({});
+    }
+    updateTranscriptionControls();
+}
+void MainWindow::updateTranscriptionControls() {
+    if (!transcribeButton_) return;
+    updateTranscriptWarnings();
+    transcribeButton_->setEnabled(!busy_ && transcriptionAvailable_ && hasProject_ && provider_->currentIndex() >= 0 && alignmentModel_->currentIndex() >= 0);
+    realignButton_->setEnabled(!busy_ && transcriptionAvailable_ && hasProject_ &&
+        !alignmentModel_->currentData().toString().isEmpty() && !project_.value("transcript_segments").toArray().isEmpty());
+    if (wordCaptionSrtButton_) {
+        wordCaptionSrtButton_->setEnabled(!busy_ && canExportWordCaptions());
+        wordCaptionVttButton_->setEnabled(!busy_ && canExportWordCaptions());
+    }
+    const int row = modelList_->currentRow();
+    const bool selected = row >= 0 && row < models_.size();
+    const auto model = selected ? models_[row].toObject() : QJsonObject{};
+    downloadModelButton_->setEnabled(!busy_ && transcriptionAvailable_ && selected && model.value("download_allowed").toBool());
+    removeModelButton_->setEnabled(!busy_ && transcriptionAvailable_ && selected && model.value("installed").toBool());
+    importModelButton_->setEnabled(!busy_ && transcriptionAvailable_ && selected);
+}
+void MainWindow::populateModels(const QJsonArray& models) {
+    const auto savedAlignment = field({"transcript_settings", "alignment_model_id"});
+    const auto previousAlignment = savedAlignment.isString() ? savedAlignment.toString() : alignmentModel_->currentData().toString();
+    models_ = models;
+    alignmentModel_->clear();
+    alignmentModel_->addItem("Native timing / no extra alignment", "");
+    modelList_->setRowCount(models_.size());
+    for (int row = 0; row < models_.size(); ++row) {
+        const auto model = models_[row].toObject();
+        const auto joined = [](const QJsonArray& values) {
+            QStringList list;
+            for (const auto& value : values) list.append(value.toString());
+            return list.join(", ");
+        };
+        const auto recognition = joined(model.value("recognition_languages").toArray());
+        const auto timing = joined(model.value("timing_languages").toArray());
+        const auto license = model.value("license").toObject();
+        const QStringList columns = {
+            model.value("name").toString() + (model.value("is_default").toBool() ? " (quality default)" : ""),
+            model.value("download_size").toString(),
+            model.value("role").toString(),
+            recognition.isEmpty() ? "—" : recognition,
+            timing.isEmpty() ? "None" : timing,
+            license.value("identifier").toString(),
+            model.value("installed").toBool() ? "Present; verified before use" : "Missing"
+        };
+        const auto detail = model.value("description").toString() + "\n" + license.value("notice").toString() +
+            "\n" + license.value("url").toString() + "\nRevision: " + model.value("revision").toString();
+        for (int column = 0; column < columns.size(); ++column) {
+            auto* item = new QTableWidgetItem(columns[column]);
+            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            item->setToolTip(detail);
+            modelList_->setItem(row, column, item);
         }
-        setStatus("Select a model to download or remove.");
+        if (model.value("role") == "aligner" && model.value("installed").toBool()) {
+            alignmentModel_->addItem(model.value("name").toString(), model.value("id").toString());
+            alignmentModel_->setItemData(alignmentModel_->count() - 1, "Alignment languages: " + timing, Qt::ToolTipRole);
+        }
+    }
+    const auto previous = alignmentModel_->findData(previousAlignment);
+    alignmentModel_->setCurrentIndex(previous);
+    updateTranscriptionControls();
+}
+void MainWindow::refreshModels() {
+    runEngine("Checking transcription support…", {"transcription-status"}, [this](const QJsonValue& status) {
+        applyTranscriptionStatus(status.toObject());
+        if (!transcriptionAvailable_) return;
+        runEngine("Loading shared AVID models…", {"models"}, [this](const QJsonValue& result) {
+            populateModels(result.toArray());
+            runEngine("Refreshing installed recognizers…", {"providers"}, [this](const QJsonValue& providers) {
+                setTranscriptionProviders(providers.toArray());
+                setStatus("Select a catalog model to download, import, or remove from the shared cache.");
+            });
+        });
     });
 }
 void MainWindow::changeModel(bool remove) {
     const int row = modelList_->currentRow();
     if (row < 0 || row >= models_.size()) return;
     const auto model = models_[row].toObject();
-    if (!remove && !model.value("download_allowed").toBool()) { fail("This compatible model is managed by another application."); return; }
+    if (!transcriptionAvailable_) return;
+    if (!remove && !model.value("download_allowed").toBool()) return;
+    if (remove && QMessageBox::question(this, "Remove shared AVID model?",
+        "This removes the managed model from the shared AVID cache used by other AVID applications. Original import folders and legacy models are preserved.") != QMessageBox::Yes) return;
     runEngine(remove ? "Removing model…" : "Downloading and verifying model…",
               {remove ? "remove-model" : "install-model", model.value("id").toString()},
               [this](const QJsonValue&) {
-        runEngine("Refreshing providers…", {"providers"}, [this](const QJsonValue& result) {
-            providers_ = result.toArray();
-            provider_->clear();
-            for (const auto& value : providers_) provider_->addItem(value.toObject().value("name").toString(), value.toObject().value("id"));
-            refreshModels();
-        });
+        refreshModels();
     });
+}
+void MainWindow::importModel() {
+    const int row = modelList_->currentRow();
+    if (!transcriptionAvailable_ || row < 0 || row >= models_.size()) return;
+    const auto path = QFileDialog::getExistingDirectory(this, "Import exact catalog model folder");
+    if (path.isEmpty()) return;
+    runEngine("Verifying and importing model into the shared AVID cache…",
+        {"import-model", models_[row].toObject().value("id").toString(), path},
+        [this](const QJsonValue&) { refreshModels(); });
 }
 void MainWindow::syncVideoSelection() {
     if (loading_ || !hasProject_) return;
@@ -1222,16 +1427,11 @@ QWidget* MainWindow::buildAudioPage() {
             chapters_->item(row, column)->setText(QString::number(clamped, 'f', 2));
         }
         list[row] = chapter;
-        if (column == 3) {
-            double start = 0;
-            for (int i = 0; i < list.size(); ++i) {
-                auto entry = list[i].toObject();
-                entry.insert("start_time_seconds", start);
-                start += entry.value("duration_seconds").toDouble();
-                list[i] = entry;
-            }
-        }
         project_.insert("chapters", list);
+        if (column == 3) {
+            renumberChapters();
+            refreshChapters();
+        }
         markDirty();
         refreshVideo();
     });
@@ -1245,11 +1445,11 @@ void MainWindow::syncAudioBitrateOptions(bool markProjectDirty) {
     if (format == "aac" && channels == 1) {
         allowed = {"48k", "64k", "80k", "96k", "128k", "160k"};
     } else if (format == "aac") {
-        allowed = {"96k", "128k", "160k", "192k", "256k", "320k"};
+        allowed = {"64k", "96k", "128k", "160k", "192k", "256k", "320k"};
     } else if (channels == 1) {
         allowed = {"64k", "80k", "96k", "112k", "128k", "160k"};
     } else {
-        allowed = {"128k", "160k", "192k", "224k", "256k", "320k"};
+        allowed = {"96k", "128k", "160k", "192k", "224k", "256k", "320k"};
     }
     const auto settings = project_.value("export_settings").toObject();
     QString selected = markProjectDirty
@@ -1282,22 +1482,56 @@ QWidget* MainWindow::buildTranscriptPage() {
     layout->addWidget(new QLabel("Transcript"));
     provider_ = new QComboBox;
     provider_->setAccessibleName("Local transcription engine");
+    provider_->setToolTip("Installed AVID Core recognizer. Full Whisper large-v3 is the quality default.");
+    alignmentModel_ = new QComboBox;
+    alignmentModel_->setAccessibleName("Optional alignment model");
+    alignmentModel_->setPlaceholderText("Selected alignment model missing — install or select another");
+    alignmentModel_->addItem("Native timing / no extra alignment", "");
+    alignmentModel_->setToolTip("Alignment has a separate language contract. Qwen recognition alone has no word timing.");
+    transcriptionLanguage_ = new QLineEdit;
+    transcriptionLanguage_->setPlaceholderText("Automatic language");
+    transcriptionLanguage_->setAccessibleName("Transcription and alignment language");
+    transcriptionLanguage_->setToolTip("Optional language code, for example en or pt-BR. Unsupported recognition or alignment languages are rejected explicitly.");
+    transcriptionLanguage_->setMaximumWidth(190);
     wordTimestamps_ = new QCheckBox("Word timestamps");
-    layout->addWidget(row({provider_, button("Transcribe Locally", [this] { transcribe(); }),
+    transcribeButton_ = button("Transcribe Locally", [this] { transcribe(); });
+    realignButton_ = button("Realign Edited Text", [this] { realignTranscript(); });
+    realignButton_->setToolTip("Align existing edited text without running recognition again. Requires a source-linked AVID transcript and an installed aligner.");
+    layout->addWidget(row({provider_, transcribeButton_,
                            button("Refresh Models", [this] { refreshModels(); }), wordTimestamps_,
                            button("Export Text…", [this] { exportFile("txt"); }),
                            button("Export SRT…", [this] { exportFile("srt"); })}));
+    layout->addWidget(row({alignmentModel_, transcriptionLanguage_, realignButton_}));
+    wordCaptionSrtButton_ = button("Word Captions SRT…", [this] { exportFile("captions-srt"); });
+    wordCaptionVttButton_ = button("Word Captions WebVTT…", [this] { exportFile("captions-vtt"); });
+    for (auto* control : {wordCaptionSrtButton_, wordCaptionVttButton_})
+        control->setToolTip("Group verified word timing with AVID Core. Exports subtitle cues; does not animate or burn captions into video.");
+    layout->addWidget(row({wordCaptionSrtButton_, wordCaptionVttButton_}));
+    transcriptionStatus_ = new QLabel("AVID Core transcription requires Apple silicon and macOS 14 or later. Refresh Models to check the packaged runtime. Existing transcripts remain editable on all platforms.");
+    transcriptionStatus_->setWordWrap(true);
+    transcriptionStatus_->setAccessibleName("Transcription availability");
+    layout->addWidget(transcriptionStatus_);
+    transcriptWarning_ = new QLabel;
+    transcriptWarning_->setTextFormat(Qt::PlainText);
+    transcriptWarning_->setWordWrap(true);
+    transcriptWarning_->setAccessibleName("Transcript reconciliation warning");
+    transcriptWarning_->setVisible(false);
+    layout->addWidget(transcriptWarning_);
     auto* models = new QGroupBox("Local transcription models");
     auto* modelLayout = new QVBoxLayout(models);
-    modelLayout->addWidget(new QLabel("Models use the existing verified local model catalog."));
-    modelList_ = new QTableWidget(0, 4);
-    modelList_->setHorizontalHeaderLabels({"Model", "Size", "Languages", "Installed"});
+    auto* modelDescription = new QLabel("AVID Core owns the shared verified cache. Downloads are anonymous; inference stays local. Import requires exact catalog files and hashes. Legacy GGML models and third-party caches are preserved.");
+    modelDescription->setWordWrap(true);
+    modelLayout->addWidget(modelDescription);
+    modelList_ = new QTableWidget(0, 7);
+    modelList_->setHorizontalHeaderLabels({"Model", "Download bytes", "Role", "Recognition languages", "Timing languages", "License", "Installation"});
     modelList_->horizontalHeader()->setStretchLastSection(true);
     modelList_->setSelectionBehavior(QAbstractItemView::SelectRows);
     modelList_->setAccessibleName("Local models");
     modelLayout->addWidget(modelList_);
-    modelLayout->addWidget(row({button("Download Selected", [this] { changeModel(false); }),
-                                button("Remove Selected", [this] { changeModel(true); })}));
+    downloadModelButton_ = button("Download Selected", [this] { changeModel(false); });
+    removeModelButton_ = button("Remove Selected", [this] { changeModel(true); });
+    importModelButton_ = button("Import Selected…", [this] { importModel(); });
+    modelLayout->addWidget(row({downloadModelButton_, importModelButton_, removeModelButton_}));
     layout->addWidget(models);
     layout->addWidget(new QLabel("Segments"));
     segments_ = new QTableWidget(0, 2);
@@ -1306,16 +1540,44 @@ QWidget* MainWindow::buildTranscriptPage() {
     segments_->setAccessibleName("Transcript segments");
     layout->addWidget(segments_, 1);
     connect(wordTimestamps_, &QCheckBox::toggled, this, [this](bool value) { setField({"transcript_settings", "include_word_timestamps"}, value); });
+    connect(alignmentModel_, &QComboBox::currentIndexChanged, this, [this] { updateTranscriptionControls(); });
+    connect(provider_, &QComboBox::currentIndexChanged, this, [this] { updateTranscriptionControls(); });
+    connect(provider_, &QComboBox::activated, this, [this] {
+        setField({"transcript_settings", "recognition_model_id"}, provider_->currentData().toString());
+    });
+    connect(alignmentModel_, &QComboBox::activated, this, [this] {
+        const auto selected = alignmentModel_->currentData().toString();
+        setField({"transcript_settings", "alignment_model_id"}, selected.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(selected));
+    });
+    connect(transcriptionLanguage_, &QLineEdit::textEdited, this, [this](const QString& text) {
+        const auto language = text.trimmed();
+        setField({"transcript_settings", "language"}, language.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(language));
+    });
+    connect(modelList_, &QTableWidget::itemSelectionChanged, this, [this] { updateTranscriptionControls(); });
     connect(segments_, &QTableWidget::cellChanged, this, [this](int row, int column) {
         if (loading_ || !hasProject_) return;
         auto values = project_.value("transcript_segments").toArray();
         if (row >= values.size()) return;
         auto segment = values[row].toObject();
-        segment.insert(column == 0 ? "speaker" : "text", segments_->item(row, column)->text());
+        const auto key = column == 0 ? "speaker" : "text";
+        const auto text = segments_->item(row, column)->text();
+        if (segment.value(key).toString() == text) return;
+        segment.insert(key, text);
+        if (column == 1) {
+            segment.remove("words");
+            if (segment.value("avid_core").isObject()) {
+                auto provenance = segment.value("avid_core").toObject();
+                if (provenance.value("timing_status") != "untimed")
+                    provenance.insert("timing_status", "invalidated");
+                segment.insert("avid_core", provenance);
+            }
+        }
         values[row] = segment;
         project_.insert("transcript_segments", values);
         markDirty();
+        updateTranscriptionControls();
     });
+    updateTranscriptionControls();
     return page;
 }
 
@@ -1566,7 +1828,7 @@ void MainWindow::togglePlayback() {
                 seekPlayback(0, true);
                 return;
             }
-            const int source = chapter.value("chapter_number").toInt() - 1;
+            const int source = audioSourceIndexForChapter(chapter);
             const auto sources = project_.value("audio_sources").toArray();
             if (source < 0 || source >= sources.size()) { fail("Chapter refers to a missing recording."); return; }
             const auto path = sources[source].toObject().value("source_path").toString();
@@ -1600,7 +1862,7 @@ void MainWindow::seekPlayback(double seconds, bool play) {
         if (seconds >= start + duration && index + 1 < selected.size()) { start += duration; continue; }
         previewIndex_ = index;
         const auto sources = project_.value("audio_sources").toArray();
-        const int source = chapter.value("chapter_number").toInt() - 1;
+        const int source = audioSourceIndexForChapter(chapter);
         if (source < 0 || source >= sources.size()) return;
         const auto path = sources[source].toObject().value("source_path").toString();
         const bool resume = play || encap_audio_playing();

@@ -24,7 +24,7 @@ struct ContentView: View {
                     VideoView(store: store, sidebarVisibility: $videoSidebarVisibility)
                 }
             }
-            .disabled(store.isWorking)
+            .disabled(store.isWorking && store.workspace != .transcript)
 
             Divider()
             HStack(spacing: 8) {

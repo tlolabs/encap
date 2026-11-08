@@ -18,7 +18,10 @@ pub fn export(
 ) -> Result<PathBuf> {
     validate_export(project, destination)?;
     let tools = MediaTools::discover_with_cancellation(cancellation)?;
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let parent = match destination.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
     fs::create_dir_all(parent).map_err(|source| EncapError::Write {
         path: parent.to_path_buf(),
         source,

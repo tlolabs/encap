@@ -891,11 +891,11 @@ fn real_ffmpeg_cancellation_reaps_child() {
 }
 
 #[test]
-#[ignore = "requires packaged Whisper and the checksum-verified Base English model"]
-fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
+#[ignore = "requires the packaged AVID helper and an installed verified shared model"]
+fn transcript_mode_uses_packaged_avid_core() {
     let h = Harness::new();
     let speech = PathBuf::from(
-        std::env::var_os("ENCAP_TEST_SPEECH").expect("pinned Whisper speech fixture"),
+        std::env::var_os("ENCAP_TEST_SPEECH").expect("local qualification speech fixture"),
     );
     let input = h.root.path().join("speech");
     fs::create_dir(&input).unwrap();
@@ -913,8 +913,17 @@ fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
     ]);
     let mut project = h.engine(&[s("inspect"), input.as_os_str()], true);
     let payload = h.write(&project);
+    let model = std::env::var("ENCAP_TEST_TRANSCRIPTION_MODEL")
+        .unwrap_or_else(|_| "whisper-large-v3".into());
     let result = h.engine(
-        &[s("transcribe"), payload.as_os_str(), s("whisper-base-en")],
+        &[
+            s("transcribe"),
+            payload.as_os_str(),
+            s(&model),
+            s("--word-timestamps"),
+            s("--language"),
+            s("en"),
+        ],
         true,
     );
     let segments = result.as_array().expect("transcript segment array");
@@ -926,7 +935,7 @@ fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
         .join(" ")
         .to_lowercase();
     assert!(
-        text.contains("country"),
+        text.contains("transcription"),
         "unexpected speech recognition: {text}"
     );
     project["transcript_segments"] = result;
@@ -945,6 +954,6 @@ fn transcript_mode_uses_packaged_ffmpeg_and_real_whisper() {
         assert!(fs::read_to_string(output)
             .unwrap()
             .to_lowercase()
-            .contains("country"));
+            .contains("transcription"));
     }
 }

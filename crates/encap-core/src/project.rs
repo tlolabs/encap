@@ -137,12 +137,27 @@ pub fn save_project_cancellable(
         .as_deref()
         .and_then(|value| serde_json::from_str::<CompatibilityPayload>(value).ok())
         .unwrap_or_default();
-    let target = if requested_path.extension().and_then(|value| value.to_str()) == Some("encap") {
+    let target = if requested_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("encap"))
+        .unwrap_or(false)
+    {
         requested_path.to_path_buf()
     } else {
-        requested_path.with_extension("encap")
+        match requested_path.file_name() {
+            Some(file_name) => {
+                let mut name = file_name.to_os_string();
+                name.push(".encap");
+                requested_path.with_file_name(name)
+            }
+            None => requested_path.with_extension("encap"),
+        }
     };
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let parent = match target.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
     fs::create_dir_all(parent).map_err(|source| EncapError::Write {
         path: parent.to_path_buf(),
         source,
@@ -200,11 +215,18 @@ pub fn save_project_cancellable(
             } else {
                 preserved.audio_sources_by_name.get(&source.display_name)
             };
+            let mut extensions = merged_extensions(preserved_audio, &source.extensions);
+            // Pin the source identity before its media receives a portable
+            // archive path. Later extraction directories must not change it.
+            extensions.insert(
+                "avid_source_id".into(),
+                Value::String(source.transcription_source_id()),
+            );
             audio_records.push(ManifestAudio {
                 display_name: source.display_name.clone(),
                 duration_seconds: source.duration_seconds,
                 stored_path: stored,
-                extensions: merged_extensions(preserved_audio, &source.extensions),
+                extensions,
             });
         }
         let artwork_stored_path = if let Some(path) = &project.metadata.artwork_path {
@@ -313,6 +335,14 @@ pub fn save_project_cancellable(
         let json = serde_json::to_vec_pretty(&manifest)?;
         incremental::write_archive(&staged, &json, &media, previous.as_ref(), cancelled)?;
     }
+    // Apply the reader's archive limits before replacing a known-good save.
+    // Transcript provenance/history can grow beyond the manifest cap, and
+    // individually valid sources can exceed the entry or aggregate size caps.
+    let staged_file = File::open(&staged).map_err(|source| EncapError::Read {
+        path: staged.clone(),
+        source,
+    })?;
+    preflight(&mut zip::ZipArchive::new(staged_file)?)?;
     check_cancelled(cancelled).map_err(|error| EncapError::Message(error.to_string()))?;
     replace_staged_file(&staged, &target)?;
     incremental::SaveCache::record(&target, media.files);
@@ -594,13 +624,15 @@ fn load_manifest(root: &Path, project_path: &Path) -> Result<ProjectDocument> {
             ));
         }
         let source_path = resolve(&item.stored_path)?;
-        audio_sources.push(AudioSource {
+        let mut source = AudioSource {
             source_path,
             display_name: item.display_name,
             duration_seconds: item.duration_seconds,
             stored_path: Some(item.stored_path),
             extensions: item.extensions,
-        });
+        };
+        source.ensure_transcription_source_id();
+        audio_sources.push(source);
     }
     let artwork_path = manifest
         .metadata
@@ -814,6 +846,24 @@ mod tests {
     use std::io::Write;
 
     #[test]
+    fn oversized_manifest_cannot_replace_a_readable_project() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("project.encap");
+        let mut project = ProjectDocument::default();
+        save_project(&project, &target).unwrap();
+        let original = fs::read(&target).unwrap();
+        // Opaque provenance and retained edit history can grow beyond the
+        // loader's manifest cap even when all typed project fields are valid.
+        project.extensions.insert(
+            "future_history".into(),
+            Value::String("x".repeat(MAX_MANIFEST as usize)),
+        );
+        assert!(save_project(&project, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), original);
+        load_project(&target, Some(temp.path())).unwrap();
+    }
+
+    #[test]
     fn saves_and_loads_schema_one_compatible_project() {
         let temp = tempfile::tempdir().unwrap();
         let media = temp.path().join("part.wav");
@@ -848,6 +898,57 @@ mod tests {
             fs::read(&loaded.audio_sources[0].source_path).unwrap(),
             b"audio"
         );
+    }
+
+    #[test]
+    fn save_project_preserves_dots_in_filenames() {
+        let temp = tempfile::tempdir().unwrap();
+        let media = temp.path().join("part.wav");
+        fs::write(&media, b"audio").unwrap();
+        let mut project = ProjectDocument {
+            project_title: "Show 1.5".into(),
+            ..ProjectDocument::default()
+        };
+        project.audio_sources.push(AudioSource {
+            source_path: media,
+            display_name: "Part".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        let target = save_project(&project, &temp.path().join("Show 1.5")).unwrap();
+        assert_eq!(target, temp.path().join("Show 1.5.encap"));
+        assert!(target.exists());
+
+        let target2 =
+            save_project(&project, &temp.path().join("Interview - Dr. Smith.encap")).unwrap();
+        assert_eq!(target2, temp.path().join("Interview - Dr. Smith.encap"));
+        assert!(target2.exists());
+    }
+
+    #[test]
+    fn save_project_supports_bare_relative_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let media = temp.path().join("part.wav");
+        fs::write(&media, b"audio").unwrap();
+        let mut project = ProjectDocument {
+            project_title: "Bare".into(),
+            ..ProjectDocument::default()
+        };
+        project.audio_sources.push(AudioSource {
+            source_path: media,
+            display_name: "Part".into(),
+            duration_seconds: 1.0,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        });
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let bare_target = PathBuf::from(format!(".test-bare-{id}"));
+        let target = save_project(&project, &bare_target).unwrap();
+        let expected = PathBuf::from(format!(".test-bare-{id}.encap"));
+        assert_eq!(target, expected);
+        assert!(target.exists());
+        let _ = fs::remove_file(target);
     }
 
     #[test]

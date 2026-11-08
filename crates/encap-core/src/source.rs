@@ -95,6 +95,12 @@ pub fn inspect_source(path: &Path) -> Result<f64> {
         )));
     }
     let frames = format.data_bytes / u64::from(format.block_align);
+    if frames == 0 {
+        return Err(EncapError::UnsupportedAudio(format!(
+            "{} contains no audio samples.",
+            path.display()
+        )));
+    }
     Ok(frames as f64 / f64::from(format.sample_rate))
 }
 
@@ -123,13 +129,17 @@ pub fn inspect_files(paths: &[PathBuf]) -> Result<ProjectDocument> {
             .and_then(|value| value.to_str())
             .unwrap_or("Audio")
             .to_string();
-        sources.push(AudioSource {
+        let mut source = AudioSource {
             source_path: path.clone(),
             display_name: name.clone(),
             duration_seconds: duration,
             stored_path: None,
-            extensions: BTreeMap::new(),
-        });
+            // Each import is a distinct source instance. Reimporting an
+            // original after opening an embedded copy must not reuse its ID.
+            extensions: BTreeMap::from([("avid_source_id".into(), new_id().into())]),
+        };
+        source.ensure_transcription_source_id();
+        sources.push(source);
         chapters.push(Chapter {
             id: new_id(),
             start_time_seconds: position,
@@ -647,6 +657,10 @@ mod performance_regressions {
         chunk(&mut out, b"data", &[0], true);
         out.pop(); // missing odd-chunk pad
         assert!(inspect(&out).is_err());
+        let mut empty_data = b"RIFF\0\0\0\0WAVE".to_vec();
+        chunk(&mut empty_data, b"fmt ", &fmt, true);
+        chunk(&mut empty_data, b"data", &[], true);
+        assert!(inspect(&empty_data).is_err());
     }
     #[test]
     fn aifc_supported_encodings_preserve_offsets_frames_and_previews() {

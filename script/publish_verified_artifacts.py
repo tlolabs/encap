@@ -92,6 +92,45 @@ def verify_package(path, version, target):
                 raise ValueError(f"{path.name}: wrong packaged update identity")
 
 
+def verify_transcription_qualification(path, target):
+    """Only a functionally verified target may publish after backend replacement.
+
+    This condition is local to this artifact. It does not hold other targets,
+    development, or commits for an unavailable platform or a failed diagnostic.
+    """
+    if target.startswith("linux-"):
+        raise ValueError("Linux shared transcription is unverified; extend AVID Core or obtain an explicit owner support-policy decision before publishing this target")
+    with zipfile.ZipFile(path) as archive:
+        prefix = "EnCap.app/Contents/" if target.startswith("macos-") else ""
+        report_path = prefix + "Resources/transcription-qualification.json" if prefix else "transcription-qualification.json"
+        if report_path not in archive.namelist():
+            raise ValueError("Missing packaged transcription qualification; do not publish an unverified target")
+        report = json.loads(archive.read(report_path))
+        if report.get("schema") != 1 or report.get("status") != "passed":
+            raise ValueError("Packaged shared transcription is not verified on this target: " + str(report.get("reason", report.get("error", report.get("status")))))
+        if report.get("target") != target:
+            raise ValueError("Transcription qualification belongs to another target")
+        binary_prefix = prefix + "MacOS/" if prefix else ""
+        engine_name = binary_prefix + "encap-engine" + (".exe" if target.startswith("windows-") else "")
+        if hashlib.sha256(archive.read(engine_name)).hexdigest() != report.get("engine_sha256"):
+            raise ValueError("Transcription qualification belongs to another engine binary")
+        files = report.get("runtime_files", {})
+        helper_name = "MacOS/avid-transcriber" if prefix else "avid-transcriber"
+        if not isinstance(files, dict) or helper_name not in files:
+            raise ValueError("Qualification did not identify the actual shared helper")
+        if not any(name.endswith("models.json") for name in files) or not any(name.endswith(".metallib") for name in files):
+            raise ValueError("Qualification is missing shared catalog/Metal resources")
+        for name, digest in files.items():
+            if Path(name).is_absolute() or ".." in Path(name).parts:
+                raise ValueError("Invalid qualified runtime path")
+            try:
+                actual = hashlib.sha256(archive.read(prefix + name)).hexdigest()
+            except KeyError as error:
+                raise ValueError("Qualified runtime resource is missing: " + name) from error
+            if actual != digest:
+                raise ValueError("Qualified runtime resource changed: " + name)
+
+
 def release_info(tag):
     result = run("gh", "release", "view", tag, "--repo", REPOSITORY,
                  "--json", "isDraft,isPrerelease,assets", check=False, capture=True)
@@ -104,6 +143,22 @@ def same_remote_asset(tag, filename, expected_hash):
                      "--pattern", filename, "--dir", temporary, check=False)
         downloaded = Path(temporary) / filename
         return result.returncode == 0 and downloaded.is_file() and sha256(downloaded) == expected_hash
+
+
+def verify_stable_tag(tag, sha):
+    """Bind a stable release to the verified commit, including annotated tags."""
+    response = run("gh", "api", f"repos/{REPOSITORY}/git/ref/tags/{tag}", capture=True)
+    obj = json.loads(response.stdout).get("object", {})
+    for _ in range(8):
+        if obj.get("type") == "commit":
+            if obj.get("sha") != sha:
+                raise RuntimeError(f"Stable tag {tag} does not point to verified source {sha}")
+            return
+        if obj.get("type") != "tag" or not re.fullmatch(r"[0-9a-f]{40}", obj.get("sha", "")):
+            break
+        response = run("gh", "api", f"repos/{REPOSITORY}/git/tags/{obj['sha']}", capture=True)
+        obj = json.loads(response.stdout).get("object", {})
+    raise RuntimeError(f"Stable tag {tag} does not resolve to a verified commit")
 
 
 def ensure_release(tag, sha, prerelease):
@@ -120,6 +175,12 @@ def ensure_release(tag, sha, prerelease):
         if json.loads(tag_ref.stdout)["object"]["sha"] != sha:
             raise RuntimeError(f"Development tag {tag} points to another revision")
     info = release_info(tag)
+    if info is not None and info["isPrerelease"] != prerelease:
+        raise RuntimeError(f"Release {tag} is missing or has the wrong channel")
+    if not prerelease:
+        # --verify-tag only checks existence, not which source it identifies.
+        # Reject version reuse before creating a release or uploading any asset.
+        verify_stable_tag(tag, sha)
     if info is None:
         args = ["gh", "release", "create", tag, "--repo", REPOSITORY,
                 "--draft", "--title", tag, "--generate-notes"]
@@ -319,6 +380,7 @@ def publish(ref, sha, target, directory, source_version=None):
     if not path.is_file():
         raise ValueError(f"Expected verified {target} artifact {path.name} in {directory}")
     verify_package(path, version, target)
+    verify_transcription_qualification(path, target)
     digest = sha256(path)
     checksum = directory / f"{path.name}.sha256"
     checksum.write_text(f"{digest}  {path.name}\n")

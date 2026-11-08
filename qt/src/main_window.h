@@ -41,6 +41,7 @@ protected:
 
 private:
     friend class MainWindowPerformanceTest;
+    friend class MainWindowUiTest;
     using Result = std::function<void(const QJsonValue&)>;
     void buildUi();
     QWidget* buildAudioPage();
@@ -72,13 +73,24 @@ private:
     void saveProject(bool saveAs = false, std::function<void(bool)> completed = {});
     void switchMode(int index);
     void chooseArtwork(bool chapter);
+    int audioSourceIndexAt(double timestamp) const;
+    int audioSourceIndexForChapter(const QJsonObject& chapter) const;
+    void renumberChapters();
     void addChapter();
     void removeChapter();
     void applyChapterNames();
     void exportFile(const QString& kind);
+    bool canExportWordCaptions() const;
     void transcribe();
+    void realignTranscript();
     void refreshModels();
     void changeModel(bool remove);
+    void importModel();
+    void setTranscriptionProviders(const QJsonArray& providers);
+    void applyTranscriptionStatus(const QJsonObject& status);
+    void updateTranscriptionControls();
+    void updateTranscriptWarnings();
+    void populateModels(const QJsonArray& models);
     void syncVideoSelection();
     void syncAudioBitrateOptions(bool markProjectDirty);
     void moveVideo(int delta);
@@ -144,6 +156,18 @@ private:
     QComboBox* naming_ = nullptr;
     QTableWidget* chapters_ = nullptr;
     QComboBox* provider_ = nullptr;
+    QComboBox* alignmentModel_ = nullptr;
+    QLineEdit* transcriptionLanguage_ = nullptr;
+    QLabel* transcriptionStatus_ = nullptr;
+    QLabel* transcriptWarning_ = nullptr;
+    QPushButton* transcribeButton_ = nullptr;
+    QPushButton* realignButton_ = nullptr;
+    QPushButton* wordCaptionSrtButton_ = nullptr;
+    QPushButton* wordCaptionVttButton_ = nullptr;
+    QPushButton* downloadModelButton_ = nullptr;
+    QPushButton* removeModelButton_ = nullptr;
+    QPushButton* importModelButton_ = nullptr;
+    bool transcriptionAvailable_ = false;
     QCheckBox* wordTimestamps_ = nullptr;
     QTableWidget* segments_ = nullptr;
     QTableWidget* modelList_ = nullptr;

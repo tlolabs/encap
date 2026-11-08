@@ -12,6 +12,31 @@
 EngineClient::EngineClient(const QString& executable, const QString& recoveryPath, QObject* parent)
     : QObject(parent), executable_(executable), recoveryPath_(recoveryPath) {}
 
+void EngineClient::drainDiagnostics(QProcess* process, bool finished) {
+    pendingDiagnostics_.append(process->readAllStandardError());
+    while (pendingDiagnostics_.contains('\n') || (finished && !pendingDiagnostics_.isEmpty())) {
+        const auto end = pendingDiagnostics_.indexOf('\n');
+        const auto line = end >= 0 ? pendingDiagnostics_.left(end) : pendingDiagnostics_;
+        pendingDiagnostics_.remove(0, end >= 0 ? end + 1 : pendingDiagnostics_.size());
+        const auto value = QJsonDocument::fromJson(line);
+        if (!discardingDiagnosticLine_ && value.isObject() && value.object().value("event") == "progress") {
+            emit transcriptionProgress(value.object());
+        } else {
+            diagnostics_.append(QString::fromUtf8(line) + '\n');
+            // Retain useful bounded diagnostics even if a backend is unusually verbose.
+            if (diagnostics_.size() > 1024 * 1024) diagnostics_ = diagnostics_.right(1024 * 1024);
+        }
+        discardingDiagnosticLine_ = false;
+    }
+    // An SDK may write an arbitrarily long line without a newline. Bound that
+    // partial line too, and never interpret its truncated suffix as an event.
+    constexpr qsizetype limit = 1024 * 1024;
+    if (pendingDiagnostics_.size() > limit) {
+        pendingDiagnostics_ = pendingDiagnostics_.right(limit);
+        discardingDiagnosticLine_ = true;
+    }
+}
+
 QJsonValue EngineClient::parseResponse(const QByteArray& output, QString* error) {
     QJsonParseError parseError;
     const auto json = QJsonDocument::fromJson(output, &parseError);
@@ -42,6 +67,9 @@ void EngineClient::run(const QStringList& arguments, Completion completed) {
         return;
     }
     unsupportedStartup_ = false;
+    pendingDiagnostics_.clear();
+    discardingDiagnosticLine_ = false;
+    diagnostics_.clear();
     completed_ = std::move(completed);
     process_ = new QProcess(this);
     process_->setProgram(executable_);
@@ -50,17 +78,23 @@ void EngineClient::run(const QStringList& arguments, Completion completed) {
     environment.insert("ENCAP_RECOVERY_PATH", recoveryPath_);
     process_->setProcessEnvironment(environment);
     auto* active = process_;
+    connect(active, &QProcess::readyReadStandardError, this, [this, active] {
+        if (process_ == active) drainDiagnostics(active);
+    });
     connect(active, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, active, arguments](int code, QProcess::ExitStatus status) {
         if (process_ != active) return;
         auto* finished = active;
         const QByteArray output = finished->readAllStandardOutput();
-        const QString diagnostics = QString::fromUtf8(finished->readAllStandardError()).trimmed();
+        drainDiagnostics(finished, true);
+        const QString diagnostics = diagnostics_.trimmed();
         unsupportedStartup_ = arguments == QStringList{"startup"} && isUnsupportedStartup(code, status, diagnostics);
         QString error;
         QJsonValue result = parseResponse(output, &error);
         if (status != QProcess::NormalExit || code != 0) {
-            if (!diagnostics.isEmpty()) error = diagnostics;
+            if (result.isObject() && result.toObject().value("error").isString()) {
+                error = result.toObject().value("error").toString();
+            } else if (!diagnostics.isEmpty()) error = diagnostics;
             else if (error.isEmpty()) error = QStringLiteral("The EnCap engine failed or was cancelled.");
         }
         process_ = nullptr;
@@ -103,7 +137,11 @@ void EngineClient::runWithPayload(const QStringList& arguments, const QJsonValue
         return;
     }
     QStringList expanded = arguments;
-    expanded.replaceInStrings(QStringLiteral("@payload"), payload_->fileName());
+    // Only the protocol placeholder is substituted. User paths may legally
+    // contain @payload and must reach the engine unchanged.
+    for (auto& argument : expanded) {
+        if (argument == QStringLiteral("@payload")) argument = payload_->fileName();
+    }
     run(expanded, std::move(completed));
 }
 
@@ -126,7 +164,9 @@ void EngineClient::shutdown() {
     cancel();
     process_ = nullptr;
     completed_ = {};
-    if (!active->waitForFinished(1000)) {
+    // The engine allows its owned AVID child up to 15 seconds for cooperative
+    // cancellation/Metal cleanup before forcing exit. Let that cleanup complete.
+    if (!active->waitForFinished(17000)) {
         active->kill();
         active->waitForFinished(1000);
     }

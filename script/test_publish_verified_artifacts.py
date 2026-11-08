@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression checks for independent, source-bound direct-download releases."""
 import json
+import hashlib
 import plistlib
 import tempfile
 import unittest
@@ -35,6 +36,12 @@ class PublicationTests(unittest.TestCase):
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr(base + "Info.plist", plistlib.dumps(info))
             archive.writestr(base + "Resources/update-config.json", json.dumps(identity))
+            runtime_files = {"MacOS/avid-transcriber": b"helper", "Resources/core.bundle/models.json": b"catalog", "Resources/mlx.bundle/default.metallib": b"metal"}
+            report = dict(schema=1, target=target, status="passed", engine_sha256=hashlib.sha256(b"binary").hexdigest(),
+                          runtime_files={name: hashlib.sha256(value).hexdigest() for name, value in runtime_files.items()})
+            archive.writestr(base + "Resources/transcription-qualification.json", json.dumps(report))
+            for name, value in runtime_files.items():
+                archive.writestr(base + name, value)
             for name in ("EnCap", "encap-engine", "ffprobe"):
                 archive.writestr(base + "MacOS/" + name, b"binary")
             if with_ffmpeg:
@@ -55,6 +62,26 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "incomplete macOS"):
                 publisher.verify_package(package, VERSION, "macos-arm64")
 
+    def test_transcription_qualification_is_bound_to_actual_packaged_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.mac_package(Path(temporary))
+            publisher.verify_transcription_qualification(package, "macos-arm64")
+            with zipfile.ZipFile(package, "a") as archive:
+                archive.writestr("EnCap.app/Contents/MacOS/avid-transcriber", b"changed helper")
+            with self.assertRaisesRegex(ValueError, "runtime resource changed"):
+                publisher.verify_transcription_qualification(package, "macos-arm64")
+
+    def test_unavailable_transcription_does_not_publish_that_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.mac_package(Path(temporary), target="macos-intel")
+            with zipfile.ZipFile(package, "a") as archive:
+                archive.writestr("EnCap.app/Contents/Resources/transcription-qualification.json",
+                                 json.dumps(dict(schema=1, status="unavailable", reason="shared Intel port pending")))
+            with self.assertRaisesRegex(ValueError, "not verified.*Intel port pending"):
+                publisher.verify_transcription_qualification(package, "macos-intel")
+            with self.assertRaisesRegex(ValueError, "Linux shared transcription is unverified"):
+                publisher.verify_transcription_qualification(Path(temporary) / "unused.AppImage", "linux-arm64")
+
     def test_linux_requires_type_two_appimage(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / f"EnCap-{VERSION}-linux-arm64.AppImage"
@@ -70,6 +97,26 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "wrong channel"):
             publisher.ensure_release("v2.0.5", SHA, False)
         run.assert_not_called()
+
+    @patch.object(publisher, "release_info", return_value={"isPrerelease": False, "assets": []})
+    @patch.object(publisher, "run")
+    def test_stable_tag_must_match_verified_source(self, run, _release_info):
+        run.return_value = SimpleNamespace(returncode=0, stdout=json.dumps(
+            {"object": {"type": "commit", "sha": "b" * 40}}))
+        with self.assertRaisesRegex(RuntimeError, "does not point to verified source"):
+            publisher.ensure_release(f"v{VERSION}", SHA, False)
+        self.assertTrue(all(call.args[:2] == ("gh", "api") for call in run.call_args_list))
+
+    @patch.object(publisher, "release_info", return_value={"isPrerelease": False, "assets": []})
+    @patch.object(publisher, "run")
+    def test_stable_annotated_tag_resolves_to_verified_commit(self, run, _release_info):
+        run.side_effect = [
+            SimpleNamespace(returncode=0, stdout=json.dumps({"object": {"type": "tag", "sha": "c" * 40}})),
+            SimpleNamespace(returncode=0, stdout=json.dumps({"object": {"type": "commit", "sha": SHA}})),
+        ]
+        publisher.ensure_release(f"v{VERSION}", SHA, False)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("git/tags/" + "c" * 40, run.call_args.args[2])
 
     @patch.object(publisher, "release_info", return_value={"isPrerelease": True, "assets": []})
     @patch.object(publisher, "run")

@@ -46,6 +46,15 @@ final class AudioSourceRemovalTests: XCTestCase {
         XCTAssertEqual(project.chapters.map(\.startTimeSeconds), [0, 30])
     }
 
+    func testDeleteSourcePrunesZeroDurationChapters() {
+        var project = fixture()
+        // Add a chapter with source reference 3 (retained) but timing inside deleted /b.wav
+        project.chapters.append(Chapter(id: "zero-dur", startTimeSeconds: 12, durationSeconds: 5, chapterNumber: 3, title: "Zero Duration"))
+        project.removeAudioSources(ids: ["/b.wav"])
+        XCTAssertFalse(project.chapters.contains(where: { $0.id == "zero-dur" }))
+        XCTAssertTrue(project.chapters.allSatisfy { $0.durationSeconds > 0 })
+    }
+
     func testRemovalUsesSourceReferenceWhenChaptersAreReorderedOrMissing() {
         var project = fixture()
         project.chapters = [project.chapters[3], project.chapters[1]]

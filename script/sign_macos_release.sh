@@ -17,6 +17,10 @@ fi
 TARGET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$APP/Contents/Resources/FFmpeg/build.json")"
 python3 "$ROOT/script/ffmpeg_runtime.py" validate "$TARGET" --binary "$APP/Contents/MacOS" --metadata "$APP/Contents/Resources/FFmpeg"
 sign() { codesign --force --sign "$IDENTITY" --options runtime --timestamp "$@"; }
+for resource_bundle in "$APP/Contents/Resources/"*.bundle; do
+  [[ -d "$resource_bundle" ]] || continue
+  sign "$resource_bundle"
+done
 for binary in "$APP/Contents/MacOS/"*; do
   if [[ -f "$binary" ]] && file -b "$binary" | grep -q 'Mach-O'; then sign "$binary"; fi
 done

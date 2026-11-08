@@ -6,10 +6,19 @@ import unittest
 import subprocess
 from unittest.mock import patch
 import zipfile
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from tlo_update_release import build, verify_assets, stable
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from tlo_update_release import build, verify_assets, stable
+except ImportError:
+    Ed25519PrivateKey = None
+    Encoding = None
+    PublicFormat = None
+    build = None
+    verify_assets = None
+    stable = None
 
+@unittest.skipIf(Ed25519PrivateKey is None or build is None, 'cryptography library not installed')
 class ContractTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)

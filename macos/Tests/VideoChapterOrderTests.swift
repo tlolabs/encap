@@ -61,4 +61,34 @@ final class VideoChapterOrderTests: XCTestCase {
         store.isWorking = true
         XCTAssertFalse(store.canExportVideo)
     }
+
+    @MainActor
+    func testSelectedVideoChaptersPreserveSelectionOrderDuplicatesAndFirstMatchingChapter() {
+        let store = AppStore()
+        var project = fixture()
+        project.chapters.append(Chapter(id: "a", startTimeSeconds: 30, durationSeconds: 99,
+                                        chapterNumber: 1, title: "Duplicate ID"))
+        project.video.exportSettings.selectedChapterIds = ["c", "missing", "a", "c", "b"]
+        project.video.exportSettings.selectionInitialized = true
+        store.project = project
+
+        XCTAssertEqual(store.selectedVideoChapters.map(\.id), ["c", "a", "c", "b"])
+        XCTAssertEqual(store.selectedVideoChapters.map(\.title), ["Closing", "Opening", "Closing", "Middle"])
+        XCTAssertEqual(store.selectedVideoDuration, 40)
+    }
+
+    @MainActor
+    func testEmptyVideoSelectionKeepsLegacyDefaultAndExplicitExclusionDistinct() {
+        let store = AppStore()
+        var project = fixture()
+        project.video.exportSettings.selectedChapterIds = []
+        project.video.exportSettings.selectionInitialized = false
+        store.project = project
+        XCTAssertEqual(store.selectedVideoChapters, project.chapters)
+
+        store.project?.video.exportSettings.selectionInitialized = true
+        XCTAssertTrue(store.selectedVideoChapters.isEmpty)
+        XCTAssertEqual(store.selectedVideoDuration, 0)
+    }
+
 }

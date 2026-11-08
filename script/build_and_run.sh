@@ -6,8 +6,6 @@ APP_NAME="EnCap"
 BUNDLE_ID="com.tlolabs.encap"
 SPARKLE_VERSION="2.9.6"
 SPARKLE_SHA256="52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192"
-WHISPER_CPP_VERSION="v1.9.1"
-WHISPER_CPP_COMMIT="f049fff95a089aa9969deb009cdd4892b3e74916"
 
 HOST_ARCH="$(uname -m)"
 NATIVE_ARCH="${ENCAP_BUILD_ARCH:-$HOST_ARCH}"
@@ -51,13 +49,8 @@ SPARKLE_VERSION_DIR="$SPARKLE_DIR/$SPARKLE_VERSION"
 SPARKLE_ARCHIVE="$SPARKLE_DIR/Sparkle-$SPARKLE_VERSION.tar.xz"
 SPARKLE_FRAMEWORK="$SPARKLE_VERSION_DIR/Sparkle.framework"
 PUBLIC_KEY_FILE="$ROOT_DIR/.encap-update-public-key"
-WHISPER_CPP_DIR="$ROOT_DIR/.whisper-cpp"
-WHISPER_BUILD_DIR="$WHISPER_CPP_DIR/build-$NATIVE_ARCH"
-APPLE_TRANSCRIBER="$ROOT_DIR/.build-tools/$NATIVE_ARCH/apple-transcriber"
 APPLE_AAC_INFO="$ROOT_DIR/.build-tools/$NATIVE_ARCH/apple-aac-info"
-WHISPERKIT_PACKAGE="$ROOT_DIR/helpers/whisperkit_transcriber"
-WHISPERKIT_BUILD_DIR="$ROOT_DIR/.build-tools/whisperkit-transcriber-build"
-WHISPERKIT_TRANSCRIBER="$ROOT_DIR/.build-tools/whisperkit-transcriber"
+AVID_RUNTIME="$ROOT_DIR/.build-tools/avid-transcriber-runtime"
 XCODE_DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 ICON_DOCUMENT="$ROOT_DIR/assets/icons/liquid-glass/AppIcon.icon"
 LEGACY_ICON="$ROOT_DIR/assets/icons/EnCap.icns"
@@ -131,47 +124,15 @@ RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-adhoc_codesign" \
 test -x "$RUST_ENGINE"
 has_linker_signature "$RUST_ENGINE"
 
-if [[ ! -d "$WHISPER_CPP_DIR/.git" ]]; then
-  git clone --branch "$WHISPER_CPP_VERSION" --depth 1 \
-    https://github.com/ggml-org/whisper.cpp.git "$WHISPER_CPP_DIR"
-fi
-test "$(git -C "$WHISPER_CPP_DIR" describe --tags --exact-match)" = "$WHISPER_CPP_VERSION"
-test "$(git -C "$WHISPER_CPP_DIR" rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"
-cmake -S "$WHISPER_CPP_DIR" -B "$WHISPER_BUILD_DIR" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_ARCHITECTURES="$NATIVE_ARCH" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-  -DCMAKE_EXE_LINKER_FLAGS="-Wl,-adhoc_codesign" \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DGGML_NATIVE=OFF \
-  -DGGML_OPENMP=OFF \
-  -DWHISPER_BUILD_TESTS=OFF \
-  -DWHISPER_BUILD_SERVER=OFF
-cmake --build "$WHISPER_BUILD_DIR" --config Release --target whisper-cli
-has_linker_signature "$WHISPER_BUILD_DIR/bin/whisper-cli"
-
-mkdir -p "$(dirname "$APPLE_TRANSCRIBER")"
-DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O -target "$NATIVE_ARCH-apple-macosx13.0" \
-  "$ROOT_DIR/helpers/apple_transcriber.swift" -Xlinker -adhoc_codesign \
-  -o "$APPLE_TRANSCRIBER"
+# The base app remains macOS 13 / Intel compatible. The isolated shared
+# transcription helper has its own Apple-silicon/macOS-14 minimum.
+mkdir -p "$(dirname "$APPLE_AAC_INFO")"
 DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swiftc -swift-version 5 -O -target "$NATIVE_ARCH-apple-macosx13.0" \
   "$ROOT_DIR/helpers/apple_aac_info.swift" -Xlinker -adhoc_codesign \
   -o "$APPLE_AAC_INFO"
-has_linker_signature "$APPLE_TRANSCRIBER"
 has_linker_signature "$APPLE_AAC_INFO"
 if [[ "$NATIVE_ARCH" == "arm64" ]]; then
-  DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build \
-    --package-path "$WHISPERKIT_PACKAGE" \
-    --scratch-path "$WHISPERKIT_BUILD_DIR" \
-    --configuration release \
-    --product whisperkit-transcriber
-  WHISPERKIT_BIN_DIR="$(DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build \
-    --package-path "$WHISPERKIT_PACKAGE" \
-    --scratch-path "$WHISPERKIT_BUILD_DIR" \
-    --configuration release \
-    --show-bin-path)"
-  cp "$WHISPERKIT_BIN_DIR/whisperkit-transcriber" "$WHISPERKIT_TRANSCRIBER"
-  chmod +x "$WHISPERKIT_TRANSCRIBER"
+  DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" bash "$ROOT_DIR/script/build_avid_transcriber.sh" "$AVID_RUNTIME"
 fi
 
 rm -rf "$APP_BUNDLE"
@@ -199,19 +160,39 @@ chmod +x "$APP_BINARY" "$ENGINE_BINARY"
 ENCAP_UPDATE_PUBLIC_KEY="$UPDATE_PUBLIC_KEY" python3 "$ROOT_DIR/script/update_config.py" "$APP_RESOURCES" "$ENCAP_PLATFORM_NAME"
 
 bash "$ROOT_DIR/script/ffmpeg/stage.sh" "$FFMPEG_INSTALL_DIR" "$APP_MACOS" "$APP_RESOURCES/FFmpeg"
-cp "$WHISPER_BUILD_DIR/bin/whisper-cli" "$APP_MACOS/whisper-cli"
-cp "$APPLE_TRANSCRIBER" "$APP_MACOS/apple-transcriber"
 cp "$APPLE_AAC_INFO" "$APP_MACOS/apple-aac-info"
-chmod +x "$APP_MACOS/whisper-cli" "$APP_MACOS/apple-transcriber" "$APP_MACOS/apple-aac-info"
-if [[ "$NATIVE_ARCH" == "arm64" && -x "$WHISPERKIT_TRANSCRIBER" ]]; then
-  cp "$WHISPERKIT_TRANSCRIBER" "$APP_MACOS/whisperkit-transcriber"
-  chmod +x "$APP_MACOS/whisperkit-transcriber"
+chmod +x "$APP_MACOS/apple-aac-info"
+if [[ "$NATIVE_ARCH" == "arm64" ]]; then
+  ditto "$AVID_RUNTIME" "$APP_MACOS"
+  mv "$APP_MACOS/AVIDTranscriptionLicenses" "$APP_RESOURCES/AVIDTranscriptionLicenses"
+  mv "$APP_MACOS/avid-transcriber-resources.json" "$APP_RESOURCES/avid-transcriber-resources.json"
+  for RESOURCE_BUNDLE in "$APP_MACOS"/*.bundle; do
+    [[ -d "$RESOURCE_BUNDLE" ]] || continue
+    mv "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
+  done
 fi
+# Notices distinguish the shared SDKs from separately downloaded model weights.
+cp "$ROOT_DIR/vendor/avid-core-transcription/apple/AVIDTranscription/MODEL_NOTICES.md" "$APP_RESOURCES/AVID_MODEL_NOTICES.md"
+cp "$ROOT_DIR/vendor/avid-core-transcription/apple/AVIDTranscriptionEngines/THIRD_PARTY_NOTICES.md" "$APP_RESOURCES/AVID_TRANSCRIPTION_SDK_NOTICES.md"
+
+# SwiftPM emits nested resource bundles. Seal them before the enclosing app or
+# executable; otherwise codesign rejects an unsigned resource subcomponent.
+for RESOURCE_BUNDLE in "$APP_RESOURCES"/*.bundle; do
+  [[ -d "$RESOURCE_BUNDLE" ]] || continue
+  codesign --force --sign - "$RESOURCE_BUNDLE"
+done
 
 for SIGNABLE in "$APP_MACOS"/*; do
+  [[ -f "$SIGNABLE" ]] || continue
   case "$(basename "$SIGNABLE")" in ffmpeg|ffprobe) continue;; esac
+  file -b "$SIGNABLE" | grep -q 'Mach-O' || continue
   codesign --force --sign - "$SIGNABLE"
 done
+# Missing models/failing diagnostics remain visible without preventing ordinary
+# app development. The per-artifact publisher requires a passed report.
+if ! python3 "$ROOT_DIR/script/qualify_transcription.py" --engine "$ENGINE_BINARY" --output "$APP_RESOURCES/transcription-qualification.json" ${ENCAP_QUALIFICATION_INSTALL_MODELS:+--install-model}; then
+  echo "Transcription qualification failed; see $APP_RESOURCES/transcription-qualification.json. This artifact is ineligible for publication." >&2
+fi
 codesign --force --sign - "$APP_FRAMEWORKS/Sparkle.framework"
 codesign --force --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"

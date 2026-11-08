@@ -1,57 +1,36 @@
-//! Local transcription mode and provider discovery.
+//! Thin, process-isolated adapter to the reviewed AVID Core transcription libraries.
+//!
+//! Catalogs, model ownership, downloading, verification and inference live in the
+//! packaged Swift sidecar. Legacy EnCAP/third-party model folders are never touched.
 
-use directories::ProjectDirs;
-use encap_core::{replace_staged_file, AudioSource, EncapError, Result, TranscriptSegment};
-use encap_ffmpeg::{locate_optional_tool, os, CancellationToken, MediaTools};
+use encap_core::{AudioSource, EncapError, Result, TranscriptSegment, TranscriptWord};
+use encap_ffmpeg::CancellationToken;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
-const SUPERWHISPER_ID: &str = "superwhisper-large-v3";
-#[cfg(target_os = "macos")]
-const SUPERWHISPER_FILENAME: &str = "ggml-large-v3.bin";
-#[cfg(target_os = "macos")]
-const SUPERWHISPER_SIZE: u64 = 3_095_033_483;
-#[cfg(target_os = "macos")]
-const SUPERWHISPER_SHA256: &str =
-    "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2";
+pub const DEFAULT_MODEL: &str = "whisper-large-v3";
+const MAX_RESPONSE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_FAILURE_DIAGNOSTIC_BYTES: usize = 8192;
+const CANCEL_GRACE: Duration = Duration::from_secs(15);
+const PLATFORM_REASON: &str = "AVID Core transcription currently requires Apple silicon and macOS 14 or later. Shared transcription support for Intel Mac, macOS 13, Windows and Linux is unresolved; existing projects, transcript editing and exports remain available.";
 
-#[cfg(target_os = "macos")]
-const MACWHISPER_MODELS: &[(&str, &str, &str, &str)] = &[
-    (
-        "openai_whisper-large-v3-v20240930_626MB",
-        "macwhisper-large-v3-turbo-compressed",
-        "Whisper Large V3 Turbo (compressed) — Whisper Transcription",
-        "whisper-large-v3",
-    ),
-    (
-        "openai_whisper-large-v3-v20240930",
-        "macwhisper-large-v3-turbo",
-        "Whisper Large V3 Turbo — Whisper Transcription",
-        "whisper-large-v3",
-    ),
-    (
-        "openai_whisper-large-v3",
-        "macwhisper-large-v3",
-        "Whisper Large V3 — Whisper Transcription",
-        "whisper-large-v3",
-    ),
-];
-
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Provider {
     pub id: String,
     pub name: String,
     pub detail: String,
+    #[serde(flatten)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -60,1258 +39,1456 @@ pub struct ModelInfo {
     pub description: String,
     pub installed: bool,
     pub download_allowed: bool,
+    #[serde(flatten)]
+    pub extensions: BTreeMap<String, Value>,
 }
 
-pub fn models() -> Vec<ModelInfo> {
-    let download_allowed = shared_providers().is_empty();
-    model_catalog()
-        .into_iter()
-        .map(|model| model.info(download_allowed))
-        .collect()
+#[derive(Clone, Debug, Serialize)]
+pub struct TranscriptionStatus {
+    pub available: bool,
+    pub reason: String,
+    pub default_model: &'static str,
+}
+
+pub fn status() -> TranscriptionStatus {
+    match helper_path() {
+        Ok(_) => TranscriptionStatus {
+            available: true,
+            reason: "Local AVID Core transcription. Model installation is required before inference; source audio stays on this computer.".into(),
+            default_model: DEFAULT_MODEL,
+        },
+        Err(error) => TranscriptionStatus {
+            available: false,
+            reason: error.to_string(),
+            default_model: DEFAULT_MODEL,
+        },
+    }
+}
+
+pub fn models(cancellation: &CancellationToken) -> Result<Vec<ModelInfo>> {
+    Bridge::discover()?.invoke(&["models".into()], cancellation)
+}
+
+pub fn providers(cancellation: &CancellationToken) -> Result<Vec<Provider>> {
+    Bridge::discover()?.invoke(&["providers".into()], cancellation)
 }
 
 pub fn install_model(id: &str, cancellation: &CancellationToken) -> Result<ModelInfo> {
-    let model = model_catalog()
-        .into_iter()
-        .find(|model| model.id == id)
-        .ok_or_else(|| {
-            EncapError::Message(
-                "That transcription model is not in EnCap's trusted catalog.".into(),
-            )
-        })?;
-    if !shared_providers().is_empty() {
-        return Err(EncapError::Message(
-            "EnCap is already reusing a compatible local model. A duplicate download is unnecessary."
-                .into(),
-        ));
-    }
-    if model.path.is_file() && verify_model(&model).is_ok() {
-        return Ok(model.info(true));
-    }
-    let parent = model
-        .path
-        .parent()
-        .ok_or_else(|| EncapError::Message("The model storage location is invalid.".into()))?;
-    fs::create_dir_all(parent).map_err(|source| EncapError::Write {
-        path: parent.to_path_buf(),
-        source,
-    })?;
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(20))
-        .user_agent("EnCap/0.2 model installer")
-        .build()
-        .map_err(|error| {
-            EncapError::Message(format!("The model download could not start: {error}"))
-        })?;
-    let mut response = client
-        .get(model.download_url)
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|error| EncapError::Message(format!("The model download failed: {error}")))?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > model.max_download_bytes)
-    {
-        return Err(EncapError::Message(
-            "The model server reported an unexpectedly large file.".into(),
-        ));
-    }
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|source| EncapError::Write {
-            path: model.path.clone(),
-            source,
-        })?;
-    let mut digest = Sha256::new();
-    let mut received = 0_u64;
-    let mut buffer = vec![0_u8; 1024 * 1024];
-    loop {
-        if cancellation.is_cancelled() {
-            return Err(EncapError::Message(
-                "The model download was cancelled safely.".into(),
-            ));
-        }
-        let count = response.read(&mut buffer).map_err(|error| {
-            EncapError::Message(format!("The model download was interrupted: {error}"))
-        })?;
-        if count == 0 {
-            break;
-        }
-        received = received
-            .checked_add(count as u64)
-            .ok_or_else(|| EncapError::Message("The model download is too large.".into()))?;
-        if received > model.max_download_bytes {
-            return Err(EncapError::Message(
-                "The model download exceeded its expected maximum size.".into(),
-            ));
-        }
-        digest.update(&buffer[..count]);
-        temporary
-            .write_all(&buffer[..count])
-            .map_err(|source| EncapError::Write {
-                path: model.path.clone(),
-                source,
-            })?;
-    }
-    let actual = format!("{:x}", digest.finalize());
-    if actual != model.sha256 {
-        return Err(EncapError::Message(
-            "The downloaded model failed SHA-256 verification and was not installed.".into(),
-        ));
-    }
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|source| EncapError::Write {
-            path: model.path.clone(),
-            source,
-        })?;
-    let staged = temporary
-        .into_temp_path()
-        .keep()
-        .map_err(|error| EncapError::Write {
-            path: model.path.clone(),
-            source: error.error,
-        })?;
-    replace_staged_file(&staged, &model.path)?;
-    Ok(model.info(true))
+    Bridge::discover()?.invoke(&model_arguments("install-model", id), cancellation)
 }
 
-pub fn remove_model(id: &str) -> Result<ModelInfo> {
-    let model = model_catalog()
-        .into_iter()
-        .find(|model| model.id == id)
-        .ok_or_else(|| {
-            EncapError::Message(
-                "That transcription model is not in EnCap's trusted catalog.".into(),
-            )
-        })?;
-    if model.path.exists() {
-        fs::remove_file(&model.path).map_err(|source| EncapError::Write {
-            path: model.path.clone(),
-            source,
-        })?;
-    }
-    Ok(model.info(shared_providers().is_empty()))
+pub fn remove_model(id: &str, cancellation: &CancellationToken) -> Result<ModelInfo> {
+    Bridge::discover()?.invoke(&model_arguments("remove-model", id), cancellation)
 }
 
-pub fn providers() -> Vec<Provider> {
-    let mut output = Vec::new();
-    let shared = shared_providers();
-    output.extend(shared.iter().map(ResolvedProvider::info));
-    if cfg!(target_os = "macos")
-        && locate_optional_tool("apple-transcriber", "ENCAP_APPLE_TRANSCRIBER").is_some()
-    {
-        output.push(Provider {
-            id: "apple-local".into(),
-            name: "Apple On-Device".into(),
-            detail: "Apple Speech · on this Mac".into(),
-        });
-    }
-    let local_runtime = locate_optional_tool("whisper-cli", "ENCAP_WHISPER_CLI").is_some();
-    if shared.is_empty() {
-        for model in model_catalog() {
-            if model.path.is_file() && local_runtime {
-                output.push(Provider {
-                    id: model.id,
-                    name: model.name,
-                    detail: "whisper.cpp · EnCap model".into(),
-                });
-            }
-        }
-    }
-    output
+pub fn import_model(
+    id: &str,
+    source: &Path,
+    cancellation: &CancellationToken,
+) -> Result<ModelInfo> {
+    let mut arguments = model_arguments("import-model", id);
+    arguments.extend(["--source".into(), source.as_os_str().to_owned()]);
+    Bridge::discover()?.invoke(&arguments, cancellation)
+}
+
+fn model_arguments(command: &str, id: &str) -> Vec<OsString> {
+    vec![command.into(), "--model".into(), id.into()]
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TranscribeOptions<'a> {
+    pub word_timestamps: bool,
+    pub language: Option<&'a str>,
+    pub alignment_model: Option<&'a str>,
 }
 
 pub fn transcribe(
     sources: &[AudioSource],
-    provider: &str,
-    word_timestamps: bool,
+    model: &str,
+    options: &TranscribeOptions<'_>,
+    previous: &[TranscriptSegment],
+    cancellation: &CancellationToken,
+) -> Result<Vec<TranscriptSegment>> {
+    transcribe_with_bridge(
+        &Bridge::discover()?,
+        sources,
+        model,
+        options,
+        previous,
+        cancellation,
+    )
+}
+
+fn transcribe_with_bridge(
+    bridge: &Bridge,
+    sources: &[AudioSource],
+    model: &str,
+    options: &TranscribeOptions<'_>,
+    previous: &[TranscriptSegment],
     cancellation: &CancellationToken,
 ) -> Result<Vec<TranscriptSegment>> {
     if sources.is_empty() {
-        return Err(EncapError::Message(
-            "Import audio before transcribing.".into(),
-        ));
+        return Err(message("Import audio before transcribing."));
     }
-    let tools = MediaTools::discover_with_cancellation(cancellation)?;
-    let mut resolved = resolve_provider(provider);
-    if provider != "apple-local" && resolved.is_none() {
-        return Err(EncapError::Message(
-            "The selected transcription engine is no longer available. Refresh the engine list and try again."
-                .into(),
-        ));
-    }
-    if let Some(candidate) = resolved.as_ref() {
-        if let Some((model, sha256)) = candidate.backend.whisper_cpp() {
-            // Hash multi-gigabyte weights once per job, not once per source file.
-            if let Err(error) = verify_path(model, sha256, &candidate.source_name) {
-                if candidate.id != SUPERWHISPER_ID {
-                    return Err(error);
-                }
-                resolved = fallback_after_superwhisper();
-                let Some(fallback) = resolved.as_ref() else {
-                    return Err(error);
-                };
-                if let Some((model, sha256)) = fallback.backend.whisper_cpp() {
-                    verify_path(model, sha256, &fallback.source_name)?;
-                }
-            }
-        }
-    }
-    let mut output = Vec::new();
-    let mut offset = 0.0;
+    let mut result = Vec::new();
+    let reconciler = Reconciler::new(previous);
+    let mut reused_ids = BTreeSet::new();
+    let mut episode_offset = 0.0;
     for source in sources {
-        let mut segments = if provider == "apple-local" {
-            transcribe_apple(&source.source_path, offset, cancellation)?
-        } else {
-            let resolved = resolved.as_ref().unwrap();
-            match &resolved.backend {
-                Backend::WhisperCpp { model, .. } => transcribe_whisper(
-                    &tools,
-                    &source.source_path,
-                    model,
-                    &resolved.language_code,
-                    offset,
-                    word_timestamps,
-                    cancellation,
-                )?,
-                #[cfg(target_os = "macos")]
-                Backend::WhisperKit { model, tokenizer } => transcribe_whisperkit(
-                    &tools,
-                    &source.source_path,
-                    model,
-                    tokenizer,
-                    &resolved.language_code,
-                    offset,
-                    cancellation,
-                )?,
-            }
-        };
-        output.append(&mut segments);
-        offset += source.duration_seconds;
-    }
-    if !word_timestamps {
-        for segment in &mut output {
-            segment.words.clear();
+        let mut arguments = model_arguments("transcribe", model);
+        arguments.extend(["--input".into(), source.source_path.as_os_str().to_owned()]);
+        add_language(&mut arguments, options.language);
+        if let Some(model) = options.alignment_model.filter(|value| !value.is_empty()) {
+            arguments.extend(["--alignment-model".into(), model.into()]);
         }
+        // The sidecar decodes the original file (including initial silence). It
+        // returns source-clock times. Only this boundary adds the episode offset.
+        let raw: Value = bridge.invoke(&arguments, cancellation)?;
+        let projected = project_transcript(&raw, source, episode_offset, options.word_timestamps)?;
+        for mut segment in projected {
+            let candidates = reconciler.identity_candidates(&segment);
+            let exact = match candidates.as_slice() {
+                [old] if reused_ids.insert(old.id.clone()) => Some(*old),
+                _ => None,
+            };
+            if let Some(old) = exact {
+                segment.id.clone_from(&old.id);
+                segment.speaker.clone_from(&old.speaker);
+                preserve_word_ids(&mut segment, old);
+                for (key, value) in &old.extensions {
+                    if key != "avid_core" {
+                        segment.extensions.insert(key.clone(), value.clone());
+                    }
+                }
+            } else if let Some(speaker) = reconciler.unambiguous_speaker(&segment) {
+                segment.speaker = speaker;
+            }
+            result.push(segment);
+        }
+        episode_offset += source.duration_seconds;
+    }
+    preserve_replaced_metadata(&mut result, previous)?;
+    Ok(result)
+}
+
+struct Reconciler<'a> {
+    previous: &'a [TranscriptSegment],
+    origins: Vec<Option<encap_core::TranscriptOrigin>>,
+    by_text: BTreeMap<(String, String), Vec<usize>>,
+}
+impl<'a> Reconciler<'a> {
+    fn new(previous: &'a [TranscriptSegment]) -> Self {
+        let origins: Vec<_> = previous
+            .iter()
+            .map(TranscriptSegment::transcription_origin)
+            .collect();
+        let mut by_text: BTreeMap<(String, String), Vec<usize>> = BTreeMap::new();
+        for (index, (old, origin)) in previous.iter().zip(&origins).enumerate() {
+            let key = match origin {
+                Some(origin) => (
+                    origin.source_id.clone(),
+                    origin.transcript["segments"][0]["text"]
+                        .as_str()
+                        .unwrap_or(&old.text)
+                        .to_owned(),
+                ),
+                None => (String::new(), old.text.clone()),
+            };
+            by_text.entry(key).or_default().push(index);
+        }
+        Self {
+            previous,
+            origins,
+            by_text,
+        }
+    }
+
+    fn identity_candidates(&self, new: &TranscriptSegment) -> Vec<&'a TranscriptSegment> {
+        let Some(origin) = new.transcription_origin() else {
+            return Vec::new();
+        };
+        let text = origin.transcript["segments"][0]["text"]
+            .as_str()
+            .unwrap_or(&new.text)
+            .to_owned();
+        let keys = [
+            (origin.source_id.clone(), text),
+            (String::new(), new.text.clone()),
+        ];
+        keys.into_iter()
+            .filter_map(|key| self.by_text.get(&key))
+            .flatten()
+            .filter_map(|&index| {
+                let old = &self.previous[index];
+                let close = |a: f64, b: f64| (a - b).abs() <= 0.25;
+                let same_bounds = if let Some(old_origin) = &self.origins[index] {
+                    ["start_seconds", "end_seconds"].iter().all(|key| {
+                        match (
+                            origin.transcript["segments"][0]
+                                .get(key)
+                                .and_then(Value::as_f64),
+                            old_origin.transcript["segments"][0]
+                                .get(key)
+                                .and_then(Value::as_f64),
+                        ) {
+                            (Some(a), Some(b)) => close(a, b),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                    })
+                } else {
+                    close(new.start_time_seconds, old.start_time_seconds)
+                        && close(new.end_time_seconds, old.end_time_seconds)
+                };
+                same_bounds.then_some(old)
+            })
+            .collect()
+    }
+
+    fn unambiguous_speaker(&self, new: &TranscriptSegment) -> Option<String> {
+        if new.end_time_seconds <= new.start_time_seconds {
+            return None;
+        }
+        let origin = new.transcription_origin()?;
+        let overlaps: Vec<_> = self
+            .previous
+            .iter()
+            .zip(&self.origins)
+            .filter_map(|(old, old_origin)| {
+                let same_source = old_origin
+                    .as_ref()
+                    .is_none_or(|old_origin| old_origin.source_id == origin.source_id);
+                (same_source
+                    && old.start_time_seconds < new.end_time_seconds
+                    && old.end_time_seconds > new.start_time_seconds)
+                    .then_some(old)
+            })
+            .collect();
+        let speaker = overlaps.first()?.speaker.trim();
+        if speaker.is_empty() || overlaps.iter().any(|old| old.speaker.trim() != speaker) {
+            return None;
+        }
+        let first = overlaps
+            .iter()
+            .map(|old| old.start_time_seconds)
+            .fold(f64::INFINITY, f64::min);
+        let last = overlaps
+            .iter()
+            .map(|old| old.end_time_seconds)
+            .fold(0.0, f64::max);
+        if new.start_time_seconds + 0.25 < first || new.end_time_seconds > last + 0.25 {
+            return None;
+        }
+        Some(overlaps[0].speaker.clone())
+    }
+}
+
+fn preserve_replaced_metadata(
+    result: &mut [TranscriptSegment],
+    previous: &[TranscriptSegment],
+) -> Result<()> {
+    if previous.is_empty() {
+        return Ok(());
+    }
+    if result.is_empty() {
+        return Err(message(
+            "Recognition returned no text. The current transcript was preserved.",
+        ));
+    }
+    let by_id: BTreeMap<_, _> = result
+        .iter()
+        .map(|segment| (segment.id.as_str(), segment))
+        .collect();
+    let replaced: Vec<_> = previous
+        .iter()
+        .filter(|old| by_id.get(old.id.as_str()).is_none_or(|new| **new != **old))
+        .collect();
+    if replaced.is_empty() {
+        return Ok(());
+    }
+    let manual_labels_unmapped = previous.iter().any(|old| {
+        !old.speaker.trim().is_empty()
+            && !result.iter().any(|new| {
+                new.speaker == old.speaker
+                    && new.start_time_seconds < old.end_time_seconds
+                    && new.end_time_seconds > old.start_time_seconds
+            })
+    });
+    let mut origin = result[0]
+        .transcription_origin()
+        .ok_or_else(|| message("The source recognition record is missing."))?;
+    // One history envelope per operation (never per segment) retains replaced
+    // editable text, stable IDs, speaker names, opaque extensions and any older
+    // history. Native clients preserve the entire avid_core origin JSON.
+    origin.extensions.insert(
+        "previous_transcript".into(),
+        serde_json::to_value(replaced)?,
+    );
+    if manual_labels_unmapped {
+        let warning = "Some existing speaker labels could not be mapped safely to the new segmentation. Review speaker assignments; the previous edited transcript and its labels are preserved in the transcription history.";
+        origin.extensions.insert(
+            "reconciliation_warning".into(),
+            Value::String(warning.into()),
+        );
+        let event = serde_json::json!({"event":"progress","stage":"speaker-review-needed","message":warning});
+        let _ = writeln!(std::io::stderr(), "{event}");
+    }
+    result[0].set_transcription_origin(origin);
+    Ok(())
+}
+
+pub fn realign(
+    sources: &[AudioSource],
+    previous: &[TranscriptSegment],
+    alignment_model: &str,
+    language: Option<&str>,
+    cancellation: &CancellationToken,
+) -> Result<Vec<TranscriptSegment>> {
+    realign_with_bridge(
+        &Bridge::discover()?,
+        sources,
+        previous,
+        alignment_model,
+        language,
+        cancellation,
+    )
+}
+
+fn realign_with_bridge(
+    bridge: &Bridge,
+    sources: &[AudioSource],
+    previous: &[TranscriptSegment],
+    alignment_model: &str,
+    language: Option<&str>,
+    cancellation: &CancellationToken,
+) -> Result<Vec<TranscriptSegment>> {
+    if previous.is_empty() {
+        return Err(message("There is no transcript to realign."));
+    }
+    // Fail before processing any source if the saved transcript cannot be mapped
+    // reversibly to its source. Never apply timing to a guessed source or text.
+    for segment in previous {
+        let origin = segment.transcription_origin().ok_or_else(|| {
+            message("This legacy transcript has no source provenance. Transcribe it with AVID Core before realigning; the current transcript was preserved.")
+        })?;
+        if !sources
+            .iter()
+            .any(|source| source.transcription_source_id() == origin.source_id)
+        {
+            return Err(message(
+                "A transcript source is missing. The current transcript was preserved.",
+            ));
+        }
+    }
+    let operation = tempfile::tempdir().map_err(|error| {
+        message(format!(
+            "Could not create a private alignment operation: {error}"
+        ))
+    })?;
+    let mut result = Vec::new();
+    let mut episode_offset = 0.0;
+    for source in sources {
+        let retained: Vec<_> = previous
+            .iter()
+            .filter(|segment| {
+                segment
+                    .transcription_origin()
+                    .is_some_and(|origin| origin.source_id == source.transcription_source_id())
+            })
+            .collect();
+        if retained.is_empty() {
+            episode_offset += source.duration_seconds;
+            continue;
+        }
+        let mut raw = retained[0].transcription_origin().unwrap().transcript;
+        let mut segments = Vec::with_capacity(retained.len());
+        for segment in &retained {
+            let origin = segment.transcription_origin().unwrap();
+            let mut raw_segment = origin
+                .transcript
+                .get("segments")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .cloned()
+                .ok_or_else(|| message("The saved source transcription record is invalid."))?;
+            raw_segment["text"] = Value::String(segment.text.clone());
+            // Always align the edited text; stale word boundaries are not inputs.
+            raw_segment["words"] = Value::Array(Vec::new());
+            segments.push(raw_segment);
+        }
+        raw["segments"] = Value::Array(segments);
+        let transcript_file = operation
+            .path()
+            .join(format!("{}.json", uuid::Uuid::new_v4()));
+        fs::write(&transcript_file, serde_json::to_vec(&raw)?)
+            .map_err(|error| message(format!("Could not stage alignment text: {error}")))?;
+        let mut arguments = model_arguments("realign", alignment_model);
+        arguments.extend([
+            "--input".into(),
+            source.source_path.as_os_str().to_owned(),
+            "--transcript".into(),
+            transcript_file.as_os_str().to_owned(),
+        ]);
+        add_language(&mut arguments, language);
+        let aligned: Value = bridge.invoke(&arguments, cancellation)?;
+        let projected = project_transcript(&aligned, source, episode_offset, true)?;
+        if projected.len() != retained.len()
+            || projected
+                .iter()
+                .zip(&retained)
+                .any(|(new, old)| new.text != old.text)
+        {
+            return Err(message("Alignment changed the transcript text or segment count. The current transcript was preserved."));
+        }
+        for (mut new, old) in projected.into_iter().zip(retained) {
+            new.id.clone_from(&old.id);
+            new.speaker.clone_from(&old.speaker);
+            preserve_word_ids(&mut new, old);
+            let old_origin = old.transcription_origin().unwrap();
+            let mut new_origin = new.transcription_origin().unwrap();
+            let alignment_record = new_origin.transcript;
+            new_origin.transcript = old_origin.transcript;
+            new_origin.extensions.extend(old_origin.extensions);
+            new_origin
+                .extensions
+                .insert("alignment_record".into(), alignment_record);
+            new.set_transcription_origin(new_origin);
+            for (key, value) in &old.extensions {
+                if key != "avid_core" {
+                    new.extensions.insert(key.clone(), value.clone());
+                }
+            }
+            result.push(new);
+        }
+        episode_offset += source.duration_seconds;
+    }
+    Ok(result)
+}
+
+/// Group current episode-clock words using AVID Core's caption behavior. This
+/// projection is temporary: no recognition or alignment provenance is rewritten.
+pub fn render_captions(
+    segments: &[TranscriptSegment],
+    format: &str,
+    cancellation: &CancellationToken,
+) -> Result<String> {
+    if !matches!(format, "srt" | "vtt") {
+        return Err(message("Caption format must be srt or vtt."));
+    }
+    let raw = caption_projection(segments)?;
+    let operation = tempfile::tempdir().map_err(|error| {
+        message(format!(
+            "Could not create a private caption operation: {error}"
+        ))
+    })?;
+    let transcript_file = operation.path().join("episode-transcript.json");
+    fs::write(&transcript_file, serde_json::to_vec(&raw)?)
+        .map_err(|error| message(format!("Could not stage caption words: {error}")))?;
+    Bridge::discover()?.invoke(
+        &[
+            "captions".into(),
+            "--transcript".into(),
+            transcript_file.as_os_str().to_owned(),
+            "--format".into(),
+            format.into(),
+        ],
+        cancellation,
+    )
+}
+
+fn caption_projection(segments: &[TranscriptSegment]) -> Result<Value> {
+    if segments.is_empty() {
+        return Err(message("There is no transcript available for captions."));
+    }
+    let mut projected = Vec::new();
+    for segment in segments {
+        if segment.text.trim().is_empty() {
+            continue;
+        }
+        if segment.words.is_empty()
+            || segment.transcription_origin().is_some_and(|origin| {
+                origin.timing_status != encap_core::TranscriptTimingStatus::Timed
+            })
+        {
+            return Err(message("Word timing is unavailable or invalidated by an edit. Realign the transcript before exporting word captions."));
+        }
+        projected.push(serde_json::json!({
+            "text": segment.text,
+            "start_seconds": segment.start_time_seconds,
+            "end_seconds": segment.end_time_seconds,
+            "words": segment.words.iter().map(|word| serde_json::json!({
+                "text": word.text,
+                "start_seconds": word.start_time_seconds,
+                "end_seconds": word.end_time_seconds,
+            })).collect::<Vec<_>>(),
+        }));
+    }
+    if projected.is_empty() {
+        return Err(message("There are no timed words available for captions."));
+    }
+    Ok(serde_json::json!({
+        "segments": projected,
+        "provenance": {"engine_id":"encap-episode-projection", "model_id":"current-edited-transcript"},
+    }))
+}
+
+fn preserve_word_ids(new: &mut TranscriptSegment, old: &TranscriptSegment) {
+    for (word, previous) in new.words.iter_mut().zip(&old.words) {
+        if word.text == previous.text {
+            word.id.clone_from(&previous.id);
+            word.extensions.extend(previous.extensions.clone());
+        }
+    }
+}
+
+fn add_language(arguments: &mut Vec<OsString>, language: Option<&str>) {
+    if let Some(language) = language.filter(|value| !value.trim().is_empty()) {
+        arguments.extend(["--language".into(), language.into()]);
+    }
+}
+
+#[derive(Deserialize)]
+struct SourceTranscript {
+    segments: Vec<SourceSegment>,
+    provenance: Provenance,
+}
+
+#[derive(Deserialize)]
+struct Provenance {
+    engine_id: String,
+    model_id: String,
+}
+
+#[derive(Deserialize)]
+struct SourceSegment {
+    text: String,
+    #[serde(default)]
+    words: Vec<SourceWord>,
+    start_seconds: Option<f64>,
+    end_seconds: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct SourceWord {
+    text: String,
+    start_seconds: Option<f64>,
+    end_seconds: Option<f64>,
+    confidence: Option<f64>,
+}
+
+fn timestamp_pair(
+    start: Option<f64>,
+    end: Option<f64>,
+    duration: f64,
+) -> Result<Option<(f64, f64)>> {
+    match (start, end) {
+        (None, None) => Ok(None),
+        (Some(start), Some(end)) if start.is_finite() && end.is_finite() && start >= 0.0 && end >= start && end <= duration + 0.5 => Ok(Some((start, end))),
+        _ => Err(message("AVID Core returned an invalid source timestamp. The existing transcript was preserved.")),
+    }
+}
+
+fn project_transcript(
+    raw: &Value,
+    source: &AudioSource,
+    episode_offset: f64,
+    include_words: bool,
+) -> Result<Vec<TranscriptSegment>> {
+    let record: SourceTranscript = serde_json::from_value(raw.clone()).map_err(|error| {
+        message(format!(
+            "AVID Core returned an invalid transcription record: {error}"
+        ))
+    })?;
+    if record.provenance.engine_id.is_empty() || record.provenance.model_id.is_empty() {
+        return Err(message(
+            "AVID Core returned an incomplete model provenance record.",
+        ));
+    }
+    if !source.duration_seconds.is_finite()
+        || source.duration_seconds < 0.0
+        || !episode_offset.is_finite()
+    {
+        return Err(message("The source timeline is invalid."));
+    }
+    let raw_segments = raw["segments"].as_array().unwrap();
+    let recognition_segments = raw.get("recognition_segments").and_then(Value::as_array);
+    // Preserve shared and unknown metadata without cloning every transcript segment
+    // for each output record. Per-segment arrays are attached below.
+    let record_template = Value::Object(
+        raw.as_object()
+            .unwrap()
+            .iter()
+            .filter(|(key, _)| {
+                key.as_str() != "segments"
+                    && (key.as_str() != "recognition_segments" || recognition_segments.is_none())
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    );
+    let mut output = Vec::with_capacity(record.segments.len());
+    for (index, item) in record.segments.into_iter().enumerate() {
+        let segment_time = timestamp_pair(
+            item.start_seconds,
+            item.end_seconds,
+            source.duration_seconds,
+        )?;
+        let mut words = Vec::new();
+        let mut first_word_time = None;
+        let mut last_word_time = None;
+        let mut previous_start = 0.0;
+        let mut complete_word_timing = true;
+        for word in item.words {
+            if word.confidence.is_some_and(|confidence| {
+                !confidence.is_finite() || !(0.0..=1.0).contains(&confidence)
+            }) {
+                return Err(message("AVID Core returned an invalid word confidence."));
+            }
+            if let Some((start, end)) = timestamp_pair(
+                word.start_seconds,
+                word.end_seconds,
+                source.duration_seconds,
+            )? {
+                if start < previous_start {
+                    return Err(message("AVID Core returned unordered source word times."));
+                }
+                previous_start = start;
+                first_word_time.get_or_insert(start);
+                last_word_time = Some(end);
+                if include_words {
+                    words.push(TranscriptWord {
+                        id: uuid::Uuid::new_v4().simple().to_string(),
+                        start_time_seconds: episode_offset + start,
+                        end_time_seconds: episode_offset + end,
+                        text: word.text,
+                        extensions: BTreeMap::new(),
+                    });
+                }
+            } else {
+                complete_word_timing = false;
+            }
+        }
+        if !complete_word_timing {
+            words.clear();
+        }
+        let bounds = segment_time.or(first_word_time.zip(last_word_time));
+        let (start, end) = bounds.unwrap_or((0.0, 0.0));
+        let mut original_record = record_template.clone();
+        original_record["segments"] = Value::Array(vec![raw_segments[index].clone()]);
+        let mut origin_extensions = BTreeMap::new();
+        if let Some(recognition) = recognition_segments {
+            let recognition_segment = recognition.get(index).ok_or_else(|| {
+                message("AVID Core returned mismatched recognition and alignment segment counts.")
+            })?;
+            if recognition.len() != raw_segments.len() {
+                return Err(message(
+                    "AVID Core returned mismatched recognition and alignment segment counts.",
+                ));
+            }
+            origin_extensions.insert("alignment_record".into(), original_record.clone());
+            original_record["segments"] = Value::Array(vec![recognition_segment.clone()]);
+            original_record
+                .as_object_mut()
+                .unwrap()
+                .remove("alignment_provenance");
+        }
+        let mut segment = TranscriptSegment {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            start_time_seconds: episode_offset + start,
+            end_time_seconds: episode_offset + end,
+            speaker: String::new(),
+            text: item.text,
+            words,
+            extensions: BTreeMap::new(),
+        };
+        // Reject helper output that the project model cannot save. A successful
+        // process response must not replace the user's transcript with times
+        // that only fail validation on the next save/export operation.
+        if !encap_core::is_valid_duration(segment.start_time_seconds)
+            || !encap_core::is_valid_duration(segment.end_time_seconds)
+            || segment.end_time_seconds < segment.start_time_seconds
+            || segment.words.iter().any(|word| {
+                word.start_time_seconds < segment.start_time_seconds
+                    || word.end_time_seconds > segment.end_time_seconds
+            })
+        {
+            return Err(message("AVID Core returned timing outside the project or segment bounds. The existing transcript was preserved."));
+        }
+        segment.set_transcription_origin(encap_core::TranscriptOrigin {
+            version: 1,
+            source_id: source.transcription_source_id(),
+            source_duration_seconds: source.duration_seconds,
+            source_timeline_offset_seconds: episode_offset,
+            source_offset_seconds: 0.0,
+            segment_index: index,
+            timing_status: if bounds.is_some() {
+                encap_core::TranscriptTimingStatus::Timed
+            } else {
+                encap_core::TranscriptTimingStatus::Untimed
+            },
+            transcript: original_record,
+            extensions: origin_extensions,
+        });
+        output.push(segment);
     }
     Ok(output)
 }
 
-#[cfg(target_os = "macos")]
-fn transcribe_whisperkit(
-    tools: &MediaTools,
-    source: &Path,
-    model: &Path,
-    tokenizer: &Path,
-    language_code: &str,
-    offset: f64,
-    cancellation: &CancellationToken,
-) -> Result<Vec<TranscriptSegment>> {
-    let helper = locate_optional_tool("whisperkit-transcriber", "ENCAP_WHISPERKIT_TRANSCRIBER")
-        .ok_or_else(|| {
-            EncapError::Message(
-                "Whisper Transcription model reuse is unavailable in this build.".into(),
-            )
-        })?;
-    let temp = tempfile::tempdir().map_err(|source| EncapError::Write {
-        path: std::env::temp_dir(),
-        source,
-    })?;
-    let input = temp.path().join("input.wav");
-    let private_tokenizer = temp.path().join("tokenizer");
-    fs::create_dir(&private_tokenizer).map_err(|source| EncapError::Write {
-        path: private_tokenizer.clone(),
-        source,
-    })?;
-    for filename in ["tokenizer.json", "tokenizer_config.json", "config.json"] {
-        let source_path = tokenizer.join(filename);
-        let destination = private_tokenizer.join(filename);
-        fs::copy(&source_path, &destination).map_err(|source| EncapError::Write {
-            path: destination,
-            source,
-        })?;
-    }
-    encap_ffmpeg::run(
-        tools.ffmpeg(),
-        &[
-            os("-hide_banner"),
-            os("-nostdin"),
-            os("-y"),
-            os("-i"),
-            os(source),
-            os("-vn"),
-            os("-ar"),
-            os("16000"),
-            os("-ac"),
-            os("1"),
-            os("-c:a"),
-            os("pcm_s16le"),
-            os(&input),
-        ],
-        cancellation,
-        "Audio preparation",
-    )?;
-    let mut arguments = vec![
-        os("--model"),
-        os(model),
-        os("--tokenizer"),
-        os(&private_tokenizer),
-        os("--input"),
-        os(&input),
-    ];
-    if language_code != "auto" {
-        arguments.push(os("--language"));
-        arguments.push(os(language_code));
-    }
-    let result = encap_ffmpeg::run(
-        &helper,
-        &arguments,
-        cancellation,
-        "WhisperKit transcription",
-    )?;
-    #[derive(serde::Deserialize)]
-    struct Response {
-        segments: Vec<Item>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Item {
-        start_seconds: f64,
-        end_seconds: f64,
-        text: String,
-    }
-    let response: Response = serde_json::from_slice(&result.stdout)
-        .map_err(|_| EncapError::Message("WhisperKit returned an invalid result.".into()))?;
-    response
-        .segments
-        .into_iter()
-        .filter(|item| !item.text.trim().is_empty())
-        .map(|item| {
-            if !item.start_seconds.is_finite()
-                || !item.end_seconds.is_finite()
-                || item.start_seconds < 0.0
-                || item.end_seconds < item.start_seconds
-            {
-                return Err(EncapError::Message(
-                    "WhisperKit returned an invalid segment time.".into(),
-                ));
-            }
-            Ok(TranscriptSegment {
-                id: uuid::Uuid::new_v4().simple().to_string(),
-                start_time_seconds: offset + item.start_seconds,
-                end_time_seconds: offset + item.end_seconds,
-                speaker: String::new(),
-                text: item.text.trim().to_string(),
-                words: Vec::new(),
-                extensions: BTreeMap::new(),
-            })
-        })
-        .collect()
-}
-
-fn transcribe_apple(
-    source: &Path,
-    offset: f64,
-    cancellation: &CancellationToken,
-) -> Result<Vec<TranscriptSegment>> {
-    let helper =
-        locate_optional_tool("apple-transcriber", "ENCAP_APPLE_TRANSCRIBER").ok_or_else(|| {
-            EncapError::Message(
-                "Apple On-Device transcription is unavailable in this build.".into(),
-            )
-        })?;
-    let result = encap_ffmpeg::run(
-        &helper,
-        &[os("--input"), os(source)],
-        cancellation,
-        "Apple On-Device transcription",
-    )?;
-    parse_apple_response(&result.stdout, offset)
-}
-
-fn parse_apple_response(bytes: &[u8], offset: f64) -> Result<Vec<TranscriptSegment>> {
-    #[derive(serde::Deserialize)]
-    struct Response {
-        segments: Vec<Word>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Word {
-        text: String,
-        start_seconds: f64,
-        duration_seconds: f64,
-    }
-    let response: Response = serde_json::from_slice(bytes)
-        .map_err(|_| EncapError::Message("Apple Speech returned an invalid result.".into()))?;
-    let mut words = Vec::with_capacity(response.segments.len());
-    for word in response.segments {
-        let text = word.text.trim();
-        if text.is_empty() {
-            continue;
-        }
-        if !word.start_seconds.is_finite()
-            || !word.duration_seconds.is_finite()
-            || word.start_seconds < 0.0
-            || word.duration_seconds < 0.0
-        {
-            return Err(EncapError::Message(
-                "Apple Speech returned an invalid segment time.".into(),
-            ));
-        }
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let start_time_seconds = offset + word.start_seconds;
-        let end_time_seconds = (start_time_seconds + word.duration_seconds).max(start_time_seconds);
-        let text = text.to_string();
-        words.push(TranscriptSegment {
-            id: id.clone(),
-            start_time_seconds,
-            end_time_seconds,
-            speaker: String::new(),
-            text: text.clone(),
-            words: vec![encap_core::TranscriptWord {
-                id,
-                start_time_seconds,
-                end_time_seconds,
-                text,
-                extensions: BTreeMap::new(),
-            }],
-            extensions: BTreeMap::new(),
-        });
-    }
-    Ok(group_words(words))
-}
-
-fn transcribe_whisper(
-    tools: &MediaTools,
-    source: &Path,
-    model: &Path,
-    language_code: &str,
-    offset: f64,
-    word_timestamps: bool,
-    cancellation: &CancellationToken,
-) -> Result<Vec<TranscriptSegment>> {
-    let whisper = locate_optional_tool("whisper-cli", "ENCAP_WHISPER_CLI").ok_or_else(|| {
-        EncapError::Message("The local Whisper runtime is unavailable in this build.".into())
-    })?;
-    let temp = tempfile::tempdir().map_err(|source| EncapError::Write {
-        path: std::env::temp_dir(),
-        source,
-    })?;
-    let input = temp.path().join("input.wav");
-    let prefix = temp.path().join("transcript");
-    encap_ffmpeg::run(
-        tools.ffmpeg(),
-        &[
-            os("-hide_banner"),
-            os("-nostdin"),
-            os("-y"),
-            os("-i"),
-            os(source),
-            os("-vn"),
-            os("-ar"),
-            os("16000"),
-            os("-ac"),
-            os("1"),
-            os("-c:a"),
-            os("pcm_s16le"),
-            os(&input),
-        ],
-        cancellation,
-        "Audio preparation",
-    )?;
-    let mut arguments = vec![
-        os("--model"),
-        os(model),
-        os("--file"),
-        os(&input),
-        os("--language"),
-        os(language_code),
-        os(if word_timestamps {
-            "--output-json-full"
+fn helper_path() -> Result<PathBuf> {
+    // A deliberate developer override is never a discovery scan of third-party
+    // applications, model caches or PATH. Release packages use their own helper.
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ENCAP_AVID_TRANSCRIBER") {
+        let path = PathBuf::from(path);
+        return if path.is_absolute() && path.is_file() {
+            Ok(path)
         } else {
-            "--output-json"
-        }),
-        os("--output-file"),
-        os(&prefix),
-        os("--no-prints"),
-    ];
-    if word_timestamps {
-        arguments.push(os("--split-on-word"));
+            Err(message(
+                "ENCAP_AVID_TRANSCRIBER must name an existing absolute helper path.",
+            ))
+        };
     }
-    encap_ffmpeg::run(&whisper, &arguments, cancellation, "Whisper transcription")?;
-    let result_path = prefix.with_extension("json");
-    let bytes = fs::read(&result_path).map_err(|source| EncapError::Read {
-        path: result_path,
-        source,
-    })?;
-    parse_whisper_response(&bytes, offset)
-}
-
-fn parse_whisper_response(bytes: &[u8], offset: f64) -> Result<Vec<TranscriptSegment>> {
-    #[derive(serde::Deserialize)]
-    struct Response {
-        transcription: Vec<Item>,
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return Err(message(PLATFORM_REASON));
     }
-    #[derive(serde::Deserialize)]
-    struct Item {
-        offsets: Offsets,
-        text: String,
-        #[serde(default)]
-        tokens: Vec<Token>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Offsets {
-        from: f64,
-        to: f64,
-    }
-    #[derive(serde::Deserialize)]
-    struct Token {
-        text: String,
-        offsets: Option<Offsets>,
-    }
-    let response: Response = serde_json::from_slice(bytes)
-        .map_err(|_| EncapError::Message("Whisper returned an invalid result.".into()))?;
-    let mut segments = Vec::with_capacity(response.transcription.len());
-    for item in response.transcription {
-        let text = item.text.trim();
-        if text.is_empty() {
-            continue;
-        }
-        if !item.offsets.from.is_finite()
-            || !item.offsets.to.is_finite()
-            || item.offsets.from < 0.0
-            || item.offsets.to < 0.0
-        {
-            return Err(EncapError::Message(
-                "Whisper returned an invalid segment time.".into(),
-            ));
-        }
-        let start_time_seconds = offset + item.offsets.from / 1000.0;
-        let end_time_seconds = (offset + item.offsets.to / 1000.0).max(start_time_seconds);
-        let words = item
-            .tokens
-            .into_iter()
-            .filter_map(|token| {
-                let timing = token.offsets?;
-                if !timing.from.is_finite() || !timing.to.is_finite() {
-                    return None;
-                }
-                let word_text = token.text.trim();
-                if word_text.is_empty() || word_text.starts_with("<|") {
-                    return None;
-                }
-                let word_start = (offset + timing.from.max(0.0) / 1000.0)
-                    .clamp(start_time_seconds, end_time_seconds);
-                let word_end =
-                    (offset + timing.to.max(0.0) / 1000.0).clamp(word_start, end_time_seconds);
-                Some(encap_core::TranscriptWord {
-                    id: uuid::Uuid::new_v4().simple().to_string(),
-                    start_time_seconds: word_start,
-                    end_time_seconds: word_end,
-                    text: word_text.to_string(),
-                    extensions: BTreeMap::new(),
-                })
-            })
-            .collect();
-        segments.push(TranscriptSegment {
-            id: uuid::Uuid::new_v4().simple().to_string(),
-            start_time_seconds,
-            end_time_seconds,
-            speaker: String::new(),
-            text: text.to_string(),
-            words,
-            extensions: BTreeMap::new(),
-        });
-    }
-    Ok(segments)
-}
-
-#[derive(Clone)]
-struct Model {
-    id: String,
-    path: PathBuf,
-    name: String,
-    download_url: &'static str,
-    sha256: &'static str,
-    download_size: &'static str,
-    languages: &'static str,
-    description: &'static str,
-    language_code: &'static str,
-    max_download_bytes: u64,
-}
-
-#[derive(Clone)]
-enum Backend {
-    WhisperCpp {
-        model: PathBuf,
-        sha256: String,
-    },
     #[cfg(target_os = "macos")]
-    WhisperKit {
-        model: PathBuf,
-        tokenizer: PathBuf,
-    },
-}
-
-impl Backend {
-    fn whisper_cpp(&self) -> Option<(&Path, &str)> {
-        match self {
-            Self::WhisperCpp { model, sha256 } => Some((model, sha256)),
-            #[cfg(target_os = "macos")]
-            Self::WhisperKit { .. } => None,
+    {
+        let version = Command::new("/usr/bin/sw_vers")
+            .arg("-productVersion")
+            .output()
+            .map_err(|error| {
+                message(format!("Could not determine macOS compatibility: {error}"))
+            })?;
+        let major = String::from_utf8_lossy(&version.stdout)
+            .trim()
+            .split('.')
+            .next()
+            .and_then(|part| part.parse::<u32>().ok());
+        if !version.status.success() || major.is_none_or(|major| major < 14) {
+            return Err(message(PLATFORM_REASON));
         }
     }
+    let executable = std::env::current_exe()
+        .map_err(|error| message(format!("Could not locate the application runtime: {error}")))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| message("The application runtime path is invalid."))?;
+    [directory.join("avid-transcriber"), directory.join("../Resources/avid-transcriber")]
+        .into_iter().find(|path| path.is_file()).ok_or_else(|| message("The packaged AVID Core transcription helper is missing. Rebuild or reinstall EnCAP; legacy transcription engines are no longer used."))
 }
 
-#[derive(Clone)]
-struct ResolvedProvider {
-    id: String,
-    name: String,
-    source_name: String,
-    language_code: String,
-    backend: Backend,
+struct Bridge {
+    helper: PathBuf,
 }
-
-impl ResolvedProvider {
-    fn info(&self) -> Provider {
-        let engine = match self.backend {
-            Backend::WhisperCpp { .. } => "whisper.cpp",
-            #[cfg(target_os = "macos")]
-            Backend::WhisperKit { .. } => "WhisperKit",
-        };
-        Provider {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            detail: format!("{engine} · shared from {}", self.source_name),
-        }
-    }
-}
-
-impl Model {
-    fn info(&self, download_allowed: bool) -> ModelInfo {
-        ModelInfo {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            download_size: self.download_size.into(),
-            languages: self.languages.into(),
-            description: self.description.into(),
-            installed: self.path.is_file(),
-            download_allowed,
-        }
-    }
-}
-
-use std::sync::Mutex;
-
-static PROCESS_VERIFICATION_CACHE: Mutex<Option<BTreeMap<String, VerificationRecord>>> =
-    Mutex::new(None);
-
-fn get_process_cached_verification(key: &str, current: &VerificationRecord) -> Option<bool> {
-    let lock = PROCESS_VERIFICATION_CACHE.lock().ok()?;
-    let map = lock.as_ref()?;
-    map.get(key)
-        .filter(|r| r.same_file(current))
-        .map(|r| r.valid)
-}
-
-fn put_process_cached_verification(key: String, record: VerificationRecord) {
-    if let Ok(mut lock) = PROCESS_VERIFICATION_CACHE.lock() {
-        let map = lock.get_or_insert_with(BTreeMap::new);
-        map.insert(key, record);
-    }
-}
-
-fn verify_model(model: &Model) -> Result<()> {
-    verify_path(&model.path, model.sha256, &model.name)
-}
-
-fn verify_path(path: &Path, expected_sha256: &str, display_name: &str) -> Result<()> {
-    let metadata = fs::metadata(path).map_err(|source| EncapError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let modified_ns = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos().min(u64::MAX as u128) as u64)
-        .unwrap_or(0);
-    let record = VerificationRecord {
-        path: path.to_string_lossy().into_owned(),
-        sha256: expected_sha256.into(),
-        size: metadata.len(),
-        modified_ns,
-        valid: false,
-    };
-    let cache_key = format!("{display_name}:{expected_sha256}");
-    if let Some(valid) = get_process_cached_verification(&cache_key, &record) {
-        return if valid {
-            Ok(())
-        } else {
-            Err(verification_error(display_name))
-        };
-    }
-    let actual = sha256_file(path)?;
-    let valid = actual == expected_sha256;
-    let verified = VerificationRecord { valid, ..record };
-    put_process_cached_verification(cache_key.clone(), verified.clone());
-    store_verification_result(&cache_key, verified);
-    if !valid {
-        return Err(verification_error(display_name));
-    }
-    Ok(())
-}
-
-fn verification_error(display_name: &str) -> EncapError {
-    EncapError::Message(format!(
-        "{display_name} failed SHA-256 verification and cannot be used."
-    ))
-}
-
-#[derive(Clone, Default, Deserialize, Serialize)]
-struct VerificationCache {
-    #[serde(default)]
-    entries: BTreeMap<String, VerificationRecord>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-struct VerificationRecord {
-    path: String,
-    sha256: String,
-    size: u64,
-    modified_ns: u64,
-    valid: bool,
-}
-
-impl VerificationRecord {
-    fn same_file(&self, other: &Self) -> bool {
-        self.path == other.path
-            && self.sha256 == other.sha256
-            && self.size == other.size
-            && self.modified_ns == other.modified_ns
-    }
-}
-
-fn verification_cache_path() -> Option<PathBuf> {
-    std::env::var_os("ENCAP_MODEL_VERIFICATION_CACHE")
-        .map(PathBuf::from)
-        .or_else(|| {
-            ProjectDirs::from("com", "TLO Labs", "EnCap")
-                .map(|directories| directories.data_dir().join("model-verification.json"))
+impl Bridge {
+    fn discover() -> Result<Self> {
+        Ok(Self {
+            helper: helper_path()?,
         })
-}
-
-fn read_verification_cache() -> VerificationCache {
-    verification_cache_path()
-        .and_then(|path| fs::read(path).ok())
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-fn store_verification_result(key: &str, record: VerificationRecord) {
-    let Some(path) = verification_cache_path() else {
-        return;
-    };
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    if fs::create_dir_all(parent).is_err() {
-        return;
     }
-    let mut cache = read_verification_cache();
-    cache.entries.insert(key.into(), record);
-    let Ok(bytes) = serde_json::to_vec_pretty(&cache) else {
-        return;
-    };
-    let Ok(mut temporary) = tempfile::NamedTempFile::new_in(parent) else {
-        return;
-    };
-    if temporary.write_all(&bytes).is_err() || temporary.as_file().sync_all().is_err() {
-        return;
-    }
-    if let Ok(staged) = temporary.into_temp_path().keep() {
-        let _ = replace_staged_file(&staged, &path);
+    fn invoke<T: serde::de::DeserializeOwned>(
+        &self,
+        arguments: &[OsString],
+        cancellation: &CancellationToken,
+    ) -> Result<T> {
+        let bytes = run_helper(&self.helper, arguments, cancellation)?;
+        serde_json::from_slice(&bytes).map_err(|error| {
+            message(format!(
+                "AVID Core returned an invalid JSON response: {error}"
+            ))
+        })
     }
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
-    let mut input = fs::File::open(path).map_err(|source| EncapError::Read {
-        path: path.to_path_buf(),
-        source,
+struct OwnedChild(Child);
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        if self.0.try_wait().ok().flatten().is_none() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+fn run_helper(
+    helper: &Path,
+    arguments: &[OsString],
+    cancellation: &CancellationToken,
+) -> Result<Vec<u8>> {
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    let operation = tempfile::tempdir().map_err(|error| {
+        message(format!(
+            "Could not create a private transcription operation: {error}"
+        ))
     })?;
-    let mut digest = Sha256::new();
-    let mut buffer = vec![0_u8; 1024 * 1024];
+    let stdout_path = operation.path().join("stdout.json");
+    let stderr_path = operation.path().join("stderr.log");
+    let stdout = fs::File::create(&stdout_path)
+        .map_err(|error| message(format!("Could not stage transcription output: {error}")))?;
+    let stderr = fs::File::create(&stderr_path).map_err(|error| {
+        message(format!(
+            "Could not stage transcription diagnostics: {error}"
+        ))
+    })?;
+    let mut diagnostics = fs::File::open(&stderr_path)
+        .map_err(|error| message(format!("Could not monitor transcription progress: {error}")))?;
+    let mut child = OwnedChild(
+        Command::new(helper)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .map_err(|error| {
+                message(format!(
+                    "AVID Core transcription helper could not start: {error}"
+                ))
+            })?,
+    );
+    let mut cancel_started = None;
+    let mut pending = Vec::new();
+    let status = loop {
+        forward_progress(&mut diagnostics, &mut pending)?;
+        if cancellation.is_cancelled() && cancel_started.is_none() {
+            request_cancel(&mut child.0);
+            cancel_started = Some(Instant::now());
+        }
+        if cancel_started.is_some_and(|start| start.elapsed() >= CANCEL_GRACE) {
+            let _ = child.0.kill();
+        }
+        if let Some(status) = child.0.try_wait().map_err(|error| {
+            message(format!(
+                "Could not monitor the owned AVID Core operation: {error}"
+            ))
+        })? {
+            break status;
+        }
+        if fs::metadata(&stdout_path).is_ok_and(|metadata| metadata.len() > MAX_RESPONSE_BYTES) {
+            return Err(message(
+                "AVID Core transcription exceeded the supported response size.",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    };
+    forward_progress(&mut diagnostics, &mut pending)?;
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely. Cleanup was awaited; an unresponsive helper is terminated after 15 seconds."));
+    }
+    let length = fs::metadata(&stdout_path)
+        .map_err(|error| message(format!("Could not read AVID Core output: {error}")))?
+        .len();
+    if length > MAX_RESPONSE_BYTES {
+        return Err(message(
+            "AVID Core transcription exceeded the supported response size.",
+        ));
+    }
+    let bytes = fs::read(&stdout_path)
+        .map_err(|error| message(format!("Could not read AVID Core output: {error}")))?;
+    if !status.success() {
+        emit_failure_diagnostics(&stderr_path);
+        let detail = serde_json::from_slice::<Value>(&bytes).ok().and_then(|value| value.get("error").and_then(Value::as_str).map(str::to_owned)).unwrap_or_else(|| "The helper failed without a valid error response. Reinstall or rebuild the AVID Core helper and its resources.".into());
+        return Err(message(detail));
+    }
+    Ok(bytes)
+}
+
+fn emit_failure_diagnostics(path: &Path) {
+    // Native loaders and SDKs may abort before a machine-readable error exists.
+    // Retain only a bounded tail on stderr, then discard the owned operation
+    // directory. Raw diagnostics never enter the one-value stdout contract.
+    let Ok(mut file) = fs::File::open(path) else {
+        return;
+    };
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+        return;
+    };
+    let start = length.saturating_sub(MAX_FAILURE_DIAGNOSTIC_BYTES as u64);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return;
+    }
+    let mut tail = Vec::with_capacity(MAX_FAILURE_DIAGNOSTIC_BYTES);
+    if file
+        .take(MAX_FAILURE_DIAGNOSTIC_BYTES as u64)
+        .read_to_end(&mut tail)
+        .is_err()
+    {
+        return;
+    }
+    let lossy = String::from_utf8_lossy(&tail);
+    let mut diagnostics = lossy
+        .lines()
+        .filter(|line| {
+            // Structured progress already crossed this boundary while the process
+            // ran; avoid repeating it as a native runtime failure diagnostic.
+            !serde_json::from_str::<Value>(line)
+                .ok()
+                .is_some_and(|event| event.get("event").and_then(Value::as_str) == Some("progress"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if diagnostics.trim().is_empty() {
+        return;
+    }
+    // Lossy UTF-8 conversion can expand invalid bytes; cap the emitted text too.
+    if diagnostics.len() > MAX_FAILURE_DIAGNOSTIC_BYTES {
+        let mut boundary = diagnostics.len() - MAX_FAILURE_DIAGNOSTIC_BYTES;
+        while !diagnostics.is_char_boundary(boundary) {
+            boundary += 1;
+        }
+        diagnostics = diagnostics.split_off(boundary);
+    }
+    let _ = writeln!(
+        std::io::stderr(),
+        "[AVID Core helper failure diagnostics; bounded tail]\n{diagnostics}"
+    );
+}
+
+fn forward_progress(file: &mut fs::File, pending: &mut Vec<u8>) -> Result<()> {
+    let mut buffer = [0_u8; 8192];
     loop {
-        let count = input.read(&mut buffer).map_err(|source| EncapError::Read {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        let count = file
+            .read(&mut buffer)
+            .map_err(|error| message(format!("Could not read AVID Core progress: {error}")))?;
         if count == 0 {
             break;
         }
-        digest.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
-fn resolve_provider(id: &str) -> Option<ResolvedProvider> {
-    if let Some(provider) = shared_providers()
-        .into_iter()
-        .find(|provider| provider.id == id)
-    {
-        return Some(provider);
-    }
-    model_catalog()
-        .into_iter()
-        .find(|entry| entry.id == id && entry.path.is_file())
-        .map(|model| ResolvedProvider {
-            id: model.id,
-            name: model.name.clone(),
-            source_name: model.name,
-            language_code: model.language_code.into(),
-            backend: Backend::WhisperCpp {
-                model: model.path,
-                sha256: model.sha256.into(),
-            },
-        })
-}
-
-fn fallback_after_superwhisper() -> Option<ResolvedProvider> {
-    shared_providers_without_superwhisper()
-        .into_iter()
-        .next()
-        .or_else(|| {
-            model_catalog()
-                .into_iter()
-                .find(|entry| entry.path.is_file())
-                .map(|model| ResolvedProvider {
-                    id: model.id,
-                    name: model.name.clone(),
-                    source_name: model.name,
-                    language_code: model.language_code.into(),
-                    backend: Backend::WhisperCpp {
-                        model: model.path,
-                        sha256: model.sha256.into(),
-                    },
-                })
-        })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn shared_providers() -> Vec<ResolvedProvider> {
-    Vec::new()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn shared_providers_without_superwhisper() -> Vec<ResolvedProvider> {
-    Vec::new()
-}
-
-#[cfg(target_os = "macos")]
-fn shared_providers() -> Vec<ResolvedProvider> {
-    shared_providers_impl(false)
-}
-
-#[cfg(target_os = "macos")]
-fn shared_providers_without_superwhisper() -> Vec<ResolvedProvider> {
-    shared_providers_impl(true)
-}
-
-#[cfg(target_os = "macos")]
-fn shared_providers_impl(skip_superwhisper: bool) -> Vec<ResolvedProvider> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return Vec::new();
-    };
-    if !skip_superwhisper
-        && application_is_installed(
-            &home,
-            &["superwhisper.app", "Superwhisper.app"],
-            "com.superduper.superwhisper",
-        )
-    {
-        let model = home
-            .join("Library/Application Support/superwhisper")
-            .join(SUPERWHISPER_FILENAME);
-        if fs::metadata(&model)
-            .is_ok_and(|metadata| metadata.is_file() && metadata.len() == SUPERWHISPER_SIZE)
-            && locate_optional_tool("whisper-cli", "ENCAP_WHISPER_CLI").is_some()
-        {
-            return vec![ResolvedProvider {
-                id: SUPERWHISPER_ID.into(),
-                name: "Whisper Large V3 — Superwhisper".into(),
-                source_name: "Superwhisper".into(),
-                language_code: "auto".into(),
-                backend: Backend::WhisperCpp {
-                    model,
-                    sha256: SUPERWHISPER_SHA256.into(),
-                },
-            }];
-        }
-    }
-
-    if cfg!(not(target_arch = "aarch64"))
-        || macos_major_version() < 14
-        || locate_optional_tool("whisperkit-transcriber", "ENCAP_WHISPERKIT_TRANSCRIBER").is_none()
-        || !application_is_installed(
-            &home,
-            &["Whisper Transcription.app", "MacWhisper.app"],
-            "com.goodsnooze.MacWhisper",
-        )
-    {
-        return Vec::new();
-    }
-
-    let roots = [
-        home.join("Library/Containers/com.goodsnooze.MacWhisper/Data/Library/Application Support/MacWhisper/models"),
-        home.join("Library/Application Support/MacWhisper/models"),
-    ];
-    let mut providers = Vec::new();
-    for (folder, id, name, tokenizer_name) in MACWHISPER_MODELS {
-        for root in &roots {
-            let models = root.join("whisperkit/models");
-            let model = models.join("argmaxinc/whisperkit-coreml").join(folder);
-            let tokenizer_candidates = [
-                models.join("openai").join(tokenizer_name),
-                model.join("models/openai").join(tokenizer_name),
-            ];
-            let tokenizer = tokenizer_candidates
-                .into_iter()
-                .find(|path| valid_whisperkit_tokenizer(path));
-            if valid_whisperkit_model(&model) {
-                if let Some(tokenizer) = tokenizer {
-                    providers.push(ResolvedProvider {
-                        id: (*id).into(),
-                        name: (*name).into(),
-                        source_name: "Whisper Transcription".into(),
-                        language_code: "auto".into(),
-                        backend: Backend::WhisperKit { model, tokenizer },
-                    });
-                    break;
-                }
-            }
-        }
-    }
-    providers
-}
-
-#[cfg(target_os = "macos")]
-fn application_is_installed(home: &Path, names: &[&str], bundle_id: &str) -> bool {
-    [PathBuf::from("/Applications"), home.join("Applications")]
-        .into_iter()
-        .flat_map(|root| names.iter().map(move |name| root.join(name)))
-        .any(|candidate| {
-            let info = candidate.join("Contents/Info.plist");
-            fs::read(info).is_ok_and(|bytes| {
-                bytes
-                    .windows(bundle_id.len())
-                    .any(|window| window == bundle_id.as_bytes())
-            })
-        })
-}
-
-#[cfg(target_os = "macos")]
-fn macos_major_version() -> u32 {
-    Command::new("/usr/bin/sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .and_then(|version| version.split('.').next()?.trim().parse().ok())
-        .unwrap_or(0)
-}
-
-#[cfg(target_os = "macos")]
-fn read_json_object(path: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let value: serde_json::Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-    value.as_object().cloned()
-}
-
-#[cfg(target_os = "macos")]
-fn positive_integer(value: Option<&serde_json::Value>) -> bool {
-    value
-        .and_then(serde_json::Value::as_i64)
-        .is_some_and(|value| value > 0)
-}
-
-#[cfg(target_os = "macos")]
-fn valid_whisperkit_model(path: &Path) -> bool {
-    let Some(config) = read_json_object(&path.join("config.json")) else {
-        return false;
-    };
-    let Some(generation) = read_json_object(&path.join("generation_config.json")) else {
-        return false;
-    };
-    if config.get("model_type").and_then(|value| value.as_str()) != Some("whisper")
-        || !positive_integer(config.get("d_model"))
-        || !positive_integer(config.get("decoder_start_token_id"))
-        || !generation
-            .get("lang_to_id")
-            .and_then(|value| value.as_object())
-            .is_some_and(|value| !value.is_empty())
-        || !generation
-            .get("task_to_id")
-            .and_then(|value| value.as_object())
-            .is_some_and(|value| !value.is_empty())
-        || !positive_integer(generation.get("no_timestamps_token_id"))
-    {
-        return false;
-    }
-    ["AudioEncoder", "MelSpectrogram", "TextDecoder"]
-        .into_iter()
-        .all(|component| {
-            let root = path.join(format!("{component}.mlmodelc"));
-            [
-                root.join("model.mil"),
-                root.join("coremldata.bin"),
-                root.join("metadata.json"),
-                root.join("weights/weight.bin"),
-            ]
-            .into_iter()
-            .all(|file| {
-                fs::metadata(file).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
-            })
-        })
-}
-
-#[cfg(target_os = "macos")]
-fn valid_whisperkit_tokenizer(path: &Path) -> bool {
-    let Some(tokenizer) = read_json_object(&path.join("tokenizer.json")) else {
-        return false;
-    };
-    let Some(tokenizer_config) = read_json_object(&path.join("tokenizer_config.json")) else {
-        return false;
-    };
-    let Some(config) = read_json_object(&path.join("config.json")) else {
-        return false;
-    };
-    let model = tokenizer.get("model").and_then(|value| value.as_object());
-    model
-        .and_then(|value| value.get("type"))
-        .and_then(|value| value.as_str())
-        == Some("BPE")
-        && model
-            .and_then(|value| value.get("vocab"))
-            .and_then(|value| value.as_object())
-            .is_some_and(|value| !value.is_empty())
-        && model
-            .and_then(|value| value.get("merges"))
-            .and_then(|value| value.as_array())
-            .is_some_and(|value| !value.is_empty())
-        && tokenizer_config
-            .get("tokenizer_class")
-            .and_then(|value| value.as_str())
-            == Some("WhisperTokenizer")
-        && tokenizer_config
-            .get("added_tokens_decoder")
-            .and_then(|value| value.as_object())
-            .is_some_and(|value| !value.is_empty())
-        && config.get("model_type").and_then(|value| value.as_str()) == Some("whisper")
-        && positive_integer(config.get("d_model"))
-        && positive_integer(config.get("decoder_start_token_id"))
-}
-
-fn model_catalog() -> Vec<Model> {
-    let root = std::env::var_os("ENCAP_MODEL_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            ProjectDirs::from("com", "TLO Labs", "EnCap").map(|dirs| dirs.data_dir().join("models"))
-        })
-        .unwrap_or_else(|| PathBuf::from("models"));
-    vec![
-        Model {
-            id: "whisper-base-en".into(),
-            path: root.join("ggml-base.en.bin"),
-            name: "Whisper Base (English)".into(),
-            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-base.en.bin?download=true",
-            sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
-            download_size: "148 MB",
-            languages: "English",
-            description: "Fast, compact, and the recommended starting point for English recordings.",
-            language_code: "en",
-            max_download_bytes: 200 * 1024 * 1024,
-        },
-        Model {
-            id: "whisper-small".into(),
-            path: root.join("ggml-small.bin"),
-            name: "Whisper Small (Multilingual)".into(),
-            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-small.bin?download=true",
-            sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
-            download_size: "488 MB",
-            languages: "Multilingual",
-            description: "A balanced multilingual model with better accuracy than Base.",
-            language_code: "auto",
-            max_download_bytes: 600 * 1024 * 1024,
-        },
-        Model {
-            id: "whisper-large-v3-turbo".into(),
-            path: root.join("ggml-large-v3-turbo.bin"),
-            name: "Whisper Large v3 Turbo".into(),
-            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/6034871ec87c84e342efab769d4c5c06cd126db3/ggml-large-v3-turbo.bin?download=true",
-            sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-            download_size: "1.62 GB",
-            languages: "Multilingual",
-            description: "Highest-quality catalog option; requires substantially more memory.",
-            language_code: "auto",
-            max_download_bytes: 2 * 1024 * 1024 * 1024,
-        },
-    ]
-}
-
-fn group_words(words: Vec<TranscriptSegment>) -> Vec<TranscriptSegment> {
-    let mut grouped: Vec<TranscriptSegment> = Vec::new();
-    for word in words {
-        if let Some(current) = grouped.last_mut() {
-            let gap = word.start_time_seconds - current.end_time_seconds;
-            let sentence_ended = current
-                .text
-                .chars()
-                .last()
-                .is_some_and(|c| matches!(c, '.' | '?' | '!'));
-            if gap <= 1.0
-                && current.end_time_seconds - current.start_time_seconds < 10.0
-                && !sentence_ended
+        pending.extend_from_slice(&buffer[..count]);
+        while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = pending.drain(..=newline).collect();
+            // Structured progress alone crosses the engine event boundary. SDK
+            // diagnostics remain in the private operation log, never on stdout.
+            if serde_json::from_slice::<Value>(&line)
+                .ok()
+                .is_some_and(|event| event.get("event").and_then(Value::as_str) == Some("progress"))
             {
-                let punctuation = word
-                    .text
-                    .chars()
-                    .next()
-                    .is_some_and(|c| matches!(c, ',' | '.' | '!' | '?' | ';' | ':' | ')'));
-                if !punctuation {
-                    current.text.push(' ');
-                }
-                current.text.push_str(&word.text);
-                current.start_time_seconds =
-                    current.start_time_seconds.min(word.start_time_seconds);
-                current.end_time_seconds = current.end_time_seconds.max(word.end_time_seconds);
-                current.words.extend(word.words);
-                continue;
+                let _ = std::io::stderr().lock().write_all(&line);
             }
         }
-        grouped.push(word);
+        if pending.len() > 1024 * 1024 {
+            pending.clear();
+        }
     }
-    grouped
+    // Reads from a regular file keep the cursor at the current end and observe
+    // subsequent appends; no pipe fills while large inference results are written.
+    Ok(())
+}
+
+#[cfg(unix)]
+fn request_cancel(child: &mut Child) {
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+    // Only this owned child's PID receives SIGTERM. Swift handles it by cancelling
+    // and awaiting the operation task (including model unload and lease release).
+    unsafe {
+        kill(child.id() as i32, 15);
+    }
+}
+#[cfg(not(unix))]
+fn request_cancel(child: &mut Child) {
+    let _ = child.kill();
+}
+fn message(value: impl Into<String>) -> EncapError {
+    EncapError::Message(value.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use serde_json::json;
 
-    #[test]
-    fn trusted_catalog_has_unique_ids_and_bounded_downloads() {
-        let catalog = model_catalog();
-        let ids: HashSet<_> = catalog.iter().map(|model| model.id.as_str()).collect();
-        assert_eq!(ids.len(), catalog.len());
-        assert!(catalog.iter().all(|model| {
-            model.download_url.starts_with("https://huggingface.co/")
-                && model.sha256.len() == 64
-                && model.max_download_bytes > 0
-        }));
+    fn source(path: &str, duration: f64) -> AudioSource {
+        AudioSource {
+            source_path: PathBuf::from(path),
+            display_name: "source".into(),
+            duration_seconds: duration,
+            stored_path: None,
+            extensions: BTreeMap::new(),
+        }
+    }
+
+    fn record() -> Value {
+        json!({
+            "language": "en", "provenance": {"engine_id":"whisperkit", "model_id":"whisper-large-v3"},
+            "segments": [{"text":"Hello world.","start_seconds":2.5,"end_seconds":4.0,
+                "words":[{"text":"Hello", "start_seconds":2.5,"end_seconds":3.0,"confidence":0.9,"timing_method":"recognizer"},
+                    {"text":"world.", "start_seconds":3.2,"end_seconds":4.0,"timing_method":"recognizer"}]}]
+        })
     }
 
     #[test]
-    fn file_hashing_is_streamed_and_deterministic() {
-        let temporary = tempfile::tempdir().unwrap();
-        let path = temporary.path().join("model.bin");
-        fs::write(&path, b"hello").unwrap();
+    fn helper_words_outside_segment_bounds_are_rejected() {
+        let mut raw = record();
+        raw["segments"][0]["words"][0]["start_seconds"] = json!(1.0);
+        assert!(project_transcript(&raw, &source("clip", 10.0), 0.0, true).is_err());
+    }
+
+    #[test]
+    fn projected_timeline_cannot_exceed_project_duration_limit() {
+        assert!(project_transcript(
+            &record(), &source("clip", 10.0), encap_core::MAX_DURATION_SECONDS, true,
+        ).is_err());
+    }
+
+    #[test]
+    fn source_clock_projects_exactly_once_and_preserves_immutable_record() {
+        let raw = record();
+        let segments = project_transcript(&raw, &source("delayed.wav", 10.0), 15.0, true).unwrap();
+        assert_eq!(segments[0].start_time_seconds, 17.5);
+        assert_eq!(segments[0].words[1].end_time_seconds, 19.0);
+        let origin = segments[0].transcription_origin().unwrap();
+        assert_eq!(origin.source_timeline_offset_seconds, 15.0);
+        assert_eq!(origin.source_offset_seconds, 0.0);
+        assert_eq!(origin.transcript, raw);
+        assert_eq!(origin.source_id, "path:delayed.wav");
+    }
+
+    #[test]
+    fn unknown_shared_metadata_and_per_segment_history_scale_linearly() {
+        let mut raw = record();
+        raw["future"] = json!({"opaque": [1,2,3]});
+        let one = raw["segments"][0].clone();
+        raw["segments"] = Value::Array(vec![one; 100]);
+        let segments = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
+        assert_eq!(segments.len(), 100);
+        for (index, segment) in segments.iter().enumerate() {
+            let origin = segment.transcription_origin().unwrap();
+            assert_eq!(origin.segment_index, index);
+            assert_eq!(origin.transcript["segments"].as_array().unwrap().len(), 1);
+            assert_eq!(origin.transcript["future"], raw["future"]);
+        }
+        assert!(serde_json::to_vec(&segments).unwrap().len() < 200_000);
+    }
+
+    #[test]
+    fn many_aligned_origins_preserve_shared_and_per_segment_metadata() {
+        let mut raw = record();
+        raw["future"] = json!({"opaque": [1, 2, 3], "nested": {"preserve": true}});
+        let original = raw["segments"][0].clone();
+        let mut recognition = Vec::new();
+        let mut alignment = Vec::new();
+        for index in 0..300 {
+            let mut before = original.clone();
+            before["text"] = json!(format!("recognition {index}"));
+            before["future_segment"] = json!({"index": index});
+            let mut after = before.clone();
+            after["text"] = json!(format!("aligned {index}"));
+            recognition.push(before);
+            alignment.push(after);
+        }
+        raw["segments"] = Value::Array(alignment);
+        raw["recognition_segments"] = Value::Array(recognition);
+        raw["alignment_provenance"] = json!({"engine_id": "qwen", "future": "preserved"});
+        let outputs = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
+        assert_eq!(outputs.len(), 300);
+        for (index, output) in outputs.iter().enumerate() {
+            let origin = output.transcription_origin().unwrap();
+            assert_eq!(origin.segment_index, index);
+            assert_eq!(origin.transcript["future"], raw["future"]);
+            assert_eq!(origin.transcript["provenance"], raw["provenance"]);
+            assert_eq!(origin.transcript["segments"], json!([raw["recognition_segments"][index]]));
+            assert!(origin.transcript.get("alignment_provenance").is_none());
+            assert!(origin.transcript.get("recognition_segments").is_none());
+            let aligned = &origin.extensions["alignment_record"];
+            assert_eq!(aligned["future"], raw["future"]);
+            assert_eq!(aligned["segments"], json!([raw["segments"][index]]));
+            assert_eq!(aligned["alignment_provenance"], raw["alignment_provenance"]);
+            assert!(aligned.get("recognition_segments").is_none());
+        }
+    }
+
+    #[test]
+    fn non_array_recognition_metadata_is_not_discarded() {
+        let mut raw = record();
+        raw["recognition_segments"] = json!({"future_encoding": true});
+        let outputs = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
+        let origin = outputs[0].transcription_origin().unwrap();
+        assert_eq!(origin.transcript["recognition_segments"], raw["recognition_segments"]);
+    }
+
+    #[test]
+    fn untimed_text_is_retained_without_manufactured_word_boundaries() {
+        let raw = json!({"provenance":{"engine_id":"qwen","model_id":"qwen3-asr-1.7b-4bit"},
+            "segments":[{"text":"Untimed é😀","words":[{"text":"Untimed"},{"text":"é😀"}]}]});
+        let segments = project_transcript(&raw, &source("clip", 10.0), 20.0, true).unwrap();
+        assert_eq!(segments[0].text, "Untimed é😀");
+        assert!(segments[0].words.is_empty());
+        assert_eq!(segments[0].start_time_seconds, 20.0);
+        assert_eq!(segments[0].end_time_seconds, 20.0);
         assert_eq!(
-            sha256_file(&path).unwrap(),
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            segments[0].transcription_origin().unwrap().timing_status,
+            encap_core::TranscriptTimingStatus::Untimed
+        );
+        assert!(encap_core::validate_timed_transcript(&segments).is_err());
+    }
+
+    #[test]
+    fn partial_word_timing_cannot_silently_omit_untimed_caption_words() {
+        let mut raw = record();
+        raw["segments"][0]["words"][1] = json!({"text":"world."});
+        let segments = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
+        assert!(segments[0].words.is_empty());
+        assert_eq!(segments[0].transcription_origin().unwrap().transcript, raw);
+    }
+
+    #[test]
+    fn rejects_malformed_timestamps_confidence_and_missing_provenance() {
+        let source = source("clip", 10.0);
+        for invalid in [json!(-1), json!(99), Value::Null] {
+            let mut raw = record();
+            raw["segments"][0]["words"][0]["start_seconds"] = invalid;
+            assert!(project_transcript(&raw, &source, 0.0, true).is_err());
+        }
+        let mut raw = record();
+        raw["segments"][0]["words"][0]["confidence"] = json!(1.1);
+        assert!(project_transcript(&raw, &source, 0.0, true).is_err());
+        raw = record();
+        raw.as_object_mut().unwrap().remove("provenance");
+        assert!(project_transcript(&raw, &source, 0.0, true).is_err());
+    }
+
+    #[test]
+    fn caption_projection_uses_current_episode_times_once_and_rejects_text_edits() {
+        let mut segments =
+            project_transcript(&record(), &source("delayed", 10.0), 30.0, true).unwrap();
+        let raw_before = segments[0].transcription_origin().unwrap().transcript;
+        let projected = caption_projection(&segments).unwrap();
+        assert_eq!(projected["segments"][0]["words"][0]["start_seconds"], 32.5);
+        assert_eq!(projected["segments"][0]["words"][1]["end_seconds"], 34.0);
+        assert_eq!(
+            segments[0].transcription_origin().unwrap().transcript,
+            raw_before
+        );
+        segments[0].text = "Edited".into();
+        segments[0].invalidate_word_alignment();
+        assert!(caption_projection(&segments)
+            .unwrap_err()
+            .to_string()
+            .contains("Realign"));
+    }
+
+    #[cfg(unix)]
+    fn fake_helper(script: &str) -> (tempfile::TempDir, Bridge) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fake helper; safe");
+        fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        (directory, Bridge { helper: path })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_success_error_malformed_and_missing_runtime_are_typed() {
+        let (_directory, bridge) =
+            fake_helper("printf '[{\"id\":\"m\",\"name\":\"Model\",\"detail\":\"Local\"}]'");
+        let providers: Vec<Provider> = bridge.invoke(&[], &CancellationToken::default()).unwrap();
+        assert_eq!(providers[0].id, "m");
+        let (_directory, bridge) =
+            fake_helper("printf '{\"error\":\"Pinned hash mismatch\"}'; exit 1");
+        let result: Result<Value> = bridge.invoke(&[], &CancellationToken::default());
+        assert_eq!(result.unwrap_err().to_string(), "Pinned hash mismatch");
+        let (_directory, bridge) = fake_helper("printf 'human readable output'");
+        let result: Result<Value> = bridge.invoke(&[], &CancellationToken::default());
+        assert!(result.unwrap_err().to_string().contains("invalid JSON"));
+        let bridge = Bridge {
+            helper: PathBuf::from("/missing/avid-transcriber"),
+        };
+        let result: Result<Value> = bridge.invoke(&[], &CancellationToken::default());
+        assert!(result.unwrap_err().to_string().contains("could not start"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paths_are_arguments_and_large_json_does_not_fill_a_pipe() {
+        let (_directory, bridge) = fake_helper("printf '\"'; printf '%s' \"$1\"; printf '\"'");
+        let path = "clip ; $(touch NOT_EXECUTED) `printf injected` \"name\"";
+        // A fake JSON encoder strips quotes only for this test; arbitrary shell
+        // metacharacters remain a single argument, never executable shell text.
+        let path = path.replace('"', "'");
+        let result: String = bridge
+            .invoke(&[path.clone().into()], &CancellationToken::default())
+            .unwrap();
+        assert_eq!(result, path);
+        let (_directory, bridge) = fake_helper(
+            "printf '\"'; /usr/bin/head -c 2097152 /dev/zero | /usr/bin/tr '\\000' x; printf '\"'",
+        );
+        let large: String = bridge.invoke(&[], &CancellationToken::default()).unwrap();
+        assert_eq!(large.len(), 2_097_152);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn multi_source_transcription_maps_offsets_and_preserves_existing_ids_speaker() {
+        let raw = record();
+        let script = format!("cat <<'JSON'\n{raw}\nJSON");
+        let (_directory, bridge) = fake_helper(&script);
+        let sources = [
+            source("first; $(echo nope).wav", 10.0),
+            source("second.wav", 8.0),
+        ];
+        let mut existing = project_transcript(&raw, &sources[1], 10.0, true).unwrap();
+        existing[0].id = "stable-segment".into();
+        existing[0].speaker = "Manually named host".into();
+        existing[0].words[0].id = "stable-word".into();
+        let segments = transcribe_with_bridge(
+            &bridge,
+            &sources,
+            DEFAULT_MODEL,
+            &TranscribeOptions {
+                word_timestamps: true,
+                ..Default::default()
+            },
+            &existing,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].start_time_seconds, 2.5);
+        assert_eq!(segments[1].start_time_seconds, 12.5);
+        assert_eq!(segments[1].id, "stable-segment");
+        assert_eq!(segments[1].words[0].id, "stable-word");
+        assert_eq!(segments[1].speaker, "Manually named host");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shifted_segment_indices_never_cross_assign_ids_or_speakers() {
+        let audio = source("clip", 10.0);
+        let mut old = project_transcript(&record(), &audio, 0.0, true).unwrap();
+        old[0].id = "retained-id".into();
+        old[0].speaker = "Alice".into();
+        let mut raw = record();
+        let added = json!({"text":"New phrase.","start_seconds":0.0,"end_seconds":1.0,
+            "words":[{"text":"New phrase.","start_seconds":0.0,"end_seconds":1.0}]});
+        raw["segments"].as_array_mut().unwrap().insert(0, added);
+        let (_directory, bridge) = fake_helper(&format!("cat <<'JSON'\n{raw}\nJSON"));
+        let result = transcribe_with_bridge(
+            &bridge,
+            &[audio],
+            DEFAULT_MODEL,
+            &TranscribeOptions {
+                word_timestamps: true,
+                ..Default::default()
+            },
+            &old,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        assert_ne!(result[0].id, "retained-id");
+        assert!(result[0].speaker.is_empty());
+        assert_eq!(result[1].id, "retained-id");
+        assert_eq!(result[1].speaker, "Alice");
+        assert_eq!(result[1].transcription_origin().unwrap().segment_index, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ambiguous_speaker_merge_preserves_history_and_requests_manual_review() {
+        let audio = source("clip", 10.0);
+        let mut raw_old = record();
+        let mut second = raw_old["segments"][0].clone();
+        second["text"] = json!("Second voice.");
+        second["start_seconds"] = json!(4.0);
+        second["end_seconds"] = json!(6.0);
+        second["words"] = json!([]);
+        raw_old["segments"].as_array_mut().unwrap().push(second);
+        let mut previous = project_transcript(&raw_old, &audio, 0.0, true).unwrap();
+        previous[0].speaker = "Alice".into();
+        previous[1].speaker = "Bob".into();
+        let mut merged = record();
+        merged["segments"][0]["text"] = json!("Hello world. Second voice.");
+        merged["segments"][0]["end_seconds"] = json!(6.0);
+        let (_directory, bridge) = fake_helper(&format!("cat <<'JSON'\n{merged}\nJSON"));
+        let result = transcribe_with_bridge(
+            &bridge,
+            &[audio],
+            DEFAULT_MODEL,
+            &TranscribeOptions::default(),
+            &previous,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        assert!(result[0].speaker.is_empty());
+        let origin = result[0].transcription_origin().unwrap();
+        assert!(origin.extensions["reconciliation_warning"]
+            .as_str()
+            .unwrap()
+            .contains("Review speaker"));
+        assert_eq!(
+            origin.extensions["previous_transcript"],
+            serde_json::to_value(&previous).unwrap()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edited_legacy_transcript_and_existing_history_are_preserved_once() {
+        let audio = source("clip", 10.0);
+        let prior: TranscriptSegment = serde_json::from_value(json!({"id":"legacy-edit","text":"My corrected wording.",
+            "speaker":"Host","start_time_seconds":2.5,"end_time_seconds":4.0,"future":{"opaque":true}})).unwrap();
+        let raw = record();
+        let (_directory, bridge) = fake_helper(&format!("cat <<'JSON'\n{raw}\nJSON"));
+        let first = transcribe_with_bridge(
+            &bridge,
+            std::slice::from_ref(&audio),
+            DEFAULT_MODEL,
+            &TranscribeOptions::default(),
+            std::slice::from_ref(&prior),
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        assert_eq!(first[0].speaker, "Host");
+        let history =
+            first[0].transcription_origin().unwrap().extensions["previous_transcript"].clone();
+        assert_eq!(history, serde_json::to_value(vec![prior]).unwrap());
+        let second = transcribe_with_bridge(
+            &bridge,
+            &[audio],
+            DEFAULT_MODEL,
+            &TranscribeOptions::default(),
+            &first,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        let origin = second[0].transcription_origin().unwrap();
+        assert_eq!(
+            origin.extensions["previous_transcript"][0]["avid_core"]["previous_transcript"],
+            history
+        );
+        assert_eq!(
+            second
+                .iter()
+                .filter(|segment| segment
+                    .transcription_origin()
+                    .unwrap()
+                    .extensions
+                    .contains_key("previous_transcript"))
+                .count(),
+            1
         );
     }
 
     #[test]
-    fn whisper_and_apple_word_timings_are_clamped_to_valid_project_bounds() {
-        let whisper_json = br#"{
-            "transcription": [{
-                "offsets": { "from": 1000.0, "to": 2000.0 },
-                "text": " Hello world ",
-                "tokens": [
-                    { "text": "<|startoftranscript|>", "offsets": { "from": 0.0, "to": 100.0 } },
-                    { "text": " Hello", "offsets": { "from": 850.0, "to": 1500.0 } },
-                    { "text": " world", "offsets": { "from": 1600.0, "to": 1400.0 } },
-                    { "text": "!", "offsets": { "from": 1900.0, "to": 2250.0 } }
-                ]
-            }]
-        }"#;
-        let segments = parse_whisper_response(whisper_json, 10.0).unwrap();
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].start_time_seconds, 11.0);
-        assert_eq!(segments[0].end_time_seconds, 12.0);
-        assert_eq!(segments[0].words.len(), 3);
-        let mut project = encap_core::ProjectDocument {
-            transcript_segments: segments,
-            ..Default::default()
-        };
-        project.validate().unwrap();
-
-        let apple_json = br#"{
-            "segments": [
-                { "text": "First", "start_seconds": 1.0, "duration_seconds": 1.5 },
-                { "text": "Second", "start_seconds": 0.8, "duration_seconds": 0.5 }
-            ]
-        }"#;
-        let apple_segments = parse_apple_response(apple_json, 5.0).unwrap();
-        assert_eq!(apple_segments.len(), 1);
-        project.transcript_segments = apple_segments;
-        project.validate().unwrap();
-
-        let invalid_apple =
-            br#"{"segments":[{"text":"Bad","start_seconds":-1.0,"duration_seconds":1.0}]}"#;
-        assert!(parse_apple_response(invalid_apple, 0.0).is_err());
+    fn combined_alignment_keeps_initial_recognition_and_separate_aligned_record() {
+        let mut raw = record();
+        raw["recognition_segments"] = raw["segments"].clone();
+        raw["segments"][0]["words"][0]["start_seconds"] = json!(2.6);
+        raw["alignment_provenance"] = json!({"engine_id":"aligner","model_id":"qwen", "model_installation_id":"exact-manifest-id"});
+        let result = project_transcript(&raw, &source("clip", 10.0), 20.0, true).unwrap();
+        let origin = result[0].transcription_origin().unwrap();
+        assert_eq!(origin.transcript, record());
+        assert_eq!(
+            origin.extensions["alignment_record"]["segments"][0]["words"][0]["start_seconds"],
+            2.6
+        );
+        assert!(origin.transcript.get("recognition_segments").is_none());
+        assert!(origin.extensions["alignment_record"]
+            .get("recognition_segments")
+            .is_none());
+        assert_eq!(
+            origin.extensions["alignment_record"]["alignment_provenance"]["model_installation_id"],
+            "exact-manifest-id"
+        );
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     #[test]
-    fn whisperkit_reuse_requires_complete_local_packages() {
-        let temporary = tempfile::tempdir().unwrap();
-        let model = temporary.path().join("model");
-        fs::create_dir_all(&model).unwrap();
-        fs::write(
-            model.join("config.json"),
-            br#"{"model_type":"whisper","d_model":1,"decoder_start_token_id":1}"#,
-        )
-        .unwrap();
-        fs::write(
-            model.join("generation_config.json"),
-            br#"{"lang_to_id":{"en":1},"task_to_id":{"transcribe":1},"no_timestamps_token_id":1}"#,
-        )
-        .unwrap();
-        for component in ["AudioEncoder", "MelSpectrogram", "TextDecoder"] {
-            let compiled = model.join(format!("{component}.mlmodelc"));
-            fs::create_dir_all(compiled.join("weights")).unwrap();
-            for path in [
-                compiled.join("model.mil"),
-                compiled.join("coremldata.bin"),
-                compiled.join("metadata.json"),
-                compiled.join("weights/weight.bin"),
-            ] {
-                fs::write(path, b"present").unwrap();
-            }
-        }
-        assert!(valid_whisperkit_model(&model));
-        fs::remove_file(model.join("TextDecoder.mlmodelc/weights/weight.bin")).unwrap();
-        assert!(!valid_whisperkit_model(&model));
+    fn cancellation_is_forwarded_to_owned_helper_and_waits_for_cleanup() {
+        let directory = tempfile::tempdir().unwrap();
+        let cleanup = directory.path().join("cleanup");
+        let script = format!(
+            "trap 'printf cleaned > {} ; exit 0' TERM\nwhile :; do /bin/sleep 0.05; done",
+            cleanup.display()
+        );
+        let (_helper_directory, bridge) = fake_helper(&script);
+        let token = CancellationToken::default();
+        let worker_token = token.clone();
+        let start = Instant::now();
+        let worker = std::thread::spawn(move || bridge.invoke::<Value>(&[], &worker_token));
+        std::thread::sleep(Duration::from_millis(100));
+        token.cancel();
+        assert!(worker
+            .join()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled safely"));
+        assert_eq!(fs::read_to_string(cleanup).unwrap(), "cleaned");
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
 
-        let tokenizer = temporary.path().join("tokenizer");
-        fs::create_dir(&tokenizer).unwrap();
-        fs::write(
-            tokenizer.join("tokenizer.json"),
-            br#"{"model":{"type":"BPE","vocab":{"a":1},"merges":["a b"]}}"#,
+    #[cfg(unix)]
+    #[test]
+    fn cancelled_or_failed_source_never_replaces_prior_transcript() {
+        let raw = record();
+        let prior = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
+        let (_directory, bridge) =
+            fake_helper("printf '{\"error\":\"Local model missing\"}'; exit 1");
+        assert!(transcribe_with_bridge(
+            &bridge,
+            &[source("clip", 10.0)],
+            DEFAULT_MODEL,
+            &TranscribeOptions::default(),
+            &prior,
+            &CancellationToken::default()
+        )
+        .is_err());
+        assert_eq!(prior[0].text, "Hello world.");
+        assert_eq!(prior[0].transcription_origin().unwrap().transcript, raw);
+        let token = CancellationToken::default();
+        token.cancel();
+        assert!(transcribe_with_bridge(
+            &bridge,
+            &[source("clip", 10.0)],
+            DEFAULT_MODEL,
+            &TranscribeOptions::default(),
+            &prior,
+            &token
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn realignment_preserves_edited_text_id_speaker_and_recognition_provenance() {
+        let source = source("clip", 10.0);
+        let mut edited = project_transcript(&record(), &source, 0.0, true).unwrap();
+        edited[0].text = "Edited words.".into();
+        edited[0].speaker = "Host".into();
+        edited[0].invalidate_word_alignment();
+        let mut aligned = record();
+        aligned["segments"][0]["text"] = json!("Edited words.");
+        aligned["segments"][0]["words"][0]["text"] = json!("Edited");
+        aligned["segments"][0]["words"][1]["text"] = json!("words.");
+        aligned["alignment_provenance"] =
+            json!({"engine_id":"qwen-aligner","model_id":"qwen3-forced-aligner-0.6b-4bit"});
+        let script = format!("cat <<'JSON'\n{aligned}\nJSON");
+        let (_directory, bridge) = fake_helper(&script);
+        let result = realign_with_bridge(
+            &bridge,
+            &[source],
+            &edited,
+            "qwen3-forced-aligner-0.6b-4bit",
+            Some("en"),
+            &CancellationToken::default(),
         )
         .unwrap();
-        fs::write(
-            tokenizer.join("tokenizer_config.json"),
-            br#"{"tokenizer_class":"WhisperTokenizer","added_tokens_decoder":{"1":"x"}}"#,
-        )
-        .unwrap();
-        fs::write(
-            tokenizer.join("config.json"),
-            br#"{"model_type":"whisper","d_model":1,"decoder_start_token_id":1}"#,
-        )
-        .unwrap();
-        assert!(valid_whisperkit_tokenizer(&tokenizer));
-        fs::write(tokenizer.join("tokenizer.json"), br#"{"model":{}}"#).unwrap();
-        assert!(!valid_whisperkit_tokenizer(&tokenizer));
+        assert_eq!(result[0].id, edited[0].id);
+        assert_eq!(result[0].speaker, "Host");
+        assert_eq!(result[0].text, "Edited words.");
+        assert_eq!(result[0].words.len(), 2);
+        let origin = result[0].transcription_origin().unwrap();
+        assert_eq!(origin.transcript["provenance"], record()["provenance"]);
+        assert_eq!(origin.transcript, record());
+        assert_eq!(
+            origin.extensions["alignment_record"]["alignment_provenance"],
+            aligned["alignment_provenance"]
+        );
+        assert_eq!(
+            origin.extensions["alignment_record"]["segments"][0]["text"],
+            "Edited words."
+        );
     }
 }

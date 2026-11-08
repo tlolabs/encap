@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "scope": "AVID Core transcription replacement; base application platforms unchanged",
+  "snapshot_sha256": "f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a",
+  "targets": {
+    "macos-arm64": {
+      "implementation": "shared Swift helper",
+      "minimum_macos": "14.0",
+      "qualification": "per-artifact real offline inference required",
+      "macos_13": "pending shared-engine extension or explicit owner policy decision"
+    },
+    "macos-x86_64": {"implementation": "unavailable", "qualification": "pending shared-engine extension or explicit owner policy decision"},
+    "windows-x86_64": {"implementation": "unavailable", "qualification": "pending shared-engine port or explicit owner policy decision"},
+    "windows-arm64": {"implementation": "unavailable", "qualification": "pending shared-engine port or explicit owner policy decision"},
+    "linux-x86_64": {"implementation": "unavailable", "qualification": "pending shared-engine port or explicit owner policy decision"},
+    "linux-arm64": {"implementation": "unavailable", "qualification": "pending shared-engine port or explicit owner policy decision"}
+  },
+  "legacy_cache_policy": "No legacy GGML or third-party caches are deleted, converted, or adopted.",
+  "publication": "Unverified transcription targets do not publish. Independent verified targets, commits, pushes and other development remain nonblocking."
+}

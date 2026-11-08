@@ -8,6 +8,7 @@ mod model;
 mod project;
 mod source;
 mod transcript;
+mod transcript_origin;
 mod waveform;
 
 pub use archive_copy::{stage_archive_copy, ArchiveCopyMethod};
@@ -21,6 +22,7 @@ pub use project::{
 };
 pub use source::{discover_audio_files, inspect_files, inspect_folder, inspect_source};
 pub use transcript::{render_srt, render_transcript_text, validate_transcript_export};
+pub use transcript_origin::{validate_timed_transcript, TranscriptOrigin, TranscriptTimingStatus};
 
 pub use waveform::{waveform_preview, WaveformPreview};
 

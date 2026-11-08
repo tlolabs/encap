@@ -21,7 +21,17 @@ final class AppStore: ObservableObject {
     @Published private(set) var workspace = WorkspaceMode.audio
     @Published var providers: [TranscriptionProvider] = []
     @Published var transcriptionModels: [TranscriptionModelInfo] = []
-    @Published var selectedProviderID = "apple-local"
+    @Published var selectedProviderID = "whisper-large-v3" {
+        didSet { if !restoringTranscriptionSelection { project?.transcriptSettings.recognitionModelId = selectedProviderID } }
+    }
+    @Published var selectedAlignmentModelID = "" {
+        didSet { if !restoringTranscriptionSelection { project?.transcriptSettings.alignmentModelId = selectedAlignmentModelID.isEmpty ? nil : selectedAlignmentModelID } }
+    }
+    @Published var transcriptionLanguage = "" {
+        didSet { if !restoringTranscriptionSelection { project?.transcriptSettings.language = transcriptionLanguage.isEmpty ? nil : transcriptionLanguage } }
+    }
+    @Published var transcriptionAvailability = TranscriptionAvailability(available: false, reason: "Checking the AVID Core transcription runtime…")
+    @Published var modelCatalogLoading = false
     @Published var videoPresets: [VideoPreset] = []
     @Published var videoCapabilities = VideoCapabilities()
     @Published var videoCurrentTime = 0.0
@@ -60,6 +70,7 @@ final class AppStore: ObservableObject {
     private var videoPlaybackIndex: Int?
     private var savedProject: ProjectDocument?
     private var cancellationRequested = false
+    private var restoringTranscriptionSelection = false
     private var recoveryObservation: AnyCancellable?
 
     var hasUnsavedChanges: Bool { project != nil && project != savedProject }
@@ -98,6 +109,11 @@ final class AppStore: ObservableObject {
         var normalized = next
         normalizeVideoSelection(&normalized)
         project = normalized
+        restoringTranscriptionSelection = true
+        selectedProviderID = normalized.transcriptSettings.recognitionModelId ?? "whisper-large-v3"
+        selectedAlignmentModelID = normalized.transcriptSettings.alignmentModelId ?? ""
+        transcriptionLanguage = normalized.transcriptSettings.language ?? ""
+        restoringTranscriptionSelection = false
         workspace = normalized.activeMode
         savedProject = saved ? normalized : nil
     }
@@ -120,9 +136,15 @@ final class AppStore: ObservableObject {
         Task { await restoreRecoveryIfAvailable() }
     }
 
-    private func restoreRecoveryIfAvailable() async {
+    func restoreRecoveryIfAvailable(load: (() async throws -> ProjectDocument?)? = nil) async {
         do {
-            guard project == nil, let recovered = try await engine.loadRecovery() else { return }
+            guard project == nil else { return }
+            let recovered: ProjectDocument?
+            if let load { recovered = try await load() }
+            else { recovered = try await engine.loadRecovery() }
+            // Opening/importing can finish while recovery is being read. Never
+            // replace that newer project with a stale startup recovery response.
+            guard project == nil, !isWorking, let recovered else { return }
             replaceProject(recovered, saved: false)
             status = "Recovered unsaved work from the previous session."
         } catch {
@@ -140,8 +162,15 @@ final class AppStore: ObservableObject {
     var selectedVideoChapters: [Chapter] {
         guard let project else { return [] }
         let ids = project.video.exportSettings.selectedChapterIds
-        if ids.isEmpty && !project.video.exportSettings.selectionInitialized { return project.chapters }
-        return ids.compactMap { id in project.chapters.first { $0.id == id } }
+        if ids.isEmpty {
+            return project.video.exportSettings.selectionInitialized ? [] : project.chapters
+        }
+        var chaptersByID: [Chapter.ID: Chapter] = [:]
+        chaptersByID.reserveCapacity(project.chapters.count)
+        for chapter in project.chapters where chaptersByID[chapter.id] == nil {
+            chaptersByID[chapter.id] = chapter
+        }
+        return ids.compactMap { chaptersByID[$0] }
     }
 
     var selectedVideoDuration: Double {
@@ -362,60 +391,151 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func loadProviders() {
-        Task {
-            do {
-                providers = try await engine.providers()
-                if !providers.contains(where: { $0.id == selectedProviderID }) {
-                    selectedProviderID = providers.first?.id ?? ""
-                }
-            } catch {
-                providers = []
-                errorMessage = "Could not load transcription engines: \(error.localizedDescription)"
+    var transcriptionReconciliationWarning: String? {
+        guard let project else { return nil }
+        var warnings: [String] = []
+        if let warning = project.avidReconciliationWarning?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !warning.isEmpty { warnings.append(warning) }
+        for segment in project.transcriptSegments {
+            guard case .object(let fields)? = segment.avidCore?.payload,
+                  case .string(let value)? = fields["reconciliation_warning"] else { continue }
+            let warning = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !warning.isEmpty && !warnings.contains(warning) { warnings.append(warning) }
+        }
+        return warnings.isEmpty ? nil : warnings.joined(separator: "\n")
+    }
+
+    var alignmentModels: [TranscriptionModelInfo] {
+        transcriptionModels.filter { $0.isAligner && $0.installed }
+    }
+
+    var canTranscribe: Bool {
+        transcriptionAvailability.available && !isWorking && providers.contains { $0.id == selectedProviderID }
+    }
+
+    var canRealign: Bool {
+        transcriptionAvailability.available && !isWorking
+            && alignmentModels.contains { $0.id == selectedAlignmentModelID }
+            && project?.transcriptSegments.isEmpty == false
+    }
+
+    var canExportWordCaptions: Bool {
+        guard transcriptionAvailability.available, !isWorking,
+              let segments = project?.transcriptSegments, !segments.isEmpty else { return false }
+        return segments.allSatisfy {
+            !$0.words.isEmpty && $0.avidCore?.timingStatus != "invalidated" && $0.avidCore?.timingStatus != "untimed"
+        }
+    }
+
+    private var transcriptionProgress: @Sendable (EngineProgress) -> Void {
+        { [weak self] event in
+            Task { @MainActor in
+                guard let self, self.isWorking, !self.cancellationRequested else { return }
+                self.status = event.status
             }
+        }
+    }
+
+    func loadProviders() {
+        Task { await refreshTranscriptionState() }
+    }
+
+    private func refreshTranscriptionState() async {
+        do {
+            transcriptionAvailability = try await engine.transcriptionStatus()
+            guard transcriptionAvailability.available else {
+                providers = []
+                transcriptionModels = []
+                return
+            }
+            providers = try await engine.providers()
+            // Preserve the saved model selection when its installation is absent.
+            // The picker explains the missing files instead of choosing a backend.
+            await refreshModels()
+        } catch {
+            providers = []
+            transcriptionAvailability = TranscriptionAvailability(available: false, reason: error.localizedDescription)
         }
     }
 
     func presentModelManager() {
         isModelManagerPresented = true
-        Task { await refreshModels() }
+        Task { await refreshTranscriptionState() }
     }
 
     func installModel(_ model: TranscriptionModelInfo) {
         perform("Downloading \(model.name)…") {
-            _ = try await self.engine.installModel(id: model.id)
-            await self.refreshModels()
-            self.loadProviders()
-            self.selectedProviderID = model.id
+            _ = try await self.engine.installModel(id: model.id, progress: self.transcriptionProgress)
+            try self.checkOperationCancellation()
+            await self.refreshTranscriptionState()
+            if model.isAligner { self.selectedAlignmentModelID = model.id }
+            else { self.selectedProviderID = model.id }
             self.status = "Installed \(model.name)."
         }
     }
 
+    func importModel(_ model: TranscriptionModelInfo) {
+        guard !isWorking, transcriptionAvailability.available else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Import \(model.name)"
+        panel.message = "Select an exact catalog-compatible model folder. AVID Core copies and verifies it; the original folder is preserved."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let source = panel.url else { return }
+            self.perform("Importing and verifying \(model.name)…") {
+                _ = try await self.engine.importModel(id: model.id, from: source, progress: self.transcriptionProgress)
+                try self.checkOperationCancellation()
+                await self.refreshTranscriptionState()
+                if model.isAligner { self.selectedAlignmentModelID = model.id }
+                else { self.selectedProviderID = model.id }
+                self.status = "Imported \(model.name); original files preserved."
+            }
+        }
+        if let window = NSApp.keyWindow { panel.beginSheetModal(for: window, completionHandler: completion) }
+        else { panel.begin(completionHandler: completion) }
+    }
+
     func removeModel(_ model: TranscriptionModelInfo) {
-        perform("Removing \(model.name)…") {
+        perform("Removing the shared installation of \(model.name)…") {
             _ = try await self.engine.removeModel(id: model.id)
-            await self.refreshModels()
-            self.loadProviders()
-            self.status = "Removed \(model.name)."
+            try self.checkOperationCancellation()
+            if self.selectedAlignmentModelID == model.id { self.selectedAlignmentModelID = "" }
+            await self.refreshTranscriptionState()
+            self.status = "Removed \(model.name) from the shared AVID cache. Original imports are preserved."
         }
     }
 
     private func refreshModels() async {
+        modelCatalogLoading = true
+        defer { modelCatalogLoading = false }
         do {
             transcriptionModels = try await engine.models()
         } catch {
-            errorMessage = "Could not load the model catalog: \(error.localizedDescription)"
+            transcriptionModels = []
+            errorMessage = "Could not load the shared model catalog: \(error.localizedDescription)"
         }
     }
 
+    private func checkOperationCancellation() throws {
+        if cancellationRequested { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+
     func transcribe() {
-        guard let project, !selectedProviderID.isEmpty else { return }
+        guard let project, canTranscribe else { return }
+        let providerID = selectedProviderID
+        let alignmentModelID = selectedAlignmentModelID
+        let language = transcriptionLanguage
         perform("Transcribing locally…") {
             let segments = try await self.engine.transcribe(
-                project,
-                providerID: self.selectedProviderID,
-                wordTimestamps: project.transcriptSettings.includeWordTimestamps
+                project, providerID: providerID,
+                wordTimestamps: project.transcriptSettings.includeWordTimestamps,
+                language: language, alignmentModelID: alignmentModelID,
+                progress: self.transcriptionProgress
             )
+            try self.checkOperationCancellation()
             self.project?.transcriptSegments = segments
             self.workspace = .transcript
             self.project?.activeMode = .transcript
@@ -423,17 +543,30 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func presentTranscriptSavePanel(format: String) {
+    func realignTranscript() {
+        guard let project, canRealign else { return }
+        let alignmentModelID = selectedAlignmentModelID
+        let language = transcriptionLanguage
+        perform("Aligning edited text locally…") {
+            let segments = try await self.engine.realign(project, modelID: alignmentModelID,
+                                                         language: language, progress: self.transcriptionProgress)
+            try self.checkOperationCancellation()
+            self.project?.transcriptSegments = segments
+            self.status = "Word alignment complete."
+        }
+    }
+
+    func presentTranscriptSavePanel(format: String, wordCaptions: Bool = false) {
         guard let project, !project.transcriptSegments.isEmpty, !isWorking else { return }
         let panel = NSSavePanel()
-        let fileExtension = format == "srt" ? "srt" : "txt"
+        let fileExtension = ["srt", "vtt"].contains(format) ? format : "txt"
         panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
         panel.nameFieldStringValue = "\(project.outputBaseName).\(fileExtension)"
         panel.canCreateDirectories = true
-        panel.title = format == "srt" ? "Export SRT Captions" : "Export Transcript"
+        panel.title = wordCaptions ? "Export Timed Word Captions" : (format == "srt" ? "Export SRT Captions" : "Export Transcript")
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            self?.exportTranscript(to: url, format: format)
+            self?.exportTranscript(to: url, format: format, wordCaptions: wordCaptions)
         }
         if let window = NSApp.keyWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)
@@ -442,10 +575,12 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func exportTranscript(to url: URL, format: String) {
+    private func exportTranscript(to url: URL, format: String, wordCaptions: Bool) {
         guard let project else { return }
         perform("Exporting transcript…") {
-            let output = try await self.engine.exportTranscript(project, to: url, format: format)
+            let output: URL
+            if wordCaptions { output = try await self.engine.exportCaptions(project, to: url, format: format) }
+            else { output = try await self.engine.exportTranscript(project, to: url, format: format) }
             self.status = "Exported \(output.lastPathComponent)."
         }
     }

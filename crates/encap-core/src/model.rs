@@ -53,6 +53,12 @@ pub struct TranscriptWord {
 pub struct TranscriptSettings {
     #[serde(default)]
     pub include_word_timestamps: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recognition_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment_model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     #[serde(flatten)]
     pub extensions: BTreeMap<String, Value>,
 }
@@ -330,6 +336,7 @@ impl ProjectDocument {
             ));
         }
         for segment in &self.transcript_segments {
+            crate::transcript_origin::validate_origin(segment)?;
             if !is_valid_duration(segment.start_time_seconds)
                 || !is_valid_duration(segment.end_time_seconds)
                 || segment.end_time_seconds < segment.start_time_seconds

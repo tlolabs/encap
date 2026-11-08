@@ -19,10 +19,18 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
         .iter()
         .any(|source| removed.contains(&source.source_path))
     {
+        let removed_source_ids: BTreeSet<_> = project
+            .audio_sources
+            .iter()
+            .filter(|source| removed.contains(&source.source_path))
+            .map(|source| source.transcription_source_id())
+            .collect();
         let mut numbers = BTreeMap::new();
         let mut cuts = Vec::new();
         let mut starts = Vec::new();
         let mut position = 0.0;
+        let mut retained_position = 0.0;
+        let mut retained_source_positions = BTreeMap::new();
         let mut kept = Vec::new();
         for (index, source) in project.audio_sources.iter().enumerate() {
             starts.push(position);
@@ -30,6 +38,11 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
             if removed.contains(&source.source_path) {
                 cuts.push(position..end);
             } else {
+                retained_source_positions.insert(
+                    source.transcription_source_id(),
+                    (retained_position, source.duration_seconds),
+                );
+                retained_position += source.duration_seconds;
                 kept.push(source.clone());
                 numbers.insert(index as u32 + 1, kept.len() as u32);
             }
@@ -58,6 +71,9 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
             let end = adjusted(chapter.start_time_seconds + chapter.duration_seconds);
             chapter.start_time_seconds = adjusted(chapter.start_time_seconds);
             chapter.duration_seconds = (end - chapter.start_time_seconds).max(0.0);
+            if chapter.duration_seconds <= 0.0 {
+                return false;
+            }
             chapter.chapter_number = number;
             if chapter.title == format!("Chapter {old}") {
                 chapter.title = format!("Chapter {number}");
@@ -65,13 +81,27 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
             true
         });
         result.transcript_segments.retain_mut(|segment| {
+            if let Some(origin) = segment.transcription_origin() {
+                if removed_source_ids.contains(&origin.source_id) {
+                    return false;
+                }
+                if let Some(&(start, duration)) = retained_source_positions.get(&origin.source_id) {
+                    // Native backends may overshoot a source boundary slightly.
+                    // Its known source identity decides retention, not overlap
+                    // with the adjacent source's removed episode range.
+                    segment.reproject_to_source(start, duration);
+                    return true;
+                }
+            }
             if cuts.iter().any(|cut| {
                 segment.start_time_seconds < cut.end && segment.end_time_seconds > cut.start
             }) {
                 return false;
             }
-            segment.start_time_seconds = adjusted(segment.start_time_seconds);
+            let previous_start = segment.start_time_seconds;
+            segment.start_time_seconds = adjusted(previous_start);
             segment.end_time_seconds = adjusted(segment.end_time_seconds);
+            segment.shift_transcription_projection(segment.start_time_seconds - previous_start);
             for word in &mut segment.words {
                 word.start_time_seconds = adjusted(word.start_time_seconds);
                 word.end_time_seconds = adjusted(word.end_time_seconds);
@@ -79,6 +109,10 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
             true
         });
         result.audio_sources = kept;
+        crate::transcript_origin::transfer_removed_history(
+            &project.transcript_segments,
+            &mut result,
+        );
         if result.audio_sources.is_empty() {
             result.chapters.clear();
             result.transcript_segments.clear();
@@ -133,12 +167,14 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
         }
         result.chapters.push(chapter);
     }
+    result.validate()?;
     Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Chapter;
     use serde_json::json;
 
     fn fixture() -> ProjectDocument {
@@ -258,5 +294,43 @@ mod tests {
         )
         .is_err());
         assert_eq!(project, fixture());
+    }
+
+    #[test]
+    fn audio_removal_prunes_zero_duration_chapters_and_validates() {
+        let mut project = fixture();
+        // Add a chapter whose time window falls entirely inside source b.wav (range 10.0..30.0)
+        // but whose chapter_number explicitly points to source 3 (c.wav).
+        // When b.wav is removed, adjusting the interval drops duration to 0.0.
+        project.chapters.push(Chapter {
+            id: "zero_dur".into(),
+            chapter_number: 3,
+            title: "Cut Out Chapter".into(),
+            start_time_seconds: 12.0,
+            duration_seconds: 5.0,
+            link_url: String::new(),
+            image_path: None,
+            image_stored_path: None,
+            extensions: Default::default(),
+        });
+        project.chapters.sort_by(|a, b| {
+            a.start_time_seconds
+                .partial_cmp(&b.start_time_seconds)
+                .unwrap()
+        });
+
+        let result = edit_audio(
+            &project,
+            AudioEdits {
+                remove_files: vec!["b.wav".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // The zero-duration chapter must be pruned
+        assert!(result.chapters.iter().all(|c| c.id != "zero_dur"));
+        assert!(result.chapters.iter().all(|c| c.duration_seconds > 0.0));
+        assert!(result.validate().is_ok());
     }
 }

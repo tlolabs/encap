@@ -12,7 +12,7 @@ EnCAP is a native desktop application (SwiftUI on macOS, with WinUI and GTK impl
 
 ### User-Facing Functionality
 * **Audio Mode**: Ingests folders of broadcast WAV and AIFF recordings, naturally sorted; provides chapter marker editing and chapter naming automation; previews source recordings; exports final master audio (MP3 via LAME or AAC via Apple AudioToolbox / FFmpeg) with embedded ID3v2/MP4 chapter marks and metadata.
-* **Transcript Mode**: Transcribes audio using on-device models (Apple Speech framework on macOS, whisper.cpp with EnCap catalog models, or reused WhisperKit models); supports word-level timestamps; provides full transcript search, speaker assignment, and export to plain text or SRT subtitles.
+* **Transcript Mode**: Transcribes audio using shared AVID Core local models on Apple silicon/macOS 14+ (other inference targets pending a support decision); supports word-level timestamps; provides full transcript search, speaker assignment, and export to plain text or SRT subtitles.
 * **Video Mode**: Composes podcast video episodes with custom aspect ratios, platforms (Instagram, YouTube, etc.), chapter artwork overrides, animated or styled video rendering delegated to `avid-core` (AVID Core), and hardware/software H.264/HEVC encoding.
 
 ### Architecture and Shared Core

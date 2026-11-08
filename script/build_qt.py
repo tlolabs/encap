@@ -44,7 +44,7 @@ def copy_required(source, destination):
 
 
 def stage_helpers(output, tools, host, reference):
-    names = ['encap-engine', 'ffmpeg', 'ffprobe', 'whisper-cli']
+    names = ['encap-engine', 'ffmpeg', 'ffprobe']
     if not reference:
         names.append('encap-update')
     if host == 'win':
@@ -52,6 +52,21 @@ def stage_helpers(output, tools, host, reference):
     suffix = '.exe' if host == 'win' else ''
     for name in names:
         copy_required(tools / (name + suffix), output / (name + suffix))
+    # Only a supported macOS reference package can carry the shared helper.
+    if reference and (tools / 'avid-transcriber').is_file():
+        copy_required(tools / 'avid-transcriber', output / 'avid-transcriber')
+        for bundle in (tools.parent / 'Resources').glob('*.bundle'):
+            shutil.copytree(bundle, output.parent / 'Resources' / bundle.name, dirs_exist_ok=True)
+        for library in tools.glob('*.dylib'):
+            copy_required(library, output / library.name)
+        copy_required(tools.parent / 'Resources/avid-transcriber-resources.json', output.parent / 'Resources/avid-transcriber-resources.json')
+        licenses = tools.parent / 'Resources/AVIDTranscriptionLicenses'
+        if not licenses.is_dir():
+            raise FileNotFoundError(licenses)
+        shutil.copytree(licenses, output.parent / 'Resources/AVIDTranscriptionLicenses', dirs_exist_ok=True)
+    qualification = tools.parent / 'Resources/transcription-qualification.json' if reference else tools / 'transcription-qualification.json'
+    if qualification.is_file():
+        copy_required(qualification, output / 'transcription-qualification.json')
     metadata = tools.parent / 'Resources/FFmpeg' if reference else tools / 'ffmpeg-runtime'
     target = output.parent / 'Resources/FFmpeg' if reference else output / 'ffmpeg-runtime'
     if not metadata.is_dir():
@@ -230,7 +245,7 @@ def build(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rid', choices=TARGETS, required=True)
-    parser.add_argument('--tools', type=Path, required=True, help='staged Rust engine, FFmpeg and Whisper binaries')
+    parser.add_argument('--tools', type=Path, required=True, help='staged Rust engine and authenticated FFmpeg binaries')
     parser.add_argument('--qt-prefix', type=Path, help='Qt installation prefix containing bin, lib and plugins')
     parser.add_argument('--run', action='store_true', help='launch the internal macOS Qt reference')
     options = parser.parse_args()
