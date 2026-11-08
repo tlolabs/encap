@@ -7,10 +7,10 @@ require 'pathname'
 root = File.expand_path('..', __dir__)
 vendor = File.join(root, 'vendor')
 manifest_path = File.join(vendor, 'AVID_CORE_TRANSCRIPTION_SOURCE_MANIFEST.json')
-expected_manifest = 'f0232869d2068eb9c24b273238c3d9d510eaf6a7870561fc39052b4226b88397'
+expected_manifest = 'a254e146d03c6690db7fde724a2d09e89d479a1ead22e7bd2ee983f920dd97c3'
 abort 'AVID Core source manifest integrity check failed' unless Digest::SHA256.file(manifest_path).hexdigest == expected_manifest
 manifest = JSON.parse(File.binread(manifest_path))
-expected_archive = 'f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a'
+expected_archive = 'a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937'
 abort 'Unexpected AVID Core source identity' unless manifest.fetch('source_bundle_sha256') == expected_archive
 archive = File.join(vendor, 'AVID_CORE_TRANSCRIPTION_SOURCE.tar.gz')
 abort 'AVID Core archive integrity check failed' unless Digest::SHA256.file(archive).hexdigest == expected_archive

@@ -64,9 +64,8 @@ The crate does **not** own windows, menus, native playback/devices, theme prefer
 ## Reproducible dependency
 
 Core uses semantic versioning independently of application and FFmpeg versions.
-This checkout prepares source version `0.3.2`, including shared image optimization
-and the runtime bug fixes. Until that release is published, use an immutable
-source revision containing these changes. After publication, both hosts can pin:
+Source release `0.3.2` includes shared image optimization and the runtime bug
+fixes. Both hosts can pin:
 
 ```toml
 [workspace.dependencies]
@@ -75,7 +74,7 @@ avid-core = { git = "https://github.com/tlolabs/avid-core.git", tag = "v0.3.2", 
 
 Members use `avid-core.workspace = true`. Commit the host's `Cargo.lock` and build
 with `--locked`. For the strongest immutable pin, replace `tag` with `rev` set to
-the full commit from `git rev-parse 'v0.3.2^{commit}'` after publication. Never use
+the full commit from `git rev-parse 'v0.3.2^{commit}'`. Never use
 a moving branch as a release dependency. A sibling `path` dependency is optional local development
 only; no Core API or build script requires that layout. See [versioning and migration](docs/integration.md).
 
@@ -110,6 +109,12 @@ Call `renderer.render_with_mode(&request, RenderMode::Simple, &cancel, &events)`
 The implementation trims the source before composition, then loops the completed frame in FFmpeg memory. It creates no intermediate PNG and avoids an RGB/YUV round trip. Requires the FFmpeg `trim`, `loop`, and `setpts` filters. Known-duration single exports explicitly stop at the probed audio duration to prevent an encoder-buffered silent video tail; unknown durations still use `-shortest`. Compositing happens within the Encoding process, so stage callback intervals do not isolate compositing CPU time.
 
 `render()` and `RenderMode::PerFrame` preserve the original path. No fields were added to `RenderSettings` or persisted `VideoSettings`; existing host callers stay source compatible. Both modes use the same validation, staged publication, cancellation, progress and encoder fallback. ATIV's experiment branch selects Simple by default and retains `--render-mode current` for comparison. See [the benchmark and verification notes](docs/simple-export.md).
+
+PerFrame rendering supports GIF/APNG artwork without image2-only input options.
+GIFs repeat; APNG honors embedded play counts and holds the final frame when
+finite. Simple mode always freezes frame one. Composed frames use square pixels,
+with cached `setsar`/`scale reset_sar` capability selection for older full builds
+and the minimal Core runtime. See [media behavior](docs/integration.md#media-and-lifecycle-behavior).
 
 ## JPEG and PNG optimization
 
@@ -162,7 +167,7 @@ Tools are executed directly with stdin disabled; media inputs allow only `file,p
 
 Automatic mode tries the first advertised hardware encoder in the original VideoToolbox/NVENC/QSV/AMF/VAAPI priority and retries in software after a process failure. Explicit hardware never silently falls back. Advertisement does not prove a usable device; no new GPU/device configuration is invented. ATIV must retain `Encoding::Software` to preserve its release policy.
 
-Rust 1.85+ and edition 2021. The platform boundary preserves ATIV's macOS 12+, Windows 10 1809+ and current Linux requirements, and EnCAP's macOS 13+, Windows 10 1809+, and Linux requirements. No platform UI or shell dependency is introduced by the library. Native execution was verified on macOS; Windows/Linux cross-compilation and the CI matrix supplement, but do not replace, packaged runtime verification.
+Rust 1.85+ and edition 2021. The platform boundary preserves ATIV's macOS 12+, Windows 10 1809+ and current Linux requirements, and EnCAP's macOS 13+, Windows 10 1809+, and Linux requirements. No platform UI or shell dependency is introduced by the library. Native execution was verified on macOS; Windows/Linux cross-compilation and recorded native CI results supplement, but do not replace, packaged runtime verification. Automatic CI now follows the weekly Linux/Windows smoke policy in [AGENTS.md](AGENTS.md); broader workflows remain archived for deliberate local verification.
 
 Output is staged in the destination directory under an exclusively created random `.avid-…` filename. Unix modes match ordinary file creation and respect umask. The completed file is flushed and published with tempfile's POSIX rename / Windows overwrite move. Failure before publication leaves existing output intact; partial output is cleaned up on normal failure/cancellation. Input identity checks use cross-platform file identity, including hard links. Pass unselected sources and project paths through `protected_paths` where appropriate. Hosts must serialize writers to the same destination. No power-loss durability or hostile concurrent-filesystem modification guarantee is made; force-killing the entire host process can leave a staging file.
 

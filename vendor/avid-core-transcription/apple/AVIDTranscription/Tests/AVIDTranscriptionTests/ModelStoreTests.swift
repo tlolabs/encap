@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Dispatch
 import XCTest
 @testable import AVIDTranscription
 
@@ -67,6 +68,32 @@ private actor ModelOperationGate {
     }
 
     func release() { continuation?.resume(); continuation = nil }
+}
+
+/// A bounded stand-in for slow file IO/hash work; cleanup can always release the worker.
+private final class VerificationProgressGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var waiting = false
+
+    var isWaiting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiting
+    }
+
+    func hold(started: AsyncStream<Void>.Continuation) {
+        lock.lock()
+        waiting = true
+        lock.unlock()
+        started.yield(())
+        _ = semaphore.wait(timeout: .now() + 5)
+        lock.lock()
+        waiting = false
+        lock.unlock()
+    }
+
+    func release() { semaphore.signal() }
 }
 
 @MainActor
@@ -155,6 +182,180 @@ final class ModelStoreTests: XCTestCase {
         } catch ModelStoreError.checksumMismatch { }
         let callsAfterVerification = await transport.offsets.count
         XCTAssertEqual(callsAfterVerification, 1)
+    }
+
+    func testScopedUseReverifiesPresentCacheBeforeInvokingBackend() async throws {
+        let root = try temporaryDirectory()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+        let installed = try await store.install(id: modelID)
+        try Data("xxxxxx".utf8).write(to: installed.directory.appendingPathComponent("weights.bin"))
+        let present = try await store.isPresent(id: modelID)
+        XCTAssertTrue(present, "Presence must not be treated as an integrity assertion")
+        do {
+            _ = try await store.withInstalledModel(id: modelID) { _ in true }
+            XCTFail("A present but corrupt model must not reach the backend")
+        } catch ModelStoreError.checksumMismatch { }
+        let calls = await transport.offsets.count
+        XCTAssertEqual(calls, 1, "Scoped cache verification must not download replacement bytes")
+    }
+
+    func testProvisionMissingOfflineDoesNotDownloadAndScopedUseFails() async throws {
+        let root = try temporaryDirectory()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+        try await store.provisionForUse(id: modelID, offline: true)
+        do {
+            _ = try await store.withInstalledModel(id: modelID) { _ in true }
+            XCTFail("An offline request must not create a loadable model")
+        } catch ModelStoreError.missingArtifact { }
+        let calls = await transport.offsets.count
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testProvisionMissingOnlineDownloadsAndScopedUseVerifiesResult() async throws {
+        let root = try temporaryDirectory()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+        try await store.provisionForUse(id: modelID)
+        let bytes = try await store.withInstalledModel(id: modelID) { installed in
+            try Data(contentsOf: installed.directory.appendingPathComponent("weights.bin"))
+        }
+        XCTAssertEqual(bytes, payload)
+        let calls = await transport.offsets.count
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testProvisionPresentOnlineAndOfflineNeverRedownloadsCorruptCache() async throws {
+        let root = try temporaryDirectory()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+        let installed = try await store.install(id: modelID)
+        try Data("xxxxxx".utf8).write(to: installed.directory.appendingPathComponent("weights.bin"))
+        for offline in [false, true] {
+            try await store.provisionForUse(id: modelID, offline: offline)
+            do {
+                _ = try await store.withInstalledModel(id: modelID) { _ in true }
+                XCTFail("Routing an existing model must not bypass final integrity verification")
+            } catch ModelStoreError.checksumMismatch { }
+        }
+        let calls = await transport.offsets.count
+        XCTAssertEqual(calls, 1, "Existing cache routing must not silently download replacements")
+    }
+
+    func testProvisionLocalOverridesOfflineWithoutNetworkAndValidatesSource() async throws {
+        let base = try temporaryDirectory()
+        let source = base.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try payload.write(to: source.appendingPathComponent("weights.bin"))
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: base.appendingPathComponent("cache"),
+                                   transport: transport)
+        try await store.provisionForUse(id: modelID, localDirectory: source, offline: true)
+        let imported = try await store.withInstalledModel(id: modelID) { installed in installed.directory }
+        XCTAssertNotEqual(imported, source)
+        XCTAssertEqual(try Data(contentsOf: imported.appendingPathComponent("weights.bin")), payload)
+        try Data("xxxxxx".utf8).write(to: source.appendingPathComponent("weights.bin"))
+        do {
+            try await store.provisionForUse(id: modelID, localDirectory: source)
+            XCTFail("An explicitly supplied corrupt import must not be ignored for an existing cache")
+        } catch ModelStoreError.checksumMismatch { }
+        let calls = await transport.offsets.count
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testScopedUseReportsVerificationProgress() async throws {
+        let root = try temporaryDirectory()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+        _ = try await store.install(id: modelID)
+        let events = AsyncStream<ModelDownloadProgress>.makeStream()
+        defer { events.continuation.finish() }
+        let directory = try await store.withInstalledModel(id: modelID, progress: {
+            events.continuation.yield($0)
+        }) { installed in installed.directory }
+        events.continuation.finish()
+        var progress: [ModelDownloadProgress] = []
+        for await event in events.stream { progress.append(event) }
+        XCTAssertEqual(progress.count, 1)
+        XCTAssertEqual(progress.first?.phase, .verifying)
+        XCTAssertEqual(progress.first?.completedBytes, Int64(payload.count))
+        XCTAssertEqual(progress.first?.totalBytes, Int64(payload.count))
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("weights.bin")), payload)
+    }
+
+    func testScopedVerificationKeepsOtherModelQueriesResponsiveAndRetainsLease() async throws {
+        let root = try temporaryDirectory()
+        var object = catalogObject()
+        let firstModel = (object["models"] as! [[String: Any]])[0]
+        var otherModel = firstModel
+        otherModel["id"] = "fixture-other"
+        object["models"] = [firstModel, otherModel]
+        let fixtureCatalog = try ModelCatalog(data: JSONSerialization.data(withJSONObject: object))
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: fixtureCatalog, rootDirectory: root, transport: transport)
+        let otherStore = try ModelStore(catalog: fixtureCatalog, rootDirectory: root, transport: transport)
+        _ = try await store.install(id: modelID)
+        _ = try await store.install(id: "fixture-other")
+        let gate = VerificationProgressGate()
+        defer { gate.release() }
+        let events = AsyncStream<Void>.makeStream()
+        defer { events.continuation.finish() }
+        let id = modelID
+        let operation = Task {
+            try await store.withInstalledModel(id: id, progress: { _ in
+                gate.hold(started: events.continuation)
+            }) { $0.directory }
+        }
+        var iterator = events.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        let otherIsPresent = try await store.isPresent(id: "fixture-other")
+        XCTAssertTrue(otherIsPresent)
+        XCTAssertTrue(gate.isWaiting, "A cheap actor query must finish while verification is still running")
+        do {
+            try await otherStore.remove(id: modelID)
+            XCTFail("Verification must retain its cross-store lease")
+        } catch ModelStoreError.busy { }
+        gate.release()
+        _ = try await operation.value
+    }
+
+    func testCancelledScopedVerificationWaitsForWorkerBeforeReleasingLease() async throws {
+        let root = try temporaryDirectory()
+        let fixtureCatalog = try catalog()
+        let transport = FixtureDownloadTransport(payload: payload)
+        let store = try ModelStore(catalog: fixtureCatalog, rootDirectory: root, transport: transport)
+        let otherStore = try ModelStore(catalog: fixtureCatalog, rootDirectory: root, transport: transport)
+        _ = try await store.install(id: modelID)
+        let gate = VerificationProgressGate()
+        defer { gate.release() }
+        let events = AsyncStream<Void>.makeStream()
+        defer { events.continuation.finish() }
+        let id = modelID
+        let operation = Task {
+            try await store.withInstalledModel(id: id, progress: { _ in
+                gate.hold(started: events.continuation)
+            }) { _ in
+                XCTFail("A cancelled verification must not invoke the backend")
+                return true
+            }
+        }
+        var iterator = events.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        operation.cancel()
+        do {
+            try await otherStore.remove(id: modelID)
+            XCTFail("Cancellation must not release a lease while its worker is still reading")
+        } catch ModelStoreError.busy { }
+        XCTAssertTrue(gate.isWaiting)
+        gate.release()
+        do {
+            _ = try await operation.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError { }
+        try await otherStore.remove(id: modelID)
+        let present = try await store.isPresent(id: modelID)
+        XCTAssertFalse(present)
     }
 
     func testLocalImportCopiesOnlyVerifiedArtifactsAndDeletionPreservesSource() async throws {

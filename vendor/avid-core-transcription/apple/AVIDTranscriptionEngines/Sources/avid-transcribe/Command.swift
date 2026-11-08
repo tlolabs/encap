@@ -43,14 +43,15 @@ struct Command {
         if command == "transcribe" {
             guard descriptor.role == .recognizer else { throw CommandError.message("Select a recognition model.") }
             try validateLanguage(options.language, supported: descriptor.recognitionLanguages)
-            _ = try await provision(descriptor, store: store, local: options.localModel, offline: options.offline)
+            try await store.provisionForUse(id: descriptor.id, localDirectory: options.localModel,
+                                            offline: options.offline, progress: reportDownload)
             let recognizer: any TranscriptionProvider
             switch descriptor.engine {
             case .whisperKit: recognizer = WhisperKitProvider()
             case .fluidAudio: recognizer = FluidAudioProvider()
             case .mlx: recognizer = QwenASRProvider()
             }
-            let transcript = try await store.withInstalledModel(id: modelID) { installed in
+            let transcript = try await store.withInstalledModel(id: modelID, progress: reportDownload) { installed in
                 let request = RecognitionRequest(audioURL: audio, modelID: modelID,
                     modelDirectory: installed.directory, language: options.language, sourceStartSeconds: options.offset)
                 return try await recognizer.transcribe(request, progress: reportInference)
@@ -90,19 +91,13 @@ struct Command {
         let language = options.language ?? transcript.language
         guard let language else { throw CommandError.message("Alignment requires --language when the transcript has no detected language.") }
         try validateLanguage(language, supported: descriptor.timingLanguages)
-        _ = try await provision(descriptor, store: store, local: local, offline: options.offline)
-        return try await store.withInstalledModel(id: descriptor.id) { installed in
+        try await store.provisionForUse(id: descriptor.id, localDirectory: local,
+                                        offline: options.offline, progress: reportDownload)
+        return try await store.withInstalledModel(id: descriptor.id, progress: reportDownload) { installed in
             try await QwenAlignmentProvider().align(AlignmentRequest(audioURL: audio,
                 modelID: descriptor.id, modelDirectory: installed.directory, transcript: transcript,
                 language: language, sourceStartSeconds: options.offset), progress: reportInference)
         }
-    }
-
-    private static func provision(_ descriptor: ModelDescriptor, store: ModelStore,
-                                  local: URL?, offline: Bool) async throws -> InstalledModel {
-        if let local { return try await store.localModel(id: descriptor.id, directory: local) }
-        if offline { return try await store.installedModel(id: descriptor.id, progress: reportDownload) }
-        return try await store.install(id: descriptor.id, progress: reportDownload)
     }
 
     private static func validateLanguage(_ language: String?, supported: [String]) throws {

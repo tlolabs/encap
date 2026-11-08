@@ -81,8 +81,9 @@ generated for unsigned packages.
 
 ## Local transcription and privacy
 
-The AVID integration described here is a development change. It has not been
-published; the existing 2.0.9 download is a separate, earlier artifact.
+The AVID integration described here is included in the 2.0.10 source release;
+the existing 2.0.9 binary download is a separate, earlier artifact. See the
+[2.0.10 source release notes](docs/releases/2.0.10.md).
 
 EnCap does not bundle model weights. The shared AVID Core catalog offers full
 Whisper large-v3 as the quality default, Whisper Turbo, Parakeet, Qwen recognition,
@@ -108,8 +109,8 @@ not a claim of six-platform transcription parity. See the
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Cargo fetches AVID Core `v0.3.1` at immutable commit
-`15f28236142c100d0a83bf19154ed6f9f5b44e75`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
+Cargo fetches AVID Core `v0.3.2` at immutable commit
+`8296a9e623c6924c12e456b5fe9e7c10b59dfbde`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
 AVID Core. Target-scoped published runtime and corresponding-source artifacts are pinned
 in `runtime/platform-runtimes.json`; `runtime/core-runtime.json` retains the
 explicit legacy release pin. Acquisition verifies the Core provider attestation,
@@ -159,16 +160,18 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.9` uses `v2.0.9`). Tagged CI builds
-and functionally verifies each target, then publishes each verified package
-independently to the GitHub release. A failure on one target does not hold
-back another target; failures remain visible in Actions and are eligible for
-bounded automatic retry. The 2.0.9 release is for manual downloads and has
-no signed update metadata or macOS appcasts. Direct downloads may be unsigned
-and unnotarized. They are not added to authenticated updater feeds: Sparkle
-signatures, signed update manifests, and Windows Authenticode checks remain
-enforced. Optional platform signing can be enabled when credentials are
-available. See [`docs/ci-cd-audit.md`](docs/ci-cd-audit.md) for the policy.
+version (for example, version `2.0.10` uses `v2.0.10`). Tags and pushes do not
+trigger CI or publish packages. The Sunday-morning Pacific scheduled workflow
+compiles and smoke-tests newly tagged releases on native Linux and Windows
+x64/ARM64 runners once; it does not retry attempted releases or publish artifacts.
+Legacy workflows remain archived and disabled. See [`AGENTS.md`](AGENTS.md).
+
+Package publication is a separate deliberate operation. Verify each artifact's
+packaging, dependencies, integrity and functional behavior on its target platform
+before publishing it. Verified platforms may publish independently. Direct
+downloads may be unsigned and unnotarized; authenticated updater feeds retain
+their signature and integrity requirements. The 2.0.9 download has no signed
+update metadata or macOS appcasts.
 
 The native-only policy check rejects application Python source, packaging files
 and environments, including ignored leftovers. Python 3.12+ is used only for

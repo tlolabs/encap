@@ -77,7 +77,7 @@ def stage(binary_directory: Path, destination: Path, checkouts=None, resolved=No
     files = [p for p in destination.rglob("*") if p.is_file()]
     report = {"schema": 1, "scope": "avid_transcription_staging", "platform": "macos-arm64",
               "minimum_macos": "14.0", "model_weights_bundled": False,
-              "snapshot_sha256": "f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a",
+              "snapshot_sha256": "a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937",
               "files": [{"path": p.relative_to(destination).as_posix(),
                          "sha256": hashlib.sha256(p.read_bytes()).hexdigest(), "size": p.stat().st_size}
                         for p in sorted(files)]}

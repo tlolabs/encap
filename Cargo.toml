@@ -14,7 +14,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "2.0.9"
+version = "2.0.10"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
@@ -22,7 +22,7 @@ repository = "https://github.com/tlolabs/encap"
 
 [workspace.dependencies]
 # Core owns the matched, validated FFmpeg/ffprobe runtime.
-avid-core = { git = "https://github.com/tlolabs/avid-core.git", rev = "15f28236142c100d0a83bf19154ed6f9f5b44e75", version = "=0.3.1" }
+avid-core = { git = "https://github.com/tlolabs/avid-core.git", rev = "8296a9e623c6924c12e456b5fe9e7c10b59dfbde", version = "=0.3.2" }
 base64 = "0.22.1"
 clap = { version = "4.5.47", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }

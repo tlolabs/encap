@@ -1,0 +1,81 @@
+{
+  "turbojpeg_sys_source_commit": "05da705c6b6147baec1834a4c1f0de5e1df2614b",
+  "libjpeg_turbo_native_source_commit": "20ade4dea9589515a69793e447a6c6220b464535",
+  "libjpeg_turbo_native_version": "3.1.0",
+  "libdeflate_native_version": "1.26",
+  "turbojpeg_sys_native_pin_evidence": "https://api.github.com/repos/honzasp/rust-turbojpeg/git/trees/05da705c6b6147baec1834a4c1f0de5e1df2614b?recursive=1",
+  "license_files": [
+    {
+      "file": "turbojpeg-LICENSE",
+      "sha256": "1c99d306def307c6e570615a484c65e6eafdd7717913f42118b65847830c5123",
+      "package": "turbojpeg-1.5.1",
+      "package_path": "LICENSE"
+    },
+    {
+      "file": "oxipng-LICENSE",
+      "sha256": "1bc9688d785fa50345f803824ddde000bdabedda9d1803dc41a1fedd81f784fc",
+      "package": "oxipng-9.1.5",
+      "package_path": "LICENSE"
+    },
+    {
+      "file": "libdeflater-LICENSE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "package": "libdeflater-1.26.1",
+      "package_path": "LICENSE"
+    },
+    {
+      "file": "libdeflate-sys-LICENSE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "package": "libdeflate-sys-1.26.1",
+      "package_path": "LICENSE"
+    },
+    {
+      "file": "libdeflate-COPYING",
+      "sha256": "4ad69099cb4374836fd27583d9991e2838cd86b6e4666ab26b2d32582c91e73a",
+      "package": "libdeflate-sys-1.26.1",
+      "package_path": "libdeflate/COPYING"
+    },
+    {
+      "file": "zopfli-COPYING",
+      "sha256": "018b1cb87efdf7a04c2fcc13d57ed63f62149113fb207b27ea13430d64f13513",
+      "package": "zopfli-0.8.2",
+      "package_path": "COPYING"
+    },
+    {
+      "file": "png-LICENSE-MIT",
+      "sha256": "eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652",
+      "package": "png-0.17.16",
+      "package_path": "LICENSE-MIT"
+    },
+    {
+      "file": "png-LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "package": "png-0.17.16",
+      "package_path": "LICENSE-APACHE"
+    },
+    {
+      "file": "libjpeg-turbo/LICENSE.md",
+      "sha256": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430",
+      "package": "turbojpeg-sys-1.2.0",
+      "package_path": "libjpeg-turbo/LICENSE.md"
+    },
+    {
+      "file": "libjpeg-turbo/README.ijg",
+      "sha256": "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6",
+      "package": "turbojpeg-sys-1.2.0",
+      "package_path": "libjpeg-turbo/README.ijg"
+    },
+    {
+      "file": "libjpeg-turbo/ZLIB-NOTICE",
+      "sha256": "6d24ab1c5f635a3914c8ede0704e792090f1a4cd951ecb2b6365a9e24b4c8d50",
+      "package": "turbojpeg-sys-1.2.0",
+      "package_path": "libjpeg-turbo/simd/nasm/jsimdext.inc",
+      "extract": "Unmodified opening copyright/license comment, before first section separator"
+    },
+    {
+      "file": "turbojpeg-sys-LICENSE",
+      "sha256": "1c99d306def307c6e570615a484c65e6eafdd7717913f42118b65847830c5123",
+      "url": "https://raw.githubusercontent.com/honzasp/rust-turbojpeg/05da705c6b6147baec1834a4c1f0de5e1df2614b/LICENSE"
+    }
+  ]
+}

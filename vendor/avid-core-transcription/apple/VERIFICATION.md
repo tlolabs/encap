@@ -63,3 +63,39 @@ metadata, but its weights were not installed or executed in these checks.
 No iPhone/iPad inference or downstream ATIV/EnCAP UI integration was tested.
 Caption styling and animated burn-in remain host/rendering work. Installing
 uncached models remains dependent on the public upstream repositories.
+
+## November 4, 2026 performance audit
+
+The November 2 results above are historical evidence; the following checks cover
+the later performance changes. The core package has 32 passing XCTest tests,
+including regression coverage of
+online, offline and local provisioning against fixture model bytes, including a
+present but corrupt cache. Cached and offline provisioning only select a route;
+`withInstalledModel` still verifies every catalog artifact under the model lease
+before invoking a backend. The CLI uses that tested provisioning boundary for
+both transcription and alignment.
+
+Scoped verification now runs on a dedicated Dispatch queue while retaining the
+exclusive model lease. Gated tests prove that another model's cheap presence
+query can finish during verification and that removal remains excluded. They
+also prove that cancellation waits for the worker to stop, then releases the
+lease without invoking the backend. These two tests fail against the earlier
+actor-blocking implementation. Import, download and direct `installedModel`
+verification keep their existing scheduling.
+
+The modified CLI source was typechecked against the freshly built core and pinned
+engine modules. A complete engine rebuild could not finish in this audit because
+the current build environment reports a missing Metal Toolchain. No new real-model
+inference or downstream application qualification is claimed.
+
+Import source checks, copied-file verification, download-publication checks and
+the later scoped-use check remain separate integrity boundaries. Local imports
+can therefore still read the model three times and new downloads twice before
+inference. The cached/offline optimization removes one redundant pass; it does
+not remove those boundaries or trust a metadata-only checksum cache. Download
+completion and subsequent scoped verification report their own progress phases.
+
+The exclusive model lease remains held through backend teardown. Parallel
+same-model inference is not qualified by this audit; changing the lock mode would
+require separate host/resource measurements and cross-process reader/mutator
+coverage.

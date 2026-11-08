@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "repository": "tlolabs/encap",
-  "version": "2.0.9",
-  "tag": "v2.0.9",
+  "version": "2.0.10",
+  "tag": "v2.0.10",
   "application_revision": null,
   "publication_policy": "complete_six_target_matrix",
   "targets": {

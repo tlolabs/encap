@@ -13,7 +13,7 @@ fn inspection_preview_and_comparison_preserve_the_json_protocol_and_sources() {
     let root = tempfile::tempdir().unwrap();
     let ffmpeg = root.path().join("ffmpeg");
     let ffprobe = root.path().join("ffprobe");
-    executable(&ffmpeg, "if [ \"$1\" = -version ]; then echo 'ffmpeg version 9.0.1'; exit; fi\nif [ \"$2\" = -encoders ]; then echo ' V..... libx264 software'; exit; fi\nfor last do :; done\nprintf composed > \"$last\"");
+    executable(&ffmpeg, "if [ \"$1\" = -version ]; then echo 'ffmpeg version 9.0.1'; exit; fi\nif [ \"$2\" = -encoders ]; then echo ' V..... libx264 software'; exit; fi\nif [ \"$2\" = -filters ]; then echo ' ... setsar V->V'; exit; fi\nfor last do :; done\nprintf composed > \"$last\"");
     executable(
         &ffprobe,
         "if [ \"$1\" = -version ]; then echo 'ffprobe version 9.0.1'; else echo 100x200; fi",

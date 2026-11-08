@@ -11,21 +11,24 @@ by this task.
 
 ## Dependency ownership and acquisition
 
-The frozen upstream archive has SHA-256
-`f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a`.
-All 34 exported files were checked against the handoff manifest before use.
-The archive, manifest and unmodified source are retained under `vendor/`;
+EnCAP 2.0.10 refreshes the 34-file Swift snapshot from the published AVID Core
+`v0.3.2` Git commit `8296a9e623c6924c12e456b5fe9e7c10b59dfbde`.
+The deterministic archive has SHA-256
+`a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937`.
+The archive, manifest and unmodified source remain under `vendor/`;
 `ruby script/verify_avid_snapshot.rb` verifies them before builds. Both original
 Swift packages remain siblings under `vendor/avid-core-transcription/apple`.
-`Package.resolved` retains the exact SDK dependencies. A public Core Swift
-release or the baseline Rust commit is not assumed to contain these packages.
+`Package.resolved` retains the exact SDK dependencies. The manifest identifies
+published source provenance; it does not transfer an earlier export's review
+claims to this refreshed archive. The original integration history below remains
+applicable unless superseded by the 2.0.10 release notes.
 
 AVID Core owns catalog identities, artifact hashes/sizes, anonymous public model
 downloads, resumption, imports, shared-cache locking, verification, scoped model
 leases, inference, forced alignment, and caption grouping. EnCAP owns the typed
 JSON sidecar (`helpers/avid_transcriber`), Rust adapter, user interface, editable
 project projection, persistence and protected output routing. The independent
-Rust `avid-core =0.3.1` and authenticated FFmpeg runtime pins remain separate.
+Rust `avid-core =0.3.2` and authenticated FFmpeg runtime pins remain separate.
 
 The helper returns one snake_case JSON value on stdout; errors use a nonzero
 exit and `{"error":"..."}`. SDK output is redirected to stderr, alongside

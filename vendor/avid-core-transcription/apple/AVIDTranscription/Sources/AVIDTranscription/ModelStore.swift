@@ -1,5 +1,6 @@
 import CryptoKit
 import Darwin
+import Dispatch
 import Foundation
 
 public struct ModelDownloadProgress: Sendable {
@@ -33,6 +34,9 @@ public actor ModelStore {
     public let rootDirectory: URL
     private let transport: any ModelDownloadTransport
     private var operations = Set<String>()
+    private static let verificationQueue = DispatchQueue(
+        label: "AVID.ModelStore.verification", qos: .utility, attributes: .concurrent
+    )
 
     public init(catalog: ModelCatalog, rootDirectory: URL = ModelStore.defaultDirectory,
                 transport: any ModelDownloadTransport = HTTPModelDownloadTransport()) throws {
@@ -54,6 +58,21 @@ public actor ModelStore {
         return FileManager.default.fileExists(atPath: revisionDirectory(model).path)
     }
 
+    /// Route a host's provisioning request before scoped use. Cached/offline presence is not
+    /// an integrity assertion: hosts must still load through withInstalledModel afterwards.
+    /// A supplied local directory takes precedence, including in offline mode.
+    public func provisionForUse(id: String, localDirectory: URL? = nil, offline: Bool = false,
+                                progress: ModelProgressHandler? = nil) async throws {
+        _ = try catalog.model(id: id)
+        if let localDirectory {
+            _ = try localModel(id: id, directory: localDirectory)
+            return
+        }
+        if offline { return }
+        if try isPresent(id: id) { return }
+        _ = try await install(id: id, progress: progress)
+    }
+
     /// Verify all bytes on disk without contacting upstream. Safe to use while completely offline.
     public func installedModel(id: String, progress: ModelProgressHandler? = nil) throws -> InstalledModel {
         let model = try catalog.model(id: id)
@@ -68,15 +87,19 @@ public actor ModelStore {
     /// Hold the cross-process model lock throughout loading and inference. Hosts must unload
     /// the backend before this operation returns; remove() then cannot race lazy-mapped weights.
     public func withInstalledModel<T: Sendable>(
-        id: String, operation: @Sendable (InstalledModel) async throws -> T
+        id: String, progress: ModelProgressHandler? = nil,
+        operation: @Sendable (InstalledModel) async throws -> T
     ) async throws -> T {
         let model = try catalog.model(id: id)
         let lease = try begin(id)
         defer { lease.release(); operations.remove(id) }
         let directory = revisionDirectory(model)
         try rejectSymlinks(directory, under: rootDirectory)
-        try verify(model, at: directory)
+        // Keep the model lease while blocking file reads/hash work runs outside the actor.
+        // Await worker completion even after cancellation so removal cannot race its reads.
+        try await verifyForScopedUse(model, at: directory, progress: progress)
         let installation = try installed(model, at: directory)
+        try Task.checkCancellation()
         return try await operation(installation)
     }
 
@@ -210,14 +233,37 @@ public actor ModelStore {
         return InstalledModel(descriptor: model, directory: modelDirectory)
     }
 
-    private func verify(_ model: ModelDescriptor, at directory: URL,
-                        progress: ModelProgressHandler? = nil) throws {
+    private func verifyForScopedUse(_ model: ModelDescriptor, at directory: URL,
+                                    progress: ModelProgressHandler?) async throws {
+        let cancellation = ModelVerificationCancellation()
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                Self.verificationQueue.async {
+                    do {
+                        try self.verify(model, at: directory, progress: progress,
+                                        checkCancellation: cancellation.check)
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            try Task.checkCancellation()
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    private nonisolated func verify(_ model: ModelDescriptor, at directory: URL,
+                                    progress: ModelProgressHandler? = nil,
+                                    checkCancellation: () throws -> Void = { try Task.checkCancellation() }) throws {
         var completed: Int64 = 0
         for artifact in model.artifacts {
-            try Task.checkCancellation()
+            try checkCancellation()
             let file = directory.appendingPathComponent(artifact.path)
             try rejectSymlinks(file, under: directory)
-            try Self.verifyArtifact(artifact, file: file)
+            try Self.verifyArtifact(artifact, file: file, checkCancellation: checkCancellation)
             completed += artifact.sizeBytes
             progress?(ModelDownloadProgress(modelID: model.id, artifactPath: artifact.path,
                 completedBytes: completed, totalBytes: model.downloadSizeBytes, phase: .verifying))
@@ -233,7 +279,8 @@ public actor ModelStore {
         return size.int64Value
     }
 
-    private static func verifyArtifact(_ artifact: ModelArtifact, file: URL) throws {
+    private static func verifyArtifact(_ artifact: ModelArtifact, file: URL,
+                                       checkCancellation: () throws -> Void = { try Task.checkCancellation() }) throws {
         let size = try regularFileSize(file)
         guard size == artifact.sizeBytes else {
             throw ModelStoreError.sizeMismatch(artifact.path, expected: artifact.sizeBytes, actual: size)
@@ -242,7 +289,7 @@ public actor ModelStore {
         defer { try? handle.close() }
         var hash = SHA256()
         while true {
-            try Task.checkCancellation()
+            try checkCancellation()
             guard let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty else { break }
             hash.update(data: data)
         }
@@ -261,7 +308,7 @@ public actor ModelStore {
         try rejectSymlinks(directory, under: root)
     }
 
-    private func rejectSymlinks(_ target: URL, under root: URL) throws {
+    private nonisolated func rejectSymlinks(_ target: URL, under root: URL) throws {
         let rootPath = root.standardizedFileURL.path
         let targetPath = target.standardizedFileURL.path
         guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
@@ -300,4 +347,24 @@ private final class ModelFileLock {
     }
 
     deinit { release() }
+}
+
+/// Dispatch work has no Swift task context; this flag carries the caller's cancellation.
+/// The lock protects every access, and a cancelled worker is still awaited before its lease ends.
+private final class ModelVerificationCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func check() throws {
+        lock.lock()
+        let isCancelled = cancelled
+        lock.unlock()
+        if isCancelled { throw CancellationError() }
+    }
 }

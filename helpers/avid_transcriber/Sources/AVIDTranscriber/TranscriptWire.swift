@@ -82,5 +82,5 @@ struct TranscriptWire: Codable, Sendable, Equatable {
 
 enum SharedSource {
     // Must move with the immutable vendor snapshot, never a mutable checkout revision.
-    static let bundleSHA256 = "f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a"
+    static let bundleSHA256 = "a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937"
 }

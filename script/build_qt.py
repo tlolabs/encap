@@ -76,6 +76,7 @@ def stage_helpers(output, tools, host, reference):
         copy_required(ROOT / name, output / name)
     copy_required(ROOT / 'desktop/vendor/miniaudio.LICENSE', output / 'MINIAUDIO-LICENSE')
     copy_required(ROOT / 'runtime/AVID_CORE_LICENSE.txt', output / 'AVID_CORE_LICENSE.txt')
+    shutil.copytree(ROOT / 'runtime/AVIDCoreImageLicenses', output / 'AVIDCoreImageLicenses', dirs_exist_ok=True)
 
 
 def record_qt_runtime(destination, output, host, qt_prefix):

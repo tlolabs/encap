@@ -277,6 +277,7 @@ echo 100x100
             &format!(
                 r#"
 if [ "$1" = -version ]; then echo 'ffmpeg version 9.0.1'; exit; fi
+if [ "$2" = -filters ]; then echo ' ... setsar V->V'; exit; fi
 if [ "$2" = -encoders ]; then
  echo ' V..... h264_videotoolbox hardware'
  echo ' V..... libx264 software'

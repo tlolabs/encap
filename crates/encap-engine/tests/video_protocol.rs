@@ -42,7 +42,7 @@ fn one_signal_handler_cancels_video_validation_capabilities_probes_and_encoding(
         let sleep = format!("echo ready > '{}'; exec /bin/sleep 20", ready.display());
         let ffmpeg = root.path().join("ffmpeg");
         let ffprobe = root.path().join("ffprobe");
-        shell(&ffmpeg,&format!("if [ \"$1\" = -version ]; then {}; echo 'ffmpeg version 9.0.1'; exit; fi\nif [ \"$2\" = -encoders ]; then {}; echo ' V..... libx264 software'; exit; fi\nfor last do :; done\nprintf partial > \"$last\"\n{}",if stage=="validation" {&sleep} else {":"},if stage=="capabilities" {&sleep} else {":"},if stage=="encoding" {&sleep} else {":"}));
+        shell(&ffmpeg,&format!("if [ \"$1\" = -version ]; then {}; echo 'ffmpeg version 9.0.1'; exit; fi\nif [ \"$2\" = -encoders ]; then {}; echo ' V..... libx264 software'; exit; fi\nif [ \"$2\" = -filters ]; then echo ' ... setsar V->V'; exit; fi\nfor last do :; done\nprintf partial > \"$last\"\n{}",if stage=="validation" {&sleep} else {":"},if stage=="capabilities" {&sleep} else {":"},if stage=="encoding" {&sleep} else {":"}));
         shell(&ffprobe,&format!("if [ \"$1\" = -version ]; then echo 'ffprobe version 9.0.1'; exit; fi\n{}\necho 100x100",if stage=="probe" {&sleep} else {":"}));
         let image = root.path().join("cover.png");
         let audio = root.path().join("source.wav");

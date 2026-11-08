@@ -30,10 +30,19 @@ https://zlib.net/
 
 EnCap Video uses `avid-core` under GPL-3.0-or-later. Its license is distributed as
 `AVID_CORE_LICENSE.txt`. Canonical source: https://github.com/tlolabs/avid-core
-Rust media revision: 15f28236142c100d0a83bf19154ed6f9f5b44e75 (v0.3.1).
+Rust media revision: 8296a9e623c6924c12e456b5fe9e7c10b59dfbde (v0.3.2).
 The separately vendored Swift transcription export is identified by archive
-SHA-256 f4555615571d54b96d714be26caf0484f6049835065d7215820c3244bf761c5a.
+SHA-256 a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937.
 Its original GPL license is retained in vendor/avid-core-transcription/LICENSE.
+
+## AVID Core image-codec dependencies
+
+AVID Core 0.3.2 compiles native JPEG/PNG codecs from pinned source.
+This software is based in part on the work of the Independent JPEG Group.
+The full codec licenses, copyright notices, component versions and source
+identities are distributed in `AVIDCoreImageLicenses` beside these notices
+(`Contents/Resources/AVIDCoreImageLicenses` on macOS). They include
+libjpeg-turbo/TurboJPEG, OxiPNG, libdeflate, Zopfli and the Rust PNG decoder.
 
 ## OpenAI Whisper
 

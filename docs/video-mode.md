@@ -29,7 +29,7 @@ Video does not require a transcript and does not render captions in 2.0. The
 project schema separately persists optional word timings so a later composition
 engine can build transcript-driven graphics without changing Audio or Video 2.0.
 
-`encap-video` is a host adapter over the immutable Git dependency `avid-core` 0.3.1.
+`encap-video` is a host adapter over the immutable Git dependency `avid-core` 0.3.2.
 No adjacent source checkout is required. Core owns presets, persisted Video types, validation,
 selection, encoder choice, composition, media execution, and atomic publication.
 The adapter retains whole-project checks, the required main-artwork inspection,
