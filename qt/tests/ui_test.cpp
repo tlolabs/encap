@@ -39,6 +39,45 @@ bool waitUntil(QApplication& app, const std::function<bool()>& ready) {
 
 class MainWindowUiTest {
 public:
+    static bool startupFinished(const MainWindow& window) { return !window.busy_; }
+
+    static void resetFixture(MainWindow& window) {
+        // Clear both backing data and visible rows. Otherwise the next async
+        // import can appear complete before its engine response has arrived.
+        window.present(QJsonObject{}, false);
+        window.hasProject_ = false;
+        window.project_ = {};
+        window.recoveryTimer_.stop();
+    }
+
+    static bool testChapterRefreshAndDurationEdit(MainWindow& window) {
+        window.project_ = QJsonObject{{"chapters", QJsonArray{
+            QJsonObject{{"id", "first"}, {"title", "First"}, {"start_time_seconds", 0.0},
+                        {"duration_seconds", 2.0}, {"chapter_number", 1}},
+            QJsonObject{{"id", "second"}, {"title", "Second"}, {"start_time_seconds", 2.0},
+                        {"duration_seconds", 3.0}, {"chapter_number", 2}}
+        }}};
+        window.hasProject_ = true;
+        window.dirty_ = false;
+        window.loading_ = false;
+        int edits = 0;
+        const auto connection = QObject::connect(window.chapters_, &QTableWidget::cellChanged,
+                                                 &window, [&](int, int) { ++edits; });
+        const auto before = window.project_;
+        window.refreshChapters();
+        const bool refreshedCleanly = edits == 0 && !window.dirty_ && window.project_ == before;
+        window.chapters_->item(0, 3)->setText("4.500");
+        const auto chapters = window.project_.value("chapters").toArray();
+        const bool userEditApplied = edits == 1 && window.dirty_ &&
+            chapters[0].toObject().value("duration_seconds").toDouble() == 4.5 &&
+            chapters[1].toObject().value("start_time_seconds").toDouble() == 4.5;
+        QObject::disconnect(connection);
+        resetFixture(window);
+        if (!refreshedCleanly || !userEditApplied)
+            qWarning() << "Chapter refresh/edit regression" << refreshedCleanly << userEditApplied << edits;
+        return refreshedCleanly && userEditApplied;
+    }
+
     static bool testSharedTranscriptionControls(MainWindow& window) {
         window.setBusy(false);
         window.hasProject_ = true;
@@ -136,8 +175,7 @@ public:
             qWarning() << "project-level transcript history warning missing or history mutated";
             return false;
         }
-        window.hasProject_ = false;
-        window.project_ = {};
+        resetFixture(window);
         window.updateTranscriptWarnings();
         if (!window.transcriptWarning_->isHidden()) { qWarning() << "stale reconciliation warning"; return false; }
         window.recoveryTimer_.stop();
@@ -229,9 +267,7 @@ public:
         auto cleanedSelected = window.field({"video", "export_settings", "selected_chapter_ids"}).toArray();
         if (cleanedSelected.size() != 1 || cleanedSelected[0].toString() != "valid_c1") return false;
 
-        // Reset project_ to clean state so subsequent tests run cleanly
-        window.project_ = QJsonObject{};
-        window.hasProject_ = false;
+        resetFixture(window);
 
         return true;
     }
@@ -246,6 +282,10 @@ int main(int argc, char** argv) {
     MainWindow window;
     window.show();
     app.processEvents();
+    // Unit fixtures mutate private state. Do not race an in-flight production
+    // startup callback when this suite is exercising the real engine.
+    if (!qEnvironmentVariable("ENCAP_TEST_ENGINE").isEmpty() &&
+        !waitUntil(app, [&] { return MainWindowUiTest::startupFinished(window); })) return 27;
     auto* modes = window.findChild<QTabWidget*>();
     if (!modes || modes->count() != 3 || !window.menuBar() || window.menuBar()->actions().size() < 3)
         return 1;
@@ -288,6 +328,7 @@ int main(int argc, char** argv) {
 
     if (!MainWindowUiTest::testBitrateAndChapterRenumbering(window)) return 25;
     if (!MainWindowUiTest::testSharedTranscriptionControls(window)) return 26;
+    if (!MainWindowUiTest::testChapterRefreshAndDurationEdit(window)) return 28;
 
     modes->setCurrentIndex(2);
     app.processEvents();

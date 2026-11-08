@@ -481,6 +481,7 @@ void MainWindow::refreshSources() {
     }
 }
 void MainWindow::refreshChapters() {
+    const QSignalBlocker blocker(chapters_);
     const auto list = project_.value("chapters").toArray();
     chapters_->setRowCount(list.size());
     for (int i = 0; i < list.size(); ++i) {
