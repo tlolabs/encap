@@ -166,9 +166,10 @@ python3 script/test_desktop_distribution.py
 
 `script/build_qt.py --rid <win-x64|win-arm64|linux-x64|linux-arm64|osx-arm64>
 --tools <verified-helper-directory> [--qt-prefix <Qt-installation>]` builds on the matching native host. The helper
-directory must contain the Rust engine, verified FFmpeg/ffprobe metadata and
-Whisper, plus the updater on production platforms. The workflow stages these
-using the existing Core acquisition/verification path before invoking the script.
+directory must contain the Rust engine and verified FFmpeg/ffprobe metadata,
+plus the updater on production platforms. Supported transcription targets also
+require the AVID helper and its resources. Stage these using the existing Core
+acquisition/verification path before invoking the script.
 Windows produces a portable ZIP with `windeployqt`; Linux produces an AppImage
 with Qt libraries and platform plugins; macOS internal uses `macdeployqt`.
 
@@ -341,21 +342,21 @@ never through a user's shell configuration. Downloaded build inputs and model
 weights are pinned to versions or immutable commits and verified with SHA-256.
 Keep corresponding license information in `THIRD_PARTY_NOTICES.md`.
 
-Do not commit signing credentials. Every push to main builds and tests the six
-platforms independently. After a platform passes its own package, dependency,
-and functional checks, its read-only build job uploads one artifact. A separate
-publisher with `contents: write` creates or reuses the prerelease tag
-`dev-v<VERSION>-<COMMIT_SHA>`, uploads that platform's direct-download package
-and SHA-256 sidecar, and verifies the downloaded bytes. Failed platforms remain
-unpublished. Reruns can fill missing platforms for the same source revision
-without replacing different assets. Other platforms, internal reference checks,
-security scans, and diagnostic tests are not publication dependencies.
+Do not commit signing credentials. The owner's current CI policy is one
+scheduled Sunday-morning Pacific smoke check for newly tagged releases, on
+native Linux and Windows x64/ARM64 runners. It does not run on pushes, pull
+requests, or tag creation, and does not sign, publish, or create releases.
+See `AGENTS.md` and `.github/scripts/WEEKLY_SMOKE_POLICY.md` for the current
+policy. Legacy workflows in `.github/workflow-archive/2026-11-08/` are inactive
+historical references, not instructions to enable automatic publication.
 
-A matching annotated `v<VERSION>` push uses the same independent publishers
-for a stable release. Development prereleases never become GitHub's latest
-stable release. Direct-download releases do not generate authenticated update
-metadata. macOS notarization, Developer ID signing, and Windows Authenticode
-signing require external credentials and are not claimed for these packages.
+Local release tools retain the stable annotated `v<VERSION>` identity and
+commit-bound development identity `dev-v<VERSION>-<COMMIT_SHA>`. Using those
+tools requires authorization and per-artifact qualification. A version already
+tagged for another commit cannot be reused for a changed source tree.
+Development prereleases never become GitHub's latest stable release, and
+direct-download publication does not generate authenticated update metadata.
+Signing and notarization require the appropriate external credentials.
 
 Each target package is published only after its build, package-integrity,
 dependency, and functional smoke checks pass. Failures remain diagnostic and

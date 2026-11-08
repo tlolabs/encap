@@ -1027,8 +1027,12 @@ mod tests {
     #[test]
     fn projected_timeline_cannot_exceed_project_duration_limit() {
         assert!(project_transcript(
-            &record(), &source("clip", 10.0), encap_core::MAX_DURATION_SECONDS, true,
-        ).is_err());
+            &record(),
+            &source("clip", 10.0),
+            encap_core::MAX_DURATION_SECONDS,
+            true,
+        )
+        .is_err());
     }
 
     #[test]
@@ -1087,7 +1091,10 @@ mod tests {
             assert_eq!(origin.segment_index, index);
             assert_eq!(origin.transcript["future"], raw["future"]);
             assert_eq!(origin.transcript["provenance"], raw["provenance"]);
-            assert_eq!(origin.transcript["segments"], json!([raw["recognition_segments"][index]]));
+            assert_eq!(
+                origin.transcript["segments"],
+                json!([raw["recognition_segments"][index]])
+            );
             assert!(origin.transcript.get("alignment_provenance").is_none());
             assert!(origin.transcript.get("recognition_segments").is_none());
             let aligned = &origin.extensions["alignment_record"];
@@ -1104,7 +1111,10 @@ mod tests {
         raw["recognition_segments"] = json!({"future_encoding": true});
         let outputs = project_transcript(&raw, &source("clip", 10.0), 0.0, true).unwrap();
         let origin = outputs[0].transcription_origin().unwrap();
-        assert_eq!(origin.transcript["recognition_segments"], raw["recognition_segments"]);
+        assert_eq!(
+            origin.transcript["recognition_segments"],
+            raw["recognition_segments"]
+        );
     }
 
     #[test]
