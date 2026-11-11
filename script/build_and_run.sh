@@ -2,6 +2,17 @@
 set -euo pipefail
 
 MODE="${1:-run}"
+# Check distribution prerequisites before provisioning, building or replacing bundles.
+if [[ "$MODE" == --package || "$MODE" == package ]]; then
+  : "${ENCAP_SIGN_IDENTITY:?Set ENCAP_SIGN_IDENTITY to a Developer ID Application identity}"
+  : "${ENCAP_NOTARY_PROFILE:?Set ENCAP_NOTARY_PROFILE to an existing notarytool Keychain profile (or use --package-development explicitly)}"
+  [[ "$ENCAP_SIGN_IDENTITY" != "-" ]] || { echo "Developer ID signing is required for distributable packages." >&2; exit 2; }
+  if ! security find-identity -v -p codesigning | grep 'Developer ID Application:' | grep -F -- "$ENCAP_SIGN_IDENTITY" >/dev/null; then
+    echo "A valid Developer ID Application identity is required." >&2; exit 2
+  fi
+  # Validate the saved profile without uploading an app or changing credentials.
+  xcrun notarytool history --keychain-profile "$ENCAP_NOTARY_PROFILE" --output-format json >/dev/null
+fi
 APP_NAME="EnCap"
 BUNDLE_ID="com.tlolabs.encap"
 SPARKLE_VERSION="2.9.6"
@@ -235,7 +246,7 @@ open_app() {
 }
 
 package_zip() {
-  local zip_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-${ARCH_LABEL}.zip"
+  local zip_path="$ROOT_DIR/dist/EnCap-${APP_VERSION}-macos-${ARCH_LABEL}-development-unnotarized.zip"
   ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$zip_path"
   echo "$zip_path"
 }
@@ -256,9 +267,10 @@ case "$MODE" in
     sleep 2
     pgrep -x "$APP_NAME" >/dev/null
     ;;
-  --package|package) package_zip ;;
+  --package|package) ENCAP_APP_BUNDLE="$APP_BUNDLE" "$ROOT_DIR/script/sign_macos_release.sh" ;;
+  --package-development) package_zip ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package|--package-development]" >&2
     exit 2
     ;;
 esac

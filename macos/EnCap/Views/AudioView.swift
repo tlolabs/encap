@@ -197,6 +197,9 @@ struct AudioView: View {
                             )
                             Button("Choose…") { store.presentFileImporter(.artwork) }
                                 .help("Choose or replace the episode’s album artwork")
+                            Button("Optimize Copy…") { store.optimizeArtworkCopy() }
+                                .disabled(!store.canOptimizeArtwork)
+                                .help("Create a lossless JPEG or PNG copy with metadata removed; preserve the original image")
                         }
                         .modifier(ArtworkDropTarget(isEnabled: !store.isWorking, selectArtwork: store.chooseArtwork))
                     }

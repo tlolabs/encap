@@ -29,7 +29,7 @@ Video does not require a transcript and does not render captions in 2.0. The
 project schema separately persists optional word timings so a later composition
 engine can build transcript-driven graphics without changing Audio or Video 2.0.
 
-`encap-video` is a host adapter over the immutable Git dependency `avid-core` 0.3.2.
+`encap-video` is a host adapter over the immutable Git dependency `avid-core` 0.3.3.
 No adjacent source checkout is required. Core owns presets, persisted Video types, validation,
 selection, encoder choice, composition, media execution, and atomic publication.
 The adapter retains whole-project checks, the required main-artwork inspection,
@@ -55,10 +55,17 @@ GIF, WebP, and unknown media retain PerFrame for the entire render. Explicit
 Simple deliberately freezes animation. The budget is not a total process memory
 limit. Core's size/mtime probe fingerprints invalidate ordinary changed sources.
 
-The exact runtime currently exposes two verified Core limitations: mixed-aspect
-artwork at some portrait dimensions fails concat with inconsistent sample aspect
-ratios; GIF rendering fails with `Option loop not found`. Both preserve existing
-outputs. No host filter-graph workaround is introduced.
+The 0.3.2/0.3.3 Core source fixes square-pixel normalization for mixed-aspect
+portrait timelines and content-based GIF/APNG option selection. The authenticated
+runtime pin remains independent of this library update. Earlier failure evidence
+in the 0.3.1 report is historical, not a claim that those fixes are absent.
 
-See [0.3.1 integration verification](core-031-integration.md) for current evidence
-and restrictions. Older migration reports are historical.
+The [ownership audit](avid-core-audit.md) records the remaining automatic-mode
+classifier overlap. Core exposes explicit Simple/PerFrame modes but no public
+static-image classifier or aggregate cache-budget API; EnCAP's existing conservative
+mode policy remains an explicit Core gap. Composition, decoding and rendering
+still delegate to Core. Artwork optimization is a separate explicit operation using
+Core's in-process JPEG/PNG API; it does not run FFmpeg or change Video settings.
+
+See [0.3.1 integration verification](core-031-integration.md) for historical evidence
+and restrictions; current ownership and remaining gaps are in the audit above.

@@ -45,6 +45,14 @@ struct BridgeCommand {
 
     static func execute(_ arguments: [String]) async throws -> Data {
         let options = try Options(arguments)
+        if options.command == "subtitles" {
+            // Exporting saved segments needs neither model acquisition nor an
+            // installation/cache lease. Core owns subtitle validation/formatting.
+            let input = try options.file("--transcript")
+            let text = try segmentSubtitles(Data(contentsOf: input), format: options.required("--format"))
+            try Task.checkCancellation()
+            return try encode(text)
+        }
         let catalog = try ModelCatalog.bundled()
         let cacheOverride = options["--cache"] ?? ProcessInfo.processInfo.environment["ENCAP_AVID_MODEL_CACHE"]
         let directory = cacheOverride.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? ModelStore.defaultDirectory
@@ -162,6 +170,23 @@ struct BridgeCommand {
         guard supported.contains(code) else { throw TranscriptionError.unsupportedLanguage(language) }
     }
 
+    static func segmentSubtitles(_ data: Data, format: String) throws -> String {
+        guard ["srt", "vtt"].contains(format) else {
+            throw BridgeError.invalid("Choose srt or vtt for subtitle export.")
+        }
+        let input = try JSONDecoder().decode(SegmentSubtitleInput.self, from: data)
+        let cues = try input.segments.map { segment in
+            let speaker = segment.speaker.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Preserve segment boundaries and host speaker labels; this path
+            // deliberately skips word-based CaptionBuilder regrouping. Core
+            // escapes markup/folds newlines and requires ordered, positive cues.
+            return try CaptionCue(startSeconds: segment.startSeconds, endSeconds: segment.endSeconds,
+                text: speaker.isEmpty ? text : "\(speaker): \(text)")
+        }
+        return try format == "srt" ? CaptionExporter.srt(cues) : CaptionExporter.webVTT(cues)
+    }
+
     private static let reportDownload: ModelProgressHandler = { report(.init($0)) }
     private static let reportInference: @Sendable (TranscriptionProgress) -> Void = {
         report(.init(stage: $0.stage, fraction: $0.fraction))
@@ -180,6 +205,18 @@ struct BridgeCommand {
 }
 
 private struct ErrorWire: Encodable { let error: String }
+private struct SegmentSubtitleInput: Decodable {
+    let segments: [Segment]
+    struct Segment: Decodable {
+        let startSeconds: Double
+        let endSeconds: Double
+        let text: String
+        let speaker: String
+        enum CodingKeys: String, CodingKey {
+            case startSeconds = "start_seconds", endSeconds = "end_seconds", text, speaker
+        }
+    }
+}
 private struct Status: Encodable {
     let protocolVersion: Int
     let defaultModelID: String

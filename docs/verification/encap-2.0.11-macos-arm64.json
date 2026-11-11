@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "version": "2.0.11",
+  "tag": "v2.0.11",
+  "target": "macos-arm64",
+  "package": "EnCap-2.0.11-macos-arm64-signed.zip",
+  "size_bytes": 59580876,
+  "sha256": "d6b7347c36684f02c4b2d6f10584a809c2b87bc01b1864afc9ca1f8a88ad0b27",
+  "notarization": {
+    "id": "142a42fa-f072-4362-9b74-4cc785b79ca0",
+    "message": "Processing complete",
+    "status": "Accepted"
+  },
+  "identity": {
+    "avid_core": {
+      "revision": "8e27a86ec106028d93130de35a35c0eeda7a9ce3",
+      "source": "git+https://github.com/tlolabs/avid-core.git?rev=8e27a86ec106028d93130de35a35c0eeda7a9ce3#8e27a86ec106028d93130de35a35c0eeda7a9ce3",
+      "version": "0.3.3"
+    },
+    "encap_version": "2.0.11"
+  },
+  "transcription_qualification": {
+    "schema": 1,
+    "target": "macos-arm64",
+    "runtime_files": {
+      "MacOS/avid-transcriber": "fa755c75e1e8b5ccc31d6fac2f0d04c4c2d781bda8fb005e0b2a56a6cd4a4dd2",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/Info.plist": "f7dba4d839230ae936856eee0b37e756ae3c2601bcbd2b7d57a3ab192bce551e",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/Resources/models.json": "99e463edfce532caa3c3ed7c82e9721a8e1119d830e014c1fd5220228156eca4",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeDirectory": "6acbeda62ab8365c3f7add6e2a4328eed31220836535d1bdda2d623b3a5a8b86",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeRequirements": "bda8aeba96e86b20e0dbc37da30dce9df6f77061b6d440aecf676ab11ccf3c94",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeResources": "69d48d9e911faa807d543f9f5af6e89e32584fc7e161c48d3c80a6799181ab13",
+      "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeSignature": "60c408a4185ba42587593b6eb5867fe76a003048e69935171b9dee28486f84a8",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/Info.plist": "679bb5747b7fd489be3a04740f0f9f858d4300a7794d93696de1f55dc068cccf",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib": "1802f1eba2f0997d4eb0e538b64b261dd21e7fd7f3847b955361f272f4bbf69f",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeDirectory": "33867fccb3fcf00ba041257e9a54137c469fa668510837e3e33a48adf91a72e5",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeRequirements": "8c59046f8ec4c7a959a7737bd174f6d01eeca9627601d680d10ad32d204b01de",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeResources": "b8dce90603b3e79647d94d58fecdeb8fa6ca6ab91a4458798a1c839ac6fda67b",
+      "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeSignature": "a5c7b587452d37fc986c533d8cc52fc3da516be8b7523cb415cc996d6ebf0c80",
+      "Resources/swift-crypto_Crypto.bundle/Contents/Info.plist": "9925961b4623d6c0cc2e9a6cde7c30180eaa7baf6806afea03bdb724473a0b3e",
+      "Resources/swift-crypto_Crypto.bundle/Contents/Resources/PrivacyInfo.xcprivacy": "42fb8a30dd8d7ba0900e1bf17fe64ed8c12cfdb8a9c791ab6b4e1eceb0f299c0",
+      "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeDirectory": "9eca43dc780bca71d18aec29657e98e9e31e0bbacb7befe381472cbb14d8135c",
+      "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeRequirements": "3aeec9dd11b9f745c8f1c748edc817d286c19b00de0a3d68df6a9b7d4666edbe",
+      "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeResources": "ef18096dbff5ed48c3659bec9bdd13f4cbb99b9a32bbef344b28350174a90610",
+      "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeSignature": "6653d724e701d85989e93ef9bb57c13e1817a7bcdafc09d66385ca5d8ebc34bc",
+      "Resources/swift-transformers_Hub.bundle/Contents/Info.plist": "34ab9302f1f6cfe5d0415930a5f2d6a75b5b8ed07510feed790bad50f61afb9f",
+      "Resources/swift-transformers_Hub.bundle/Contents/Resources/gpt2_tokenizer_config.json": "551e26ec611d8d0c8edc3ef72e518a38418cb71f40de1347dd486a595e1557d7",
+      "Resources/swift-transformers_Hub.bundle/Contents/Resources/t5_tokenizer_config.json": "e0aff0b1de9071e30d9a60a199303b6abe916a64a19932bd1c46992279b41a1f",
+      "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeDirectory": "decf2d8a62218ff02bdf52a0fe26596ffb082d42208305f12b51f53569a9f14e",
+      "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeRequirements": "aa5f40af0169b6226630ac9c1f1b3313a2edcd7391ac5790ca9e26c429db52e6",
+      "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeResources": "ae3880b32a4b58e4636e028cf141099134804da084866b30e86115f17fe99df7",
+      "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeSignature": "8cebc7c36edc5e604f992b508b433be89b38da8337e1b4de89c33904b479e328"
+    },
+    "engine_sha256": "beda135e17410cee0b17d4e4609de082c515135a8d6f31c421fc9dcb436e635c",
+    "native_environment": {
+      "system": "Darwin",
+      "machine": "arm64",
+      "version": "macOS-27.2.1-arm64-arm-64bit-Mach-O"
+    },
+    "status": "passed",
+    "scope": "packaged_offline_transcription_smoke",
+    "model": "parakeet-tdt-v3",
+    "fixture": "locally synthesized English speech; not an accuracy benchmark",
+    "fixture_sha256": "aba2d8c896a7c480dbcff3aa35d1a4bc9d946b3ea7eff64fb58da0628a84d88e",
+    "segments": 1,
+    "timed_words": 17,
+    "checks": [
+      "packaged runtime discovery with empty PATH",
+      "installed verified model",
+      "local recognition",
+      "word timing",
+      "TXT and SRT export",
+      "input project and audio unchanged"
+    ],
+    "limits": [
+      "one short synthetic English fixture",
+      "not a multilingual or long-form benchmark",
+      "other models, native UI and cancellation need separate verification"
+    ]
+  },
+  "final_zip_checks": [
+    "ZIP integrity/application/update identity",
+    "transcription qualification hashes match final signed bytes",
+    "Core runtime validation with poisoned overrides and empty PATH",
+    "actual Core segment SRT/WebVTT through relocated signed helper",
+    "actual in-process artwork optimization preserves original and strips metadata"
+  ],
+  "gatekeeper": "Notarized Developer ID; signing workflow checked final extracted app",
+  "native_launch": {
+    "status": "passed",
+    "scope": "LaunchServices startup of final extracted notarized app; alive after 5 seconds",
+    "isolated_recovery": true,
+    "manual_ui": "not exercised"
+  },
+  "final_media_contracts": {
+    "passed": 6,
+    "failed": 0,
+    "scope": "final relocated signed/notarized package; audio, SRT, H.264/HEVC, cancellation and preservation"
+  },
+  "verification_date_pacific": "2026-11-11",
+  "source_release_scope": "local notarized macOS ARM64 ZIP; source commit and annotated tag; no binary upload or update-feed publication",
+  "source_checks": {
+    "rust_workspace": {
+      "passed": 146,
+      "ignored": 13
+    },
+    "notarization_regressions": {
+      "passed": 8
+    },
+    "native_macos": {
+      "executed": 55,
+      "skipped": 2,
+      "failed": 0
+    },
+    "prior_helper_tests_passed": 9,
+    "prior_qt_suites_passed": 4
+  },
+  "external_review": {
+    "profile": "gemini",
+    "cli_model": "gemini-3.8-flash-high",
+    "provider_reported_identity": null,
+    "accepted_source_sha256": "a888446df283e53929ec0d18770f24eaebed7e33b8c7717861608c5dc281cb41",
+    "coverage": "complete",
+    "findings": [],
+    "completed_related_reports": 6,
+    "remaining_capacity": 0,
+    "later_changes": "Codex-verified dialog guards, release version/docs and final-signature transcription-qualification refresh; no further external audit"
+  },
+  "earlier_attempt": {
+    "notary_id": "c49f3bd8-5678-4dd3-8e93-1524b88b3c50",
+    "notary_status": "Accepted",
+    "functional_status": "not_run",
+    "reason": "Exact pinned model absent; initial package retained outside dist and never published. Model provisioned through Core; final signed bundle requalified and re-notarized."
+  },
+  "limits": [
+    "Native verification on current Apple silicon macOS host; minimum OS/Intel/Windows/Linux artifacts not qualified",
+    "One short synthesized English Parakeet recognition fixture is not an accuracy benchmark",
+    "Interactive GUI flows and authenticated application upgrade not exercised",
+    "Remaining Core API ownership gaps documented in avid-core-audit.md"
+  ],
+  "compiled_inputs_sha256": "2e6442269afaf33891b7fa563ae48ddb6fdb4c28b1302e3d4853955a9e26dd67",
+  "compiled_inputs_unchanged_after_packaging": true
+}

@@ -19,6 +19,7 @@ struct Options: Sendable {
         case "transcribe": allowed = ["--cache", "--model", "--input", "--language", "--alignment-model", "--source-offset"]
         case "realign": allowed = ["--cache", "--model", "--input", "--transcript", "--language", "--source-offset"]
         case "captions": allowed = ["--cache", "--transcript", "--format"]
+        case "subtitles": allowed = ["--transcript", "--format"]
         default: throw BridgeError.invalid("Unknown AVID bridge command: \(command)")
         }
         self.command = command

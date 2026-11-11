@@ -593,6 +593,42 @@ final class AppStore: ObservableObject {
         return true
     }
 
+    var canOptimizeArtwork: Bool {
+        guard !isWorking, let path = project?.metadata.artworkPath else { return false }
+        return ["jpg", "jpeg", "png"].contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    func optimizeArtworkCopy() {
+        guard canOptimizeArtwork, let expectedProject = project,
+              let path = expectedProject.metadata.artworkPath else { return }
+        let image = URL(fileURLWithPath: path)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = image.pathExtension.lowercased() == "png" ? [.png] : [.jpeg]
+        panel.nameFieldStringValue = image.deletingPathExtension().lastPathComponent + ".optimized." + image.pathExtension
+        panel.canCreateDirectories = true
+        panel.title = "Optimize Artwork Copy"
+        panel.message = "Create a lossless copy and remove metadata, including color profiles and orientation. The original image is preserved."
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let output = panel.url,
+                  let self, !self.isWorking,
+                  self.project == expectedProject else { return }
+            self.perform("Optimizing artwork…") {
+                let result = try await self.engine.optimizeArtwork(expectedProject, image: image, to: output)
+                // Windows share this store. A pending dialog/result must not
+                // adopt into a different project that happens to use this image.
+                if self.project == expectedProject {
+                    self.project?.metadata.artworkPath = result.url.path
+                }
+                self.status = "Saved artwork copy; \(ByteCountFormatter.string(fromByteCount: Int64(clamping: result.bytesSaved), countStyle: .file)) smaller."
+            }
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
     @discardableResult
     func chooseChapterArtwork(_ url: URL, for chapterID: String) -> Bool {
         guard !isWorking,

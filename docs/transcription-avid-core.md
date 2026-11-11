@@ -15,6 +15,8 @@ EnCAP 2.0.10 refreshes the 34-file Swift snapshot from the published AVID Core
 `v0.3.2` Git commit `8296a9e623c6924c12e456b5fe9e7c10b59dfbde`.
 The deterministic archive has SHA-256
 `a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937`.
+Core 0.3.3 makes no changes under `apple/` relative to 0.3.2, so this
+independently pinned Swift snapshot remains valid and unchanged.
 The archive, manifest and unmodified source remain under `vendor/`;
 `ruby script/verify_avid_snapshot.rb` verifies them before builds. Both original
 Swift packages remain siblings under `vendor/avid-core-transcription/apple`.
@@ -28,7 +30,7 @@ downloads, resumption, imports, shared-cache locking, verification, scoped model
 leases, inference, forced alignment, and caption grouping. EnCAP owns the typed
 JSON sidecar (`helpers/avid_transcriber`), Rust adapter, user interface, editable
 project projection, persistence and protected output routing. The independent
-Rust `avid-core =0.3.2` and authenticated FFmpeg runtime pins remain separate.
+Rust `avid-core =0.3.3` and authenticated FFmpeg runtime pins remain separate.
 
 The helper returns one snake_case JSON value on stdout; errors use a nonzero
 exit and `{"error":"..."}`. SDK output is redirected to stderr, alongside
@@ -95,7 +97,17 @@ History follows a surviving carrier, or falls back to optional project-level
 storage when retained audio has no active segment. Removing all audio clears
 transcript/history explicitly.
 
-Existing TXT/SRT behavior remains compatible for legacy timed records. Shared
+TXT preserves the existing project projection. On supported helper platforms,
+ordinary SRT and WebVTT formatting uses Core `CaptionExporter` with existing
+segment boundaries and speaker labels. Core escapes markup, folds embedded
+newlines, validates ordered positive-duration cues and rounds timestamps; these
+are intentional export differences, without rewriting saved transcript records.
+Other targets retain the existing SRT writer pending a portable Core exporter.
+The small ordinary-WebVTT addition is available through
+`encap-engine export-transcript PAYLOAD OUTPUT vtt`; ordinary segment export
+does not require word timing, model installation or inference. Existing word-caption
+SRT/WebVTT actions remain in both clients; no new ordinary-WebVTT UI is claimed.
+Errors from an available Core helper never select the legacy writer. Shared
 word-caption output requires actual usable word timings. Subtitle files do not
 implement animated or burned-in social captions; no such renderer is claimed.
 

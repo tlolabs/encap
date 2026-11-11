@@ -801,6 +801,35 @@ void MainWindow::chooseArtwork(bool chapter) {
     markDirty();
     refreshUi();
 }
+void MainWindow::optimizeArtworkCopy() {
+    if (!hasProject_ || busy_) return;
+    const auto expectedProject = project_;
+    const auto image = field({"metadata", "artwork_path"}).toString();
+    const QFileInfo source(image);
+    const auto extension = source.suffix().toLower();
+    if (image.isEmpty() || (extension != "png" && extension != "jpg" && extension != "jpeg")) {
+        fail("Choose a JPEG or PNG image before optimizing artwork.");
+        return;
+    }
+    const auto output = QFileDialog::getSaveFileName(this, "Optimize artwork copy (removes metadata)",
+        source.dir().filePath(source.completeBaseName() + ".optimized." + extension),
+        QStringLiteral("%1 files (*.%2)").arg(extension.toUpper(), extension));
+    // The modal dialog runs an event loop; discard a request whose project
+    // changed before the user accepted its destination.
+    if (output.isEmpty() || busy_ || !hasProject_ || project_ != expectedProject) return;
+    runEngine("Optimizing artwork…", {"optimize-artwork", "@payload", image, output},
+        [this, expectedProject](const QJsonValue& value) {
+            const auto result = value.toObject();
+            const auto path = result.value("path").toString();
+            if (path.isEmpty()) { fail("The artwork optimizer returned an invalid output path."); return; }
+            if (project_ == expectedProject) {
+                setField({"metadata", "artwork_path"}, path);
+                markDirty();
+                refreshUi();
+            }
+            setStatus("Saved artwork copy with metadata removed; original image preserved.");
+        }, expectedProject);
+}
 int MainWindow::audioSourceIndexAt(double timestamp) const {
     const auto sources = project_.value("audio_sources").toArray();
     if (sources.isEmpty()) return 0;
@@ -1338,7 +1367,9 @@ QWidget* MainWindow::buildAudioPage() {
     episodeForm->addRow("Podcast title", podcastTitle_);
     episodeForm->addRow("Episode title", episodeTitle_);
     episodeForm->addRow("Summary", summary_);
-    episodeForm->addRow("Artwork", row({episodeArtwork_, button("Artwork…", [this] { chooseArtwork(false); })}));
+    auto* optimizeArtwork = button("Optimize Copy…", [this] { optimizeArtworkCopy(); });
+    optimizeArtwork->setToolTip("Create a lossless JPEG or PNG copy and remove metadata, including color profiles and orientation; preserve the original image.");
+    episodeForm->addRow("Artwork", row({episodeArtwork_, button("Artwork…", [this] { chooseArtwork(false); }), optimizeArtwork}));
     right->addWidget(episode);
     audioFormat_ = combo({"mp3", "aac"});
     audioBitrate_ = combo({"128k", "160k", "192k", "224k", "256k", "320k"});

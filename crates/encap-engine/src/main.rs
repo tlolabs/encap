@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing_subscriber::EnvFilter;
 
+mod artwork;
+
 #[derive(Parser)]
 #[command(
     name = "encap-engine",
@@ -65,6 +67,12 @@ enum Commands {
     /// Inspect artwork through the same Core limits used by Video export.
     InspectArtwork {
         image: PathBuf,
+    },
+    /// Create a lossless JPEG/PNG artwork copy with metadata removed through Core.
+    OptimizeArtwork {
+        payload: PathBuf,
+        image: PathBuf,
+        output: PathBuf,
     },
     /// Publish a PNG composition using the project's Video settings and artwork fallback.
     PreviewVideo {
@@ -133,6 +141,7 @@ enum Commands {
 enum TranscriptFormat {
     Txt,
     Srt,
+    Vtt,
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -286,6 +295,14 @@ fn run(
             let (width, height) = encap_video::inspect_image(&image, video_cancellation)?;
             Ok(serde_json::json!({ "width": width, "height": height }))
         }
+        Commands::OptimizeArtwork {
+            payload,
+            image,
+            output,
+        } => {
+            let project = read_payload(&payload)?;
+            artwork::optimize(&project, &payload, &image, &output, cancellation)
+        }
         Commands::PreviewVideo {
             payload,
             output,
@@ -314,10 +331,16 @@ fn run(
                 TranscriptFormat::Txt => {
                     encap_core::render_transcript_text(&project.transcript_segments)
                 }
-                TranscriptFormat::Srt => {
-                    encap_core::validate_timed_transcript(&project.transcript_segments)?;
-                    encap_core::render_srt(&project.transcript_segments)
-                }
+                TranscriptFormat::Srt => encap_transcript::render_segment_subtitles(
+                    &project.transcript_segments,
+                    "srt",
+                    cancellation,
+                )?,
+                TranscriptFormat::Vtt => encap_transcript::render_segment_subtitles(
+                    &project.transcript_segments,
+                    "vtt",
+                    cancellation,
+                )?,
             };
             atomic_write(&output, content.as_bytes())?;
             json(PathResponse { path: output })

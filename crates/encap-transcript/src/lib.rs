@@ -466,6 +466,92 @@ fn realign_with_bridge(
     Ok(result)
 }
 
+/// Export one subtitle cue per saved segment without word-caption regrouping.
+/// Core validates and formats cues on supported helper platforms. Its subtitle
+/// escaping, newline folding, and positive/ordered cue requirements intentionally
+/// supersede the legacy writer's permissive formatting there.
+pub fn render_segment_subtitles(
+    segments: &[TranscriptSegment],
+    format: &str,
+    cancellation: &CancellationToken,
+) -> Result<String> {
+    validate_segment_subtitles(segments, format, cancellation)?;
+    #[cfg(debug_assertions)]
+    let explicit_helper = std::env::var_os("ENCAP_AVID_TRANSCRIBER").is_some();
+    #[cfg(not(debug_assertions))]
+    let explicit_helper = false;
+    if !explicit_helper && !helper_platform_supported()? {
+        return legacy_platform_subtitles(segments, format);
+    }
+    // A missing, damaged or failing helper on a supported platform is an error;
+    // it must never select the legacy writer and conceal the failure.
+    render_segment_subtitles_with_bridge(&Bridge::discover()?, segments, format, cancellation)
+}
+
+fn validate_segment_subtitles(
+    segments: &[TranscriptSegment],
+    format: &str,
+    cancellation: &CancellationToken,
+) -> Result<()> {
+    if !matches!(format, "srt" | "vtt") {
+        return Err(message("Subtitle format must be srt or vtt."));
+    }
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    encap_core::validate_timed_transcript(segments)
+}
+
+fn legacy_platform_subtitles(segments: &[TranscriptSegment], format: &str) -> Result<String> {
+    // Core gap: the shared Swift exporter is not packaged for Intel Mac,
+    // macOS 13, Windows or Linux. Keep saved SRT export compatible until Core
+    // supplies a portable API; do not implement a second WebVTT writer here.
+    match format {
+        "srt" => Ok(encap_core::render_srt(segments)),
+        "vtt" => Err(message("AVID Core WebVTT subtitle export currently requires Apple silicon and macOS 14 or later. Saved SRT and text export remain available on this platform.")),
+        _ => Err(message("Subtitle format must be srt or vtt.")),
+    }
+}
+
+fn segment_subtitle_projection(segments: &[TranscriptSegment]) -> Value {
+    serde_json::json!({"segments": segments.iter().map(|segment| serde_json::json!({
+        "start_seconds": segment.start_time_seconds,
+        "end_seconds": segment.end_time_seconds,
+        "text": segment.text,
+        "speaker": segment.speaker,
+    })).collect::<Vec<_>>()})
+}
+
+fn render_segment_subtitles_with_bridge(
+    bridge: &Bridge,
+    segments: &[TranscriptSegment],
+    format: &str,
+    cancellation: &CancellationToken,
+) -> Result<String> {
+    validate_segment_subtitles(segments, format, cancellation)?;
+    let operation = tempfile::tempdir().map_err(|error| {
+        message(format!(
+            "Could not create a private subtitle operation: {error}"
+        ))
+    })?;
+    let input = operation.path().join("episode-segments.json");
+    fs::write(
+        &input,
+        serde_json::to_vec(&segment_subtitle_projection(segments))?,
+    )
+    .map_err(|error| message(format!("Could not stage subtitle segments: {error}")))?;
+    bridge.invoke(
+        &[
+            "subtitles".into(),
+            "--transcript".into(),
+            input.as_os_str().to_owned(),
+            "--format".into(),
+            format.into(),
+        ],
+        cancellation,
+    )
+}
+
 /// Group current episode-clock words using AVID Core's caption behavior. This
 /// projection is temporary: no recognition or alignment provenance is rewritten.
 pub fn render_captions(
@@ -748,8 +834,21 @@ fn helper_path() -> Result<PathBuf> {
             ))
         };
     }
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if !helper_platform_supported()? {
         return Err(message(PLATFORM_REASON));
+    }
+    let executable = std::env::current_exe()
+        .map_err(|error| message(format!("Could not locate the application runtime: {error}")))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| message("The application runtime path is invalid."))?;
+    [directory.join("avid-transcriber"), directory.join("../Resources/avid-transcriber")]
+        .into_iter().find(|path| path.is_file()).ok_or_else(|| message("The packaged AVID Core transcription helper is missing. Rebuild or reinstall EnCAP; legacy transcription engines are no longer used."))
+}
+
+fn helper_platform_supported() -> Result<bool> {
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        return Ok(false);
     }
     #[cfg(target_os = "macos")]
     {
@@ -764,17 +863,15 @@ fn helper_path() -> Result<PathBuf> {
             .split('.')
             .next()
             .and_then(|part| part.parse::<u32>().ok());
-        if !version.status.success() || major.is_none_or(|major| major < 14) {
-            return Err(message(PLATFORM_REASON));
+        if !version.status.success() || major.is_none() {
+            return Err(message(
+                "Could not determine macOS compatibility for the AVID Core helper.",
+            ));
         }
+        Ok(major.is_some_and(|major| major >= 14))
     }
-    let executable = std::env::current_exe()
-        .map_err(|error| message(format!("Could not locate the application runtime: {error}")))?;
-    let directory = executable
-        .parent()
-        .ok_or_else(|| message("The application runtime path is invalid."))?;
-    [directory.join("avid-transcriber"), directory.join("../Resources/avid-transcriber")]
-        .into_iter().find(|path| path.is_file()).ok_or_else(|| message("The packaged AVID Core transcription helper is missing. Rebuild or reinstall EnCAP; legacy transcription engines are no longer used."))
+    #[cfg(not(target_os = "macos"))]
+    Ok(false)
 }
 
 struct Bridge {
@@ -1016,6 +1113,88 @@ mod tests {
                 "words":[{"text":"Hello", "start_seconds":2.5,"end_seconds":3.0,"confidence":0.9,"timing_method":"recognizer"},
                     {"text":"world.", "start_seconds":3.2,"end_seconds":4.0,"timing_method":"recognizer"}]}]
         })
+    }
+
+    #[test]
+    fn segment_subtitles_preserve_current_bounds_text_and_speakers_without_words() {
+        let segments = vec![TranscriptSegment {
+            id: "saved-segment".into(),
+            start_time_seconds: 12.5,
+            end_time_seconds: 13.75,
+            text: "  Edited <text>\n世界  ".into(),
+            speaker: " Host ".into(),
+            words: vec![],
+            extensions: BTreeMap::new(),
+        }];
+        assert_eq!(
+            segment_subtitle_projection(&segments),
+            json!({"segments": [{
+                "start_seconds": 12.5, "end_seconds": 13.75,
+                "text": "  Edited <text>\n世界  ", "speaker": " Host "
+            }]})
+        );
+        // Unsupported Core platforms retain their established saved-SRT path;
+        // WebVTT stays explicitly unavailable instead of gaining a local writer.
+        assert_eq!(
+            legacy_platform_subtitles(&segments, "srt").unwrap(),
+            "1\n00:00:12,500 --> 00:00:13,750\nHost: Edited <text>\n世界\n\n"
+        );
+        assert!(legacy_platform_subtitles(&segments, "vtt")
+            .unwrap_err()
+            .to_string()
+            .contains("WebVTT subtitle export currently requires"));
+        assert_eq!(segments[0].text, "  Edited <text>\n世界  ");
+    }
+
+    #[test]
+    fn segment_subtitles_reject_untimed_records_and_cancellation_before_helper() {
+        let mut raw = record();
+        raw["segments"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("start_seconds");
+        raw["segments"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("end_seconds");
+        raw["segments"][0]["words"] = json!([]);
+        let segments = project_transcript(&raw, &source("clip", 10.0), 0.0, false).unwrap();
+        let bridge = Bridge {
+            helper: PathBuf::from("must-not-start"),
+        };
+        assert!(render_segment_subtitles_with_bridge(
+            &bridge,
+            &segments,
+            "srt",
+            &CancellationToken::default()
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("no usable segment timing"));
+        let token = CancellationToken::default();
+        token.cancel();
+        assert!(
+            render_segment_subtitles_with_bridge(&bridge, &[], "srt", &token)
+                .unwrap_err()
+                .to_string()
+                .contains("cancelled safely")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn segment_subtitles_propagate_core_errors_without_legacy_fallback() {
+        let (_directory, bridge) =
+            fake_helper("printf '{\"error\":\"Core cue ordering rejected\"}'; exit 1");
+        let segments = project_transcript(&record(), &source("clip", 10.0), 0.0, false).unwrap();
+        let error = render_segment_subtitles_with_bridge(
+            &bridge,
+            &segments,
+            "srt",
+            &CancellationToken::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "Core cue ordering rejected");
     }
 
     #[test]
@@ -1433,16 +1612,25 @@ mod tests {
     fn cancellation_is_forwarded_to_owned_helper_and_waits_for_cleanup() {
         let directory = tempfile::tempdir().unwrap();
         let cleanup = directory.path().join("cleanup");
+        let ready = directory.path().join("ready");
+        let shell_path =
+            |path: &Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"));
         let script = format!(
-            "trap 'printf cleaned > {} ; exit 0' TERM\nwhile :; do /bin/sleep 0.05; done",
-            cleanup.display()
+            "cleanup() {{ printf cleaned > {}; exit 0; }}\ntrap cleanup TERM\nprintf ready > {}\nwhile :; do /bin/sleep 0.05; done",
+            shell_path(&cleanup), shell_path(&ready)
         );
         let (_helper_directory, bridge) = fake_helper(&script);
         let token = CancellationToken::default();
         let worker_token = token.clone();
         let start = Instant::now();
         let worker = std::thread::spawn(move || bridge.invoke::<Value>(&[], &worker_token));
-        std::thread::sleep(Duration::from_millis(100));
+        // Parallel suites can delay the shell past a fixed sleep. Observe its
+        // installed trap before signalling, while keeping startup bounded.
+        let readiness_deadline = Instant::now() + Duration::from_secs(3);
+        while !ready.is_file() && Instant::now() < readiness_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let helper_ready = ready.is_file();
         token.cancel();
         assert!(worker
             .join()
@@ -1450,6 +1638,10 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("cancelled safely"));
+        assert!(
+            helper_ready,
+            "fake helper did not install its cancellation trap before the deadline"
+        );
         assert_eq!(fs::read_to_string(cleanup).unwrap(), "cleaned");
         assert!(start.elapsed() < Duration::from_secs(3));
     }

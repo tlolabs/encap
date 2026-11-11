@@ -22,6 +22,17 @@ struct TranscriptionAvailability: Decodable, Sendable {
     var reason: String?
 }
 
+struct ArtworkOptimizationResponse: Decodable, Sendable {
+    let path: String
+    let format: String
+    let inputBytes: UInt64
+    let outputBytes: UInt64
+    let bytesSaved: UInt64
+    let optimized: Bool
+
+    var url: URL { URL(fileURLWithPath: path) }
+}
+
 /// Versioned stderr events never change the single final JSON value on stdout.
 struct EngineProgress: Decodable, Sendable {
     var event: String
@@ -104,6 +115,14 @@ final class EngineClient: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: payload) }
         let data = try await run(["export", payload.path, destination.path])
         return try decode(PathResponse.self, from: data).url
+    }
+
+    func optimizeArtwork(_ project: ProjectDocument, image: URL, to destination: URL) async throws -> ArtworkOptimizationResponse {
+        let payload = try temporaryPayload(for: project)
+        defer { try? FileManager.default.removeItem(at: payload) }
+        return try decode(ArtworkOptimizationResponse.self, from: await run([
+            "optimize-artwork", payload.path, image.path, destination.path
+        ]))
     }
 
     func exportVideo(_ project: ProjectDocument, to destination: URL) async throws -> URL {

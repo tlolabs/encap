@@ -90,8 +90,8 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "avid-core"
-version = "0.3.2"
-source = "git+https://github.com/tlolabs/avid-core.git?rev=8296a9e623c6924c12e456b5fe9e7c10b59dfbde#8296a9e623c6924c12e456b5fe9e7c10b59dfbde"
+version = "0.3.3"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=8e27a86ec106028d93130de35a35c0eeda7a9ce3#8e27a86ec106028d93130de35a35c0eeda7a9ce3"
 dependencies = [
  "libdeflate-sys",
  "oxipng",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "encap-audio"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "avid-core",
  "directories",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "avid-core",
  "clap",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "avid-core",
  "encap-core",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "encap-portable-update"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "fs2",
  "semver",
@@ -507,11 +507,11 @@ dependencies = [
 
 [[package]]
 name = "encap-release"
-version = "2.0.10"
+version = "2.0.11"
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -523,14 +523,14 @@ dependencies = [
 
 [[package]]
 name = "encap-update"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "tlo-updater",
 ]
 
 [[package]]
 name = "encap-video"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "avid-core",
  "encap-core",

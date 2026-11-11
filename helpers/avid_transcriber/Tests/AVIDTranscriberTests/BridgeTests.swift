@@ -106,3 +106,33 @@ import Testing
         try await BridgeCommand.execute(["captions", "--transcript", file.path, "--format", "vtt"])
     }
 }
+
+@Test func segmentSubtitlesPreserveSpeakersAndBoundariesWithoutWordTiming() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let input = Data(#"{"segments":[{"start_seconds":5,"end_seconds":6.5,"text":" Hello <world> & friends\nagain ","speaker":" Host "},{"start_seconds":7,"end_seconds":8,"text":" 世界! ","speaker":" "}]}"#.utf8)
+    let file = directory.appendingPathComponent("segments.json")
+    try input.write(to: file)
+    let srt = try JSONDecoder().decode(String.self, from: await BridgeCommand.execute(
+        ["subtitles", "--transcript", file.path, "--format", "srt"]))
+    #expect(srt == "1\n00:00:05,000 --> 00:00:06,500\nHost: Hello &lt;world&gt; &amp; friends again\n\n2\n00:00:07,000 --> 00:00:08,000\n世界!\n")
+    let vtt = try BridgeCommand.segmentSubtitles(input, format: "vtt")
+    #expect(vtt == "WEBVTT\n\n00:00:05.000 --> 00:00:06.500\nHost: Hello &lt;world&gt; &amp; friends again\n\n00:00:07.000 --> 00:00:08.000\n世界!\n")
+    #expect(try Data(contentsOf: file) == input)
+}
+
+@Test func segmentSubtitlesUseCoreValidationAndMillisecondQuantization() throws {
+    for invalid in [
+        #"{"segments":[{"start_seconds":1,"end_seconds":1,"text":"Legacy zero duration","speaker":""}]}"#,
+        #"{"segments":[{"start_seconds":2,"end_seconds":3,"text":"First","speaker":""},{"start_seconds":0,"end_seconds":1,"text":"Unordered","speaker":""}]}"#,
+    ] {
+        #expect(throws: (any Error).self) {
+            try BridgeCommand.segmentSubtitles(Data(invalid.utf8), format: "srt")
+        }
+    }
+    let brief = Data(#"{"segments":[{"start_seconds":0.0001,"end_seconds":0.0002,"text":"Brief","speaker":""}]}"#.utf8)
+    #expect(try BridgeCommand.segmentSubtitles(brief, format: "srt")
+        == "1\n00:00:00,000 --> 00:00:00,001\nBrief\n")
+    #expect(throws: (any Error).self) { try BridgeCommand.segmentSubtitles(brief, format: "txt") }
+}

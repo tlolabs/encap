@@ -73,6 +73,7 @@ private:
     void saveProject(bool saveAs = false, std::function<void(bool)> completed = {});
     void switchMode(int index);
     void chooseArtwork(bool chapter);
+    void optimizeArtworkCopy();
     int audioSourceIndexAt(double timestamp) const;
     int audioSourceIndexForChapter(const QJsonObject& chapter) const;
     void renumberChapters();

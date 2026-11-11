@@ -21,7 +21,7 @@ old signatures. New commits may be unsigned.
 Stable release tags are annotated and must match the Cargo version and
 checked-out commit; they do not need a Git signature. Development releases
 create their own commit-bound tags automatically. Application signing and
-notarization are optional for direct downloads. Authenticated update metadata
+notarization are required for standard macOS app distribution; Windows/Linux retain their existing signing policy. Authenticated update metadata
 and upstream source verification retain their security checks.
 
 ## Workspace ownership
@@ -133,7 +133,7 @@ parity or publish an artifact whose promised functionality has not been verified
 See [AVID transcription integration](transcription-avid-core.md) for source
 pins, migration semantics, and verification limitations.
 
-To optionally sign and notarize the tested Intel bundle, use a saved Keychain profile:
+To sign and notarize the tested Intel bundle for distribution, use a saved Keychain profile:
 
 ```bash
 ENCAP_APP_BUNDLE="$PWD/dist/intel/EnCap.app" \
@@ -391,3 +391,19 @@ packaged inference. Missing/unqualified transcription is recorded explicitly;
 there is no retained whisper.cpp qualification path.
 Release discovery ignores FFmpeg overrides and PATH; debug fixture overrides must
 specify both absolute tool paths. Application project and file formats are unchanged.
+
+### Standard local macOS packaging (2026-11-09)
+
+`./script/build_and_run.sh --package` requires `ENCAP_SIGN_IDENTITY` (an existing
+Developer ID Application identity) and `ENCAP_NOTARY_PROFILE` (an existing
+notarytool Keychain profile) before it builds. It then calls
+`script/sign_macos_release.sh`, which requires Apple acceptance, staples the app,
+recreates the ZIP, and checks the extracted app's signature, ticket and Gatekeeper
+assessment. The final filename ends in `-signed.zip`; signing alone is not a pass.
+Existing final ZIPs are not overwritten.
+
+Use `--package-development` explicitly for an ad-hoc, unnotarized
+`-development-unnotarized.zip`. It is not a distributable or authenticated-update
+artifact. Ordinary run/debug/test and internal Qt-reference paths are unchanged.
+No credentials are created or enrolled automatically. This supersedes older
+optional macOS notarization descriptions; weekly CI is unchanged.

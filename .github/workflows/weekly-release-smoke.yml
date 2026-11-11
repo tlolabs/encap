@@ -57,6 +57,7 @@ jobs:
       run:
         working-directory: source
     env:
+      RUSTUP_TOOLCHAIN: "1.99.1"
       CARGO_TERM_COLOR: always
       SMOKE_TARGET: ${{ matrix.target }}
     steps:
@@ -66,6 +67,11 @@ jobs:
           ref: ${{ matrix.sha }}
           path: source
           persist-credentials: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.99.1"
 
       - name: Install Linux build and display dependencies
         if: runner.os == 'Linux'

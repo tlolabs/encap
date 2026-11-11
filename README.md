@@ -27,12 +27,19 @@ EnCap has three peer application modes over one shared project format:
 
 The modes are separate Rust crates—`encap-audio`, `encap-transcript`, and
 `encap-video`—so no workflow owns another. All use `encap-core` for the project model
-and persistence. Audio and Transcript use `encap-ffmpeg` for subprocess execution;
-Video delegates media work to the pinned `avid-core` crate. A small
+and persistence. Audio uses `encap-ffmpeg` for export; Transcript delegates to Core’s Swift
+packages through a JSON sidecar, and Video delegates to the pinned Rust Core. A small
 JSON process boundary in `encap-engine` keeps the native SwiftUI application and shared Qt Widgets Windows/Linux application thin and crash-isolated. See
 [`docs/architecture.md`](docs/architecture.md).
 Video's timing, encoder selection, and composition rules are documented in
 [`docs/video-mode.md`](docs/video-mode.md).
+
+The [ownership audit](docs/avid-core-audit.md) records remaining Core API gaps: audio-only
+export/PCM preview decoding, sample and waveform inspection, and portable subtitle
+formatting. These paths remain visible exceptions; full deduplication is unfinished.
+Artwork “Optimize Copy…” uses Core’s lossless JPEG/PNG optimization and metadata
+removal, preserving the original. Removing orientation/color metadata can change
+how a viewer displays the copy.
 
 ## Download
 
@@ -81,9 +88,9 @@ generated for unsigned packages.
 
 ## Local transcription and privacy
 
-The AVID integration described here is included in the 2.0.10 source release;
+The AVID integration described here is included in the 2.0.11 source release;
 the existing 2.0.9 binary download is a separate, earlier artifact. See the
-[2.0.10 source release notes](docs/releases/2.0.10.md).
+[2.0.11 release notes](docs/releases/2.0.11.md).
 
 EnCap does not bundle model weights. The shared AVID Core catalog offers full
 Whisper large-v3 as the quality default, Whisper Turbo, Parakeet, Qwen recognition,
@@ -109,8 +116,8 @@ not a claim of six-platform transcription parity. See the
 ## Build from source
 
 The shared engine needs the Rust toolchain pinned by `rust-toolchain.toml`.
-Cargo fetches AVID Core `v0.3.2` at immutable commit
-`8296a9e623c6924c12e456b5fe9e7c10b59dfbde`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
+Cargo fetches AVID Core `v0.3.3` at immutable commit
+`8e27a86ec106028d93130de35a35c0eeda7a9ce3`. EnCAP consumes the matched FFmpeg/ffprobe 9.0.1 runtime built and validated by
 AVID Core. Target-scoped published runtime and corresponding-source artifacts are pinned
 in `runtime/platform-runtimes.json`; `runtime/core-runtime.json` retains the
 explicit legacy release pin. Acquisition verifies the Core provider attestation,
@@ -160,7 +167,7 @@ artifacts, and the engine protocol. The project format is specified in
 ## Release process
 
 Version the workspace in `Cargo.toml`, commit the release, and tag the matching
-version (for example, version `2.0.10` uses `v2.0.10`). Tags and pushes do not
+version (for example, version `2.0.11` uses `v2.0.11`). Tags and pushes do not
 trigger CI or publish packages. The Sunday-morning Pacific scheduled workflow
 compiles and smoke-tests newly tagged releases on native Linux and Windows
 x64/ARM64 runners once; it does not retry attempted releases or publish artifacts.
@@ -168,9 +175,10 @@ Legacy workflows remain archived and disabled. See [`AGENTS.md`](AGENTS.md).
 
 Package publication is a separate deliberate operation. Verify each artifact's
 packaging, dependencies, integrity and functional behavior on its target platform
-before publishing it. Verified platforms may publish independently. Direct
-downloads may be unsigned and unnotarized; authenticated updater feeds retain
-their signature and integrity requirements. The 2.0.9 download has no signed
+before publishing it. Verified platforms may publish independently. Standard local macOS app packages must be Developer ID signed and notarized;
+explicit development packages remain clearly labeled unnotarized. Other-platform
+direct downloads and authenticated updater feeds retain their existing signature
+and integrity requirements. The 2.0.9 download has no signed
 update metadata or macOS appcasts.
 
 The native-only policy check rejects application Python source, packaging files

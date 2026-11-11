@@ -24,8 +24,9 @@ equivalent functional smoke test on the target platform. A failed platform
 must not prevent another verified platform from publishing. Never publish an
 unverified or nonfunctional artifact.
 
-Code signing and notarization credentials are optional enhancements, not
-development or direct-download prerequisites. Preserve runtime update-signature,
+Standard local macOS app distributions require Developer ID signing and
+notarization. Explicit development/test packages remain unnotarized; other
+platform signing prerequisites are unchanged. Preserve runtime update-signature,
 appcast, Authenticode, artifact-integrity, and provenance checks. Do not put an
 unsigned package on an authenticated update feed. DCO sign-offs remain a
 convention, not an enforced gate.
@@ -33,3 +34,15 @@ convention, not an enforced gate.
 ## Archived legacy automation
 
 The former custom workflows are preserved, inactive, under `.github/workflow-archive/2026-11-08/`, with original paths and hashes recorded in its manifest. This archive supersedes older descriptions of automatic builds, retries, reporting, and release publishing. Do not move them back to `.github/workflows/`, enable, or dispatch them without a new explicit owner instruction. GitHub-managed security services remain separate and enabled.
+
+## Local macOS notarization (owner update, 2026-11-09)
+
+Standard local distributable macOS app packages require Developer ID Application
+signing, Apple notarization acceptance, stapling, and signature/Gatekeeper checks
+of the final extracted app. Missing credentials stop that packaging path before
+building; they never silently select an unsigned download. Use an existing
+Keychain notarytool profile and keep credentials out of source control.
+Ordinary debug/test runs and explicitly named development/reference artifacts
+remain local and unnotarized. This supersedes older optional-notarization wording
+for macOS app distribution only. Windows/Linux policy, authenticated updates,
+DCO conventions, and the restricted weekly CI schedule are unchanged.
