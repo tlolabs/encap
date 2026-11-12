@@ -127,7 +127,7 @@ def build(args):
     reference = host == 'osx'
     version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['version']
     build_dir = ROOT / 'build' / ('qt-' + args.rid)
-    configure = ['cmake', '-S', ROOT / 'qt', '-B', build_dir, '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=ON',
+    configure = ['cmake', '-S', ROOT / 'qt', '-B', build_dir, '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=' + ('OFF' if getattr(args, 'smoke_only', False) else 'ON'),
                  f'-DENCAP_VERSION={version}']
     if args.qt_prefix:
         configure.append(f'-DCMAKE_PREFIX_PATH={args.qt_prefix}')
@@ -147,7 +147,8 @@ def build(args):
     if host == 'win' and args.qt_prefix:
         environment['PATH'] = str(test_tools) + os.pathsep + str(args.qt_prefix / 'bin') + os.pathsep + environment['PATH']
         environment['QT_PLUGIN_PATH'] = str(args.qt_prefix / 'plugins')
-    run('ctest', '--test-dir', build_dir, '-C', 'Release', '--output-on-failure', env=environment)
+    if not getattr(args, 'smoke_only', False):
+        run('ctest', '--test-dir', build_dir, '-C', 'Release', '--output-on-failure', env=environment)
 
     if reference:
         destination = ROOT / 'dist/internal/EnCap-Qt-Reference.app'

@@ -46,3 +46,15 @@ Ordinary debug/test runs and explicitly named development/reference artifacts
 remain local and unnotarized. This supersedes older optional-notarization wording
 for macOS app distribution only. Windows/Linux policy, authenticated updates,
 DCO conventions, and the restricted weekly CI schedule are unchanged.
+
+## Weekly publication clarification (owner update, 2026-11-12)
+
+The weekly Sunday Windows/Linux job now packages and publishes independently
+verified native downloads from new unattempted version tags to their existing
+GitHub Release. This supersedes the earlier weekly no-packaging/no-publication
+restriction only. Keep basic final-package smoke scope, immutable tags, native
+platform validation, existing signing requirements, no automatic retries and
+no push/PR/tag-event/manual triggers. Do not create a release, change Latest,
+overwrite release assets or update authenticated feeds from this workflow.
+Missing existing Windows signing configuration fails closed without enrollment.
+See docs/weekly-download-publication.md for the workflow and remaining limits.
