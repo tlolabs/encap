@@ -18,20 +18,22 @@ Only platform packages, their SHA-256 files and verification reports are added;
 identical existing assets are left alone and different bytes are refused.
 No tag movement, release creation, Latest changes or updater feed changes occur.
 
-Windows requires the pre-existing Azure signing variables and identity secrets,
-valid federation trust, timestamped signatures and final extracted signature
-checks. No credentials or trust are enrolled. Missing signing configuration
-fails closed; no unsigned Windows fallback is published. The update public key
-must already be configured for both platforms. Native Windows/Linux execution
-is pending the next eligible scheduled run; local Python/lint checks do not
-claim those platforms passed. No GitHub runs were manually started.
+Owner update, November 13, 2026: the active weekly Windows path is explicitly
+unsigned until signing is configured in a future authorized change. It publishes
+`EnCap-VERSION-windows-ARCH-unsigned.zip`, its checksum and verification report
+with `authenticode: unsigned`. It has no Azure configuration requirements,
+login/signing steps, secrets or OIDC permission. Existing signing scripts remain
+unchanged for future use. This is not automatic fallback from failed signing.
+Application identity/version, runtime dependencies/integrity and extracted
+startup checks still run. No authenticated feed or signing claim is created.
+The update public key remains required for both platforms. Native Windows/Linux
+execution is pending the next eligible scheduled run; local Python/lint checks
+do not claim those platforms passed. No GitHub runs were manually started.
 
-The selector partitions Linux and Windows into separate native job matrices.
-Only the Windows job has OIDC token permission for the existing Azure signing
-identity. The Linux job receives no Azure variables, secrets or login steps.
-Selection and publication jobs have no OIDC permission. Both platform matrices
-retain independent failure handling and the existing exact smoke-job names for
-the attempt ledger.
+The selector retains separate Linux/Windows matrices and independent failures.
+Finalization waits for publishers and requires both smoke and publication success
+for the same target. Failed, missing or ambiguous publication cannot be recorded
+as success. Genuine attempts remain consumed with no automatic retry.
 
 Before claiming attempts, selection requires an existing nondraft, non-prerelease
 GitHub Release with an uploaded, nonempty matching signed macOS ZIP or DMG and

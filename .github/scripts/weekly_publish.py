@@ -19,7 +19,12 @@ def publish(repo,tag,sha,target,folder):
     release=api(base+'/releases/tags/'+tag)
     if release['draft'] or release['tag_name']!=tag: raise ValueError('Existing published release required')
     proof=json.loads((folder/'verification.json').read_text())
-    name=f'EnCap-{tag[1:]}-{target}'+('.zip' if target.startswith('windows') else '.AppImage')
+    signing=proof.get('authenticode')
+    if target.startswith('windows'):
+        if signing != 'unsigned': raise ValueError('Weekly Windows publication requires explicit unsigned evidence')
+        name=f'EnCap-{tag[1:]}-{target}-unsigned.zip'
+    else:
+        name=f'EnCap-{tag[1:]}-{target}.AppImage'
     package=folder/name
     if package.is_symlink() or not package.is_file(): raise ValueError('Missing regular package')
     digest=hashlib.sha256(package.read_bytes()).hexdigest()

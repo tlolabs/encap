@@ -13,7 +13,7 @@ def load(path, name):
     return module
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument('phase',choices=['stage','finish']); p.add_argument('--source',type=Path,required=True); p.add_argument('--target',required=True); p.add_argument('--tag',required=True); p.add_argument('--sha',required=True); a=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument('phase',choices=['stage','finish']); p.add_argument('--source',type=Path,required=True); p.add_argument('--target',required=True); p.add_argument('--tag',required=True); p.add_argument('--sha',required=True); p.add_argument('--windows-signing',choices=['unsigned']); a=p.parse_args()
     root=a.source.resolve(); os.chdir(root)
     machine='arm64' if platform.machine().lower() in ('arm64','aarch64') else 'x64'
     host='windows' if sys.platform=='win32' else 'linux' if sys.platform=='linux' else 'unsupported'
@@ -41,13 +41,17 @@ def main():
         return
     out=root/'dist/weekly'; out.mkdir(parents=True,exist_ok=True)
     if host=='windows':
-        run('pwsh','-NoProfile','-File',root/'script/verify_authenticode.ps1','-Folder',stage,'-ExpectedSubject',os.environ['AZURE_SIGNING_SUBJECT'])
+        if a.windows_signing != 'unsigned': raise ValueError('Weekly Windows packaging requires explicit unsigned mode')
+        verifier=Path(__file__).resolve().with_name('verify_weekly_windows.ps1')
+        verify_args=['pwsh','-NoProfile','-File',verifier,'-Version',version]
+        run(*verify_args,'-Folder',stage)
         runtime.finish(target,binary,binary/'ffmpeg-runtime')
         names=[str(f.relative_to(stage)) for f in stage.rglob('*') if f.is_file()]
         (stage/'portable-package-files.json').write_text(json.dumps(names))
-        package=Path(shutil.make_archive(str(out/f'EnCap-{version}-{a.target}'),'zip',stage))
+        label='-unsigned'
+        package=Path(shutil.make_archive(str(out/f'EnCap-{version}-{a.target}{label}'),'zip',stage))
         extracted=root/'build/weekly-final'; shutil.unpack_archive(package,extracted); binary=extracted
-        run('pwsh','-NoProfile','-File',root/'script/verify_authenticode.ps1','-Folder',binary,'-ExpectedSubject',os.environ['AZURE_SIGNING_SUBJECT'])
+        run(*verify_args,'-Folder',binary)
     else:
         (root/'dist/release').mkdir(parents=True,exist_ok=True)
         run('bash',root/'script/package_appimage.sh','aarch64' if machine=='arm64' else 'x86_64',stage,version)
@@ -68,5 +72,5 @@ def main():
     run(*command,env=env,timeout=90)
     sha=hashlib.sha256(package.read_bytes()).hexdigest()
     (out/(package.name+'.sha256')).write_text(sha+'  '+package.name+'\n')
-    (out/'verification.json').write_text(json.dumps(dict(tag=a.tag,sha=a.sha,target=a.target,package=package.name,sha256=sha,status='passed',scope='native final-package startup, runtime integrity and dependency smoke; not full regression or authenticated updater qualification'))+'\n')
+    (out/'verification.json').write_text(json.dumps(dict(tag=a.tag,sha=a.sha,target=a.target,package=package.name,sha256=sha,status='passed',authenticode=a.windows_signing if host=='windows' else 'not-applicable',scope='native final-package startup, runtime integrity and dependency smoke; not full regression, publisher signing or authenticated updater qualification'))+'\n')
 if __name__=='__main__': main()

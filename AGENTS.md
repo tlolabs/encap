@@ -58,3 +58,16 @@ no push/PR/tag-event/manual triggers. Do not create a release, change Latest,
 overwrite release assets or update authenticated feeds from this workflow.
 Missing existing Windows signing configuration fails closed without enrollment.
 See docs/weekly-download-publication.md for the workflow and remaining limits.
+
+## Unsigned Windows downloads (owner update, 2026-11-13)
+
+The active weekly Windows path publishes explicitly unsigned direct downloads
+with `-unsigned.zip` names and `authenticode: unsigned` verification evidence.
+It has no Azure login, signing secrets or OIDC permission. Existing signing
+scripts and archived workflows remain intact for a future explicitly configured
+signing path; no signing failure is silently converted into unsigned publication.
+Application identity, dependency/runtime integrity and native final-package
+smoke checks remain mandatory. No unsigned download enters authenticated update
+feeds. Local macOS signing/notarization and scheduling policies are unchanged.
+This supersedes the prior missing-Windows-signing-configuration blocker only.
+Finalization requires successful smoke and publication for the same target.

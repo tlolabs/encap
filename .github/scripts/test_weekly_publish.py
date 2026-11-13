@@ -18,4 +18,19 @@ class PublishTests(unittest.TestCase):
     m.publish('tlolabs/encap','v1.0.0','a'*40,'linux-x64',root);run.assert_not_called()
     assets[0]['digest']='sha256:'+'0'*64
     with self.assertRaises(ValueError):m.publish('tlolabs/encap','v1.0.0','a'*40,'linux-x64',root)
+ def test_unsigned_windows_evidence_and_filename_bound(self):
+  for signing, suffix, valid in [('unsigned','-unsigned',True),('signed','',False),(None,'-unsigned',False),('unsigned','',False)]:
+   with self.subTest(signing=signing,suffix=suffix),tempfile.TemporaryDirectory() as d:
+    root=Path(d);name='EnCap-1.0.0-windows-x64'+suffix+'.zip';(root/name).write_bytes(b'package');digest=hashlib.sha256(b'package').hexdigest()
+    (root/(name+'.sha256')).write_text(digest+'  '+name+'\n')
+    proof=dict(tag='v1.0.0',sha='a'*40,target='windows-x64',package=name,sha256=digest,status='passed',authenticode=signing)
+    (root/'verification.json').write_text(json.dumps(proof))
+    (root/(name+'.verification.json')).write_text(json.dumps(proof))
+    assets=[dict(name=p.name,size=p.stat().st_size,digest='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()) for p in root.iterdir() if p.name!='verification.json']
+    def api(path):return {'object':{'type':'commit','sha':'a'*40}} if '/git/ref/' in path else dict(draft=False,tag_name='v1.0.0',assets=assets)
+    with patch.object(m,'api',side_effect=api),patch.object(m.subprocess,'run') as run:
+     if valid:m.publish('tlolabs/encap','v1.0.0','a'*40,'windows-x64',root)
+     else:
+      with self.assertRaises(ValueError):m.publish('tlolabs/encap','v1.0.0','a'*40,'windows-x64',root)
+     run.assert_not_called()
 if __name__=='__main__':unittest.main()

@@ -47,7 +47,7 @@ jobs:
           --targets linux-x64,linux-arm64,windows-x64,windows-arm64
           --require-macos-release --claim
 
-      - name: Partition native targets before assigning signer permissions
+      - name: Partition native targets
         id: partition
         env:
           SELECTED_MATRIX: ${{ steps.select.outputs.matrix }}
@@ -153,7 +153,6 @@ jobs:
     if: github.run_attempt == 1 && needs.select.outputs.has_windows == 'true'
     permissions:
       contents: read
-      id-token: write # Existing Azure signing identity only.
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select.outputs.windows_matrix) }}
@@ -168,7 +167,6 @@ jobs:
       SMOKE_TARGET: ${{ matrix.target }}
       ENCAP_RELEASE: "1"
       ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
-      AZURE_SIGNING_SUBJECT: ${{ vars.AZURE_SIGNING_SUBJECT }}
     steps:
       - name: Check out trusted packaging control
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -245,46 +243,12 @@ jobs:
           RELEASE_TAG: ${{ matrix.tag }}
           RELEASE_SHA: ${{ matrix.sha }}
         run: python ../control/.github/scripts/weekly_package.py stage --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
-      - name: Require preconfigured Windows signing
-        shell: pwsh
-        env:
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_CERTIFICATE_PROFILE: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
-          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        run: |
-          foreach ($name in @('AZURE_SIGNING_ENDPOINT','AZURE_SIGNING_ACCOUNT','AZURE_CERTIFICATE_PROFILE','AZURE_SIGNING_SUBJECT','CLIENT_ID','TENANT_ID','SUBSCRIPTION_ID')) {
-            if (![Environment]::GetEnvironmentVariable($name)) { throw "Missing existing signing configuration: $name" }
-          }
-      - name: Authenticate existing Azure signing identity
-        uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Timestamp portable application executables
-        uses: azure/artifact-signing-action@c0ae2c1d0c1847ab81ac0ab8521bee597cfedd30
-        with:
-          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
-          files-folder: ${{ github.workspace }}/source/dist/staging/EnCap
-          files-folder-filter: exe
-          files-folder-recurse: true
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-          exclude-environment-credential: true
-          exclude-managed-identity-credential: true
-          exclude-interactive-browser-credential: true
       - name: Verify final native download
         shell: bash
         env:
           RELEASE_TAG: ${{ matrix.tag }}
           RELEASE_SHA: ${{ matrix.sha }}
-        run: python ../control/.github/scripts/weekly_package.py finish --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
+        run: python ../control/.github/scripts/weekly_package.py finish --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --windows-signing unsigned
       - name: Preserve independently verified download
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -323,7 +287,7 @@ jobs:
         run: python3 control/.github/scripts/weekly_publish.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --target "$RELEASE_TARGET" --folder verified
 
   finalize:
-    needs: [select, smoke_linux, smoke_windows]
+    needs: [select, smoke_linux, smoke_windows, publish]
     if: always() && github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -341,4 +305,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SMOKE_MATRIX: ${{ needs.select.outputs.matrix }}
-        run: python3 control/.github/scripts/weekly_release_smoke.py finalize --matrix-env SMOKE_MATRIX
+        run: python3 control/.github/scripts/weekly_release_smoke.py finalize --matrix-env SMOKE_MATRIX --require-publication

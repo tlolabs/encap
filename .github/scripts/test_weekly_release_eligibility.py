@@ -63,5 +63,19 @@ class ReleaseEligibility(unittest.TestCase):
             output.assert_called_once_with({'include': []}, {'new': 0, 'deferred_release': 2})
 
 
+class PublicationOutcomes(unittest.TestCase):
+    def test_publication_is_required_for_target_success(self):
+        from test_weekly_release_smoke import FakeAPI, item, URL
+        smoke=dict(name='Smoke v1.2.3 (linux-x64)',status='completed',conclusion='success')
+        publisher=dict(name='Publish v1.2.3 (linux-x64)',status='completed',conclusion='success')
+        for jobs, expected in [([publisher],'success'),([],'error'),([publisher,publisher],'error'),
+                ([dict(publisher,conclusion='failure')],'failure'),
+                ([dict(publisher,conclusion='skipped')],'error'),
+                ([dict(publisher,status='in_progress')],'error')]:
+            api=FakeAPI(jobs=[smoke]+jobs)
+            result=m.Gate(api).finalize({'include':[item()]},123,1,URL,require_publication=True)
+            self.assertEqual(result[expected],1)
+            self.assertEqual(api.writes[0][1]['state'],expected)
+
 if __name__ == '__main__':
     unittest.main()

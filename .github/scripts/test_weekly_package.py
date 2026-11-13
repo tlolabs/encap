@@ -3,7 +3,7 @@ from pathlib import Path
 class PackagePolicy(unittest.TestCase):
  def test_native_final_bytes(self):
   p=Path(__file__).with_name('weekly_package.py');text=p.read_text();ast.parse(text)
-  for required in ['Native target mismatch','Tag/version/source mismatch','verify_authenticode.ps1','runtime.validate(target,binary','shutil.unpack_archive','--appimage-extract','test_native_startup.py','validate-tools']:
+  for required in ['Native target mismatch','Tag/version/source mismatch','verify_weekly_windows.ps1','runtime.validate(target,binary','shutil.unpack_archive','--appimage-extract','test_native_startup.py','validate-tools']:
    self.assertIn(required,text)
  def test_permissions_and_schedule(self):
   text=(Path(__file__).parents[1]/'workflows/weekly-release-smoke.yml').read_text()
@@ -11,17 +11,23 @@ class PackagePolicy(unittest.TestCase):
   self.assertIn("cron: '17 16 * * 0'",text)
   for event in ['  push:','  pull_request:','  workflow_dispatch:']:self.assertNotIn(event,text)
   self.assertIn("if: always() && github.run_attempt == 1 && needs.select.outputs.has_new == 'true'",text)
- def test_signer_authority_is_windows_only(self):
+ def test_no_signing_authority_or_configuration_in_weekly_workflow(self):
   text=(Path(__file__).parents[1]/'workflows/weekly-release-smoke.yml').read_text()
-  linux=text.split('  smoke_linux:\n',1)[1].split('  smoke_windows:\n',1)[0]
-  windows=text.split('  smoke_windows:\n',1)[1].split('  publish:\n',1)[0]
-  self.assertEqual(text.count('id-token: write'),1)
-  self.assertIn('id-token: write',windows)
-  for forbidden in ['id-token:','AZURE_', 'secrets.', 'azure/login', 'artifact-signing-action']:
-   self.assertNotIn(forbidden,linux)
-  self.assertIn('needs: [select, smoke_linux, smoke_windows]',text)
-  self.assertIn('fromJSON(needs.select.outputs.linux_matrix)',linux)
-  self.assertIn('fromJSON(needs.select.outputs.windows_matrix)',windows)
+  for forbidden in ['id-token:', 'AZURE_', 'secrets.', 'azure/login', 'artifact-signing-action']:
+   self.assertNotIn(forbidden,text)
+  self.assertIn('--windows-signing unsigned',text)
+  self.assertIn('needs: [select, smoke_linux, smoke_windows, publish]',text)
+  self.assertIn('--require-publication',text)
+ def test_unsigned_identity_and_first_party_signatures_are_checked_twice(self):
+  text=Path(__file__).with_name('weekly_package.py').read_text()
+  self.assertIn("requires explicit unsigned mode",text)
+  self.assertIn("run(*verify_args,'-Folder',stage)",text)
+  self.assertIn("run(*verify_args,'-Folder',binary)",text)
+  self.assertIn("label='-unsigned'",text)
+  self.assertIn("authenticode=a.windows_signing",text)
+  verifier=Path(__file__).with_name('verify_weekly_windows.ps1').read_text()
+  for expected in ["$signature.Status -ne 'NotSigned'",'application_id','repository','channel','FileVersion','encap-portable-update.exe']:
+   self.assertIn(expected,verifier)
  def test_native_matrix_partition(self):
   text=(Path(__file__).parents[1]/'workflows/weekly-release-smoke.yml').read_text()
   program=textwrap.dedent(text.split("python3 - <<'PYCODE'\n",1)[1].split('          PYCODE',1)[0])

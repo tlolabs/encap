@@ -380,7 +380,7 @@ class Gate:
         validate_baseline(snapshot, self.api.repo)
         return snapshot
 
-    def finalize(self, matrix: dict, run_id: int, attempt: int, target_url: str) -> dict:
+    def finalize(self, matrix: dict, run_id: int, attempt: int, target_url: str, require_publication=False) -> dict:
         items = validate_matrix(matrix)
         run_id = positive_int(run_id, "run ID")
         attempt = positive_int(attempt, "run attempt")
@@ -414,6 +414,16 @@ class Gate:
                     # Includes cancelled, skipped, neutral, action_required,
                     # startup_failure, stale and any new API conclusion.
                     state, description = "error", "Smoke cancelled, skipped, or inconclusive; no automatic retry"
+            if state == 'success' and require_publication:
+                publishers = by_name.get(f"Publish {item['tag']} ({item['target']})", [])
+                if len(publishers) != 1 or publishers[0].get('status') != 'completed':
+                    state, description = 'error', 'Publication missing, ambiguous or unfinished; no automatic retry'
+                elif publishers[0].get('conclusion') == 'success':
+                    description = 'Weekly native smoke and publication passed'
+                elif publishers[0].get('conclusion') in {'failure', 'timed_out'}:
+                    state, description = 'failure', 'Native smoke passed but publication failed; no automatic retry'
+                else:
+                    state, description = 'error', 'Native smoke passed but publication inconclusive; no automatic retry'
             decisions.append((item, state, description))
         summary = {state: 0 for state in sorted(STATES)}
         for item, state, description in decisions:
@@ -548,6 +558,7 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--state", choices=sorted(STATES), required=True)
             command.add_argument("--description", required=True)
         if name == "finalize":
+            command.add_argument("--require-publication", action="store_true")
             command.add_argument("--matrix-env", default="SMOKE_MATRIX", help="Environment variable containing trusted gate matrix JSON")
     return cli
 
@@ -584,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
                 matrix = json.loads(os.environ[args.matrix_env])
             except (KeyError, json.JSONDecodeError) as exc:
                 raise GateError(f"Missing or invalid JSON environment variable {args.matrix_env}") from exc
-            summary = gate.finalize(matrix, run_id, attempt, url)
+            summary = gate.finalize(matrix, run_id, attempt, url, require_publication=args.require_publication)
             print("Finalized: " + json.dumps(summary, sort_keys=True))
             if summary["pending"]:
                 print(f"Finalization incomplete: {summary['pending']} native smoke job(s) never executed; "
