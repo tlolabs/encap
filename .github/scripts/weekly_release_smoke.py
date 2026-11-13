@@ -333,6 +333,36 @@ class Gate:
             raise GateError("GitHub did not confirm the requested status; outcome is uncertain, inspect before retrying")
         return result
 
+    def released_macos_only(self, matrix: dict) -> tuple[dict, int]:
+        """Defer unattempted tags until their existing macOS release is published.
+
+        This checks publication metadata, not notarization or manual test evidence.
+        No status is written for a deferred tag, so it remains eligible later.
+        """
+        items = validate_matrix(matrix)
+        if not items:
+            return matrix, 0
+        eligible = set()
+        wanted = {item["tag"] for item in items}
+        for raw in self.api.pages(f"{self.api.root}/releases"):
+            release = require_object(raw, "release")
+            tag = release.get("tag_name")
+            if tag not in wanted or release.get("draft") is not False or release.get("prerelease") is not False:
+                continue
+            if not release.get("published_at"):
+                continue
+            assets = release.get("assets")
+            if not isinstance(assets, list):
+                raise GateError("Release assets are missing or malformed")
+            names = {asset.get("name") for asset in assets if isinstance(asset, dict)
+                     and asset.get("state") == "uploaded"
+                     and type(asset.get("size")) is int and asset["size"] > 0}
+            pattern = re.compile(r"EnCap-" + re.escape(tag[1:]) + r"-macos-(?:arm64|intel)-signed\.(?:zip|dmg)")
+            if any(isinstance(name, str) and pattern.fullmatch(name) and name + ".sha256" in names for name in names):
+                eligible.add(tag)
+        kept = [item for item in items if item["tag"] in eligible]
+        return {"include": kept}, len(items) - len(kept)
+
     def claim(self, matrix: dict, target_url: str):
         items = validate_matrix(matrix)
         # Resolve/validate the entire matrix before the first mutation. There is
@@ -507,6 +537,7 @@ def parser() -> argparse.ArgumentParser:
         if name == "select":
             command.add_argument("--max-matrix", type=int, default=MAX_MATRIX)
             command.add_argument("--baseline-file", help="Trusted immutable existing-tag setup snapshot")
+            command.add_argument("--require-macos-release", action="store_true", help="Defer tags without an existing published signed macOS package and checksum")
             command.add_argument("--claim", action="store_true", help="Post pending statuses after full successful selection")
         if name == "baseline":
             command.add_argument("--output", help="Create an immutable local setup snapshot (refuses to overwrite)")
@@ -529,6 +560,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "select":
             baseline = load_baseline(args.baseline_file, api.repo) if args.baseline_file else None
             matrix, summary = gate.select(args.pattern, parse_targets(args.targets), args.max_matrix, baseline=baseline)
+            if args.require_macos_release:
+                matrix, summary["deferred_release"] = gate.released_macos_only(matrix)
+                summary["new"] = len(matrix["include"])
             if args.claim and matrix["include"]:
                 _, _, url = current_run(api)
                 gate.claim(matrix, url)

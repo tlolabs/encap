@@ -20,12 +20,15 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write # Existing Azure signer only; no new trust enrollment.
       statuses: write
       actions: read
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
       has_new: ${{ steps.select.outputs.has_new }}
+      linux_matrix: ${{ steps.partition.outputs.linux_matrix }}
+      windows_matrix: ${{ steps.partition.outputs.windows_matrix }}
+      has_linux: ${{ steps.partition.outputs.has_linux }}
+      has_windows: ${{ steps.partition.outputs.has_windows }}
     steps:
       - name: Check out trusted workflow control
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,18 +44,119 @@ jobs:
           python3 control/.github/scripts/weekly_release_smoke.py select
           --pattern '^v[0-9]+\.[0-9]+\.[0-9]+$'
           --baseline-file control/.github/weekly-smoke-baseline.json
-          --targets linux-x64,linux-arm64,windows-x64,windows-arm64 --claim
+          --targets linux-x64,linux-arm64,windows-x64,windows-arm64
+          --require-macos-release --claim
 
-  smoke:
+      - name: Partition native targets before assigning signer permissions
+        id: partition
+        env:
+          SELECTED_MATRIX: ${{ steps.select.outputs.matrix }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          rows = json.loads(os.environ['SELECTED_MATRIX'])['include']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for system in ('linux', 'windows'):
+                  targets = [row for row in rows if row['target'].startswith(system + '-')]
+                  output.write(system + '_matrix=' + json.dumps({'include': targets}) + '\n')
+                  output.write('has_' + system + '=' + str(bool(targets)).lower() + '\n')
+          PYCODE
+
+  smoke_linux:
     name: Smoke ${{ matrix.tag }} (${{ matrix.target }})
     needs: select
-    if: github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
+    if: github.run_attempt == 1 && needs.select.outputs.has_linux == 'true'
     permissions:
       contents: read
-      id-token: write # Existing Azure signer only; no new trust enrollment.
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.select.outputs.linux_matrix) }}
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","windows-x64":"windows-2025","windows-arm64":"windows-11-arm"}')[matrix.target] }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: source
+    env:
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      CARGO_TERM_COLOR: always
+      SMOKE_TARGET: ${{ matrix.target }}
+      ENCAP_RELEASE: "1"
+      ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+    steps:
+      - name: Check out trusted packaging control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Check out exact tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.99.1"
+
+      - name: Install Linux build and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake pkg-config libglib2.0-dev libasound2-dev \
+            libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev \
+            libxi-dev libxcursor-dev qt6-base-dev qt6-base-dev-tools \
+            xvfb xauth dbus-x11
+      - name: Build Linux engine and Qt application
+        run: |
+          rustup show
+          cargo build --locked --release -p encap-engine -p encap-update
+          version="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+          cmake -S qt -B build/weekly-smoke -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF -DENCAP_VERSION="$version"
+          cmake --build build/weekly-smoke --config Release --target EnCap --parallel
+      - name: Smoke Linux engine and application startup
+        timeout-minutes: 2
+        run: |
+          mkdir -p "$RUNNER_TEMP/encap-smoke"
+          export ENCAP_TEST_ENGINE="$PWD/target/release/encap-engine"
+          export ENCAP_TEST_UPDATER="$PWD/target/release/encap-update"
+          export ENCAP_RECOVERY_PATH="$RUNNER_TEMP/encap-smoke/recovery.json"
+          python3 -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py build/weekly-smoke/EnCap
+
+      - name: Assemble native package with authenticated Core runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ matrix.tag }}
+          RELEASE_SHA: ${{ matrix.sha }}
+        run: python ../control/.github/scripts/weekly_package.py stage --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
+      - name: Verify final native download
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ matrix.tag }}
+          RELEASE_SHA: ${{ matrix.sha }}
+        run: python ../control/.github/scripts/weekly_package.py finish --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
+      - name: Preserve independently verified download
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: weekly-${{ matrix.tag }}-${{ matrix.target }}
+          path: source/dist/weekly/*
+          if-no-files-found: error
+
+  smoke_windows:
+    name: Smoke ${{ matrix.tag }} (${{ matrix.target }})
+    needs: select
+    if: github.run_attempt == 1 && needs.select.outputs.has_windows == 'true'
+    permissions:
+      contents: read
+      id-token: write # Existing Azure signing identity only.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.windows_matrix) }}
     runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","windows-x64":"windows-2025","windows-arm64":"windows-11-arm"}')[matrix.target] }}
     timeout-minutes: 60
     defaults:
@@ -84,37 +188,7 @@ jobs:
         with:
           toolchain: "1.99.1"
 
-      - name: Install Linux build and display dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential cmake pkg-config libglib2.0-dev libasound2-dev \
-            libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev \
-            libxi-dev libxcursor-dev qt6-base-dev qt6-base-dev-tools \
-            xvfb xauth dbus-x11
-      - name: Build Linux engine and Qt application
-        if: runner.os == 'Linux'
-        run: |
-          rustup show
-          cargo build --locked --release -p encap-engine -p encap-update
-          version="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
-          cmake -S qt -B build/weekly-smoke -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF -DENCAP_VERSION="$version"
-          cmake --build build/weekly-smoke --config Release --target EnCap --parallel
-      - name: Smoke Linux engine and application startup
-        if: runner.os == 'Linux'
-        timeout-minutes: 2
-        run: |
-          mkdir -p "$RUNNER_TEMP/encap-smoke"
-          export ENCAP_TEST_ENGINE="$PWD/target/release/encap-engine"
-          export ENCAP_TEST_UPDATER="$PWD/target/release/encap-update"
-          export ENCAP_RECOVERY_PATH="$RUNNER_TEMP/encap-smoke/recovery.json"
-          python3 -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
-          xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py build/weekly-smoke/EnCap
-
       - name: Install native Windows Qt
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           python -m pip install aqtinstall==3.3.0
@@ -126,7 +200,6 @@ jobs:
           }
           if ($LASTEXITCODE -ne 0) { throw 'Qt installation failed' }
       - name: Build Windows engine and Qt application
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Build command failed: $LASTEXITCODE" } }
@@ -147,7 +220,6 @@ jobs:
           Copy-Item build/weekly-smoke/native/Release/encap-playback.dll build/weekly-smoke/Release/
           Copy-Item build/weekly-smoke/native/Release/encap-media.dll build/weekly-smoke/Release/
       - name: Smoke Windows engine and application startup
-        if: runner.os == 'Windows'
         timeout-minutes: 2
         shell: pwsh
         run: |
@@ -174,7 +246,6 @@ jobs:
           RELEASE_SHA: ${{ matrix.sha }}
         run: python ../control/.github/scripts/weekly_package.py stage --source . --target "$SMOKE_TARGET" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
       - name: Require preconfigured Windows signing
-        if: runner.os == 'Windows'
         shell: pwsh
         env:
           AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
@@ -188,14 +259,12 @@ jobs:
             if (![Environment]::GetEnvironmentVariable($name)) { throw "Missing existing signing configuration: $name" }
           }
       - name: Authenticate existing Azure signing identity
-        if: runner.os == 'Windows'
         uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Timestamp portable application executables
-        if: runner.os == 'Windows'
         uses: azure/artifact-signing-action@c0ae2c1d0c1847ab81ac0ab8521bee597cfedd30
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
@@ -225,7 +294,7 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.tag }} (${{ matrix.target }})
-    needs: [select, smoke]
+    needs: [select, smoke_linux, smoke_windows]
     if: always() && github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -254,7 +323,7 @@ jobs:
         run: python3 control/.github/scripts/weekly_publish.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --target "$RELEASE_TARGET" --folder verified
 
   finalize:
-    needs: [select, smoke]
+    needs: [select, smoke_linux, smoke_windows]
     if: always() && github.run_attempt == 1 && needs.select.outputs.has_new == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
