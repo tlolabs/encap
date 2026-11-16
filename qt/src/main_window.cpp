@@ -1,3 +1,8 @@
+#if defined(_WIN32) && !defined(NOMINMAX)
+// Keep Win32 headers from replacing std::min/std::max with macros.
+#define NOMINMAX
+#endif
+
 #include "main_window.h"
 #include "encap_native.h"
 

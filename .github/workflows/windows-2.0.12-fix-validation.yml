@@ -82,7 +82,7 @@ jobs:
           $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
           rustup show; Check-Exit
           cargo build --locked --release --target $target -p encap-engine -p encap-update -p encap-portable-update; Check-Exit
-          cmake -S qt -B build/weekly-smoke -A $architecture -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DENCAP_VERSION=2.0.12 "-DCMAKE_PREFIX_PATH=$qtPrefix"
+          cmake -S qt -B build/weekly-smoke -A $architecture -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DENCAP_VERSION=2.0.12" "-DCMAKE_PREFIX_PATH=$qtPrefix"
           Check-Exit
           cmake --build build/weekly-smoke --config Release --target EnCap --parallel
           Check-Exit
