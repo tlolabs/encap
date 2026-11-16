@@ -1,0 +1,130 @@
+name: Windows 2.0.12 fix validation
+
+# Owner-authorized corrective run only; the Sunday workflow remains unchanged.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-2.0.12-fix-validation-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate_windows:
+    name: Validate Windows 2.0.12 (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-2025
+          - target: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.99.1"
+      CARGO_TERM_COLOR: always
+      SMOKE_TARGET: ${{ matrix.target }}
+      ENCAP_RELEASE: "1"
+      ENCAP_UPDATE_PUBLIC_KEY: ${{ vars.ENCAP_UPDATE_PUBLIC_KEY }}
+    steps:
+      - name: Check out exact dispatched source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require corrected version and source identity
+        shell: pwsh
+        run: |
+          $revision = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $revision -ne $env:GITHUB_SHA) { throw 'Dispatched source identity mismatch' }
+          python -c 'import pathlib,tomllib; version=tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"]; assert version == "2.0.12", "This corrective workflow only validates 2.0.12"; print("Validating EnCap", version)'
+          if ($LASTEXITCODE -ne 0) { throw 'Corrective version check failed' }
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.99.1"
+
+      - name: Install native Windows Qt
+        shell: pwsh
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'aqt installation failed' }
+          if ($env:SMOKE_TARGET -eq 'windows-arm64') {
+            python -m aqt install-qt windows_arm64 desktop 6.10.3 win64_msvc2022_arm64 --outputdir Qt
+          } else {
+            python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir Qt
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Qt installation failed' }
+
+      - name: Run native file identity regressions
+        shell: pwsh
+        run: |
+          $target = if ($env:SMOKE_TARGET -eq 'windows-arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          rustup target add $target
+          if ($LASTEXITCODE -ne 0) { throw 'Rust target installation failed' }
+          cargo test --locked --target $target -p encap-core file_ops::tests
+          if ($LASTEXITCODE -ne 0) { throw 'File identity regression tests failed' }
+
+      - name: Build Windows engine and Qt application
+        shell: pwsh
+        run: |
+          function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Build command failed: $LASTEXITCODE" } }
+          $arm = $env:SMOKE_TARGET -eq 'windows-arm64'
+          $target = if ($arm) { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $architecture = if ($arm) { 'ARM64' } else { 'x64' }
+          $qtName = if ($arm) { 'msvc2022_arm64' } else { 'msvc2022_64' }
+          $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
+          rustup show; Check-Exit
+          cargo build --locked --release --target $target -p encap-engine -p encap-update -p encap-portable-update; Check-Exit
+          cmake -S qt -B build/weekly-smoke -A $architecture -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DENCAP_VERSION=2.0.12 "-DCMAKE_PREFIX_PATH=$qtPrefix"
+          Check-Exit
+          cmake --build build/weekly-smoke --config Release --target EnCap --parallel
+          Check-Exit
+          Copy-Item build/weekly-smoke/native/Release/encap-playback.dll build/weekly-smoke/Release/
+          Copy-Item build/weekly-smoke/native/Release/encap-media.dll build/weekly-smoke/Release/
+
+      - name: Smoke Windows engine and application startup
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $arm = $env:SMOKE_TARGET -eq 'windows-arm64'
+          $target = if ($arm) { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $qtName = if ($arm) { 'msvc2022_arm64' } else { 'msvc2022_64' }
+          $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
+          $env:PATH = "$qtPrefix/bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$qtPrefix/plugins"
+          $env:ENCAP_TEST_ENGINE = (Resolve-Path "target/$target/release/encap-engine.exe").Path
+          $env:ENCAP_TEST_UPDATER = (Resolve-Path "target/$target/release/encap-update.exe").Path
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/encap-smoke" | Out-Null
+          $env:ENCAP_RECOVERY_PATH = "$env:RUNNER_TEMP/encap-smoke/recovery.json"
+          python -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          if ($LASTEXITCODE -ne 0) { throw 'Engine startup smoke failed' }
+          python script/test_native_startup.py build/weekly-smoke/Release/EnCap.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Application startup smoke failed' }
+
+      - name: Assemble native package with authenticated Core runtime
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python .github/scripts/weekly_package.py stage --source . --target "$env:SMOKE_TARGET" --tag v2.0.12 --sha "$env:GITHUB_SHA"
+          if ($LASTEXITCODE -ne 0) { throw 'Native package assembly failed' }
+
+      - name: Verify final unsigned native package
+        shell: pwsh
+        run: |
+          python .github/scripts/weekly_package.py finish --source . --target "$env:SMOKE_TARGET" --tag v2.0.12 --sha "$env:GITHUB_SHA" --windows-signing unsigned
+          if ($LASTEXITCODE -ne 0) { throw 'Final native package verification failed' }
+
+      - name: Preserve independently verified package and evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-2.0.12-fix-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/weekly/*
+          if-no-files-found: error

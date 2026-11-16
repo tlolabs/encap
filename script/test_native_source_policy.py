@@ -19,14 +19,18 @@ class NativeSourcePolicyTests(unittest.TestCase):
                             ignore=shutil.ignore_patterns("__pycache__"))
             tools = root / ".github/scripts"
             tools.mkdir(parents=True)
-            for name in ("weekly_release_smoke.py", "test_weekly_release_smoke.py"):
+            approved = ("weekly_release_smoke.py", "test_weekly_release_smoke.py",
+                        "weekly_package.py", "test_weekly_package.py",
+                        "weekly_publish.py", "test_weekly_publish.py",
+                        "test_weekly_release_eligibility.py")
+            for name in approved:
                 (tools / name).write_text("# CI tooling fixture\n")
             cache = tools / "__pycache__"
             cache.mkdir()
             (cache / "weekly_release_smoke.pyc").write_bytes(b"cache")
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "add", ".github/scripts/weekly_release_smoke.py",
-                            ".github/scripts/test_weekly_release_smoke.py"], check=True)
+            subprocess.run(["git", "-C", str(root), "add",
+                            *[str(tools / name) for name in approved]], check=True)
 
             def check():
                 return subprocess.run(["bash", "script/check_no_python.sh"], cwd=root,

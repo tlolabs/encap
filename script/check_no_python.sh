@@ -8,9 +8,9 @@ cd "$ROOT_DIR"
 # application Python files. ATIV-derived build/test scripts are tooling only.
 tracked="$(git -c core.fsmonitor=false ls-files -- '*.py' '*.pyi' '*.pyw' '*.pyx' '*.pyc' '*.pyo' \
   '*.spec' '*.egg-info/*' 'pyproject.toml' 'Pipfile' 'Pipfile.lock' \
-  'poetry.lock' 'uv.lock' 'requirements*.txt' 'setup.cfg' 'pyvenv.cfg' | sed -e '/^script\/.*\.py$/d' -e '/^\.github\/scripts\/weekly_release_smoke\.py$/d' -e '/^\.github\/scripts\/test_weekly_release_smoke\.py$/d' -e '/^vendor\/avid-core-transcription\/script\/test_transcription_catalog\.py$/d' -e '/^vendor\/avid-core-transcription\/script\/update_transcription_catalog\.py$/d')"
+  'poetry.lock' 'uv.lock' 'requirements*.txt' 'setup.cfg' 'pyvenv.cfg' | sed -e '/^script\/.*\.py$/d' -e '/^\.github\/scripts\/weekly_release_smoke\.py$/d' -e '/^\.github\/scripts\/test_weekly_release_smoke\.py$/d' -e '/^\.github\/scripts\/weekly_package\.py$/d' -e '/^\.github\/scripts\/test_weekly_package\.py$/d' -e '/^\.github\/scripts\/weekly_publish\.py$/d' -e '/^\.github\/scripts\/test_weekly_publish\.py$/d' -e '/^\.github\/scripts\/test_weekly_release_eligibility\.py$/d' -e '/^vendor\/avid-core-transcription\/script\/test_transcription_catalog\.py$/d' -e '/^vendor\/avid-core-transcription\/script\/update_transcription_catalog\.py$/d')"
 
-# The two owner-approved weekly CI tools and two manifest-verified upstream
+# The enumerated owner-approved weekly CI tools and manifest-verified upstream
 # catalog tools are exempted above/below; application Python remains forbidden.
 # Their directory is not exempted; unexpected vendor Python remains visible.
 # Ignore only generated build outputs and downloaded third-party inputs.
@@ -25,7 +25,7 @@ local_files="$(find . \
     -o -name '.venv*' -o -name 'venv' -o -name 'pyvenv.cfg' \
     -o -name 'pyproject.toml' -o -name 'Pipfile' -o -name 'Pipfile.lock' \
     -o -name 'poetry.lock' -o -name 'uv.lock' -o -name 'requirements*.txt' \
-    -o -name 'setup.cfg' \) -print | sed -e '/^\.\/script\/.*\.py$/d' -e '/^\.\/\.github\/scripts\/weekly_release_smoke\.py$/d' -e '/^\.\/\.github\/scripts\/test_weekly_release_smoke\.py$/d' -e '/^\.\/vendor\/avid-core-transcription\/script\/test_transcription_catalog\.py$/d' -e '/^\.\/vendor\/avid-core-transcription\/script\/update_transcription_catalog\.py$/d')"
+    -o -name 'setup.cfg' \) -print | sed -e '/^\.\/script\/.*\.py$/d' -e '/^\.\/\.github\/scripts\/weekly_release_smoke\.py$/d' -e '/^\.\/\.github\/scripts\/test_weekly_release_smoke\.py$/d' -e '/^\.\/\.github\/scripts\/weekly_package\.py$/d' -e '/^\.\/\.github\/scripts\/test_weekly_package\.py$/d' -e '/^\.\/\.github\/scripts\/weekly_publish\.py$/d' -e '/^\.\/\.github\/scripts\/test_weekly_publish\.py$/d' -e '/^\.\/\.github\/scripts\/test_weekly_release_eligibility\.py$/d' -e '/^\.\/vendor\/avid-core-transcription\/script\/test_transcription_catalog\.py$/d' -e '/^\.\/vendor\/avid-core-transcription\/script\/update_transcription_catalog\.py$/d')"
 
 if [[ -n "$tracked" || -n "$local_files" ]]; then
   echo "Python source, packaging files, or environments remain in the native checkout:" >&2

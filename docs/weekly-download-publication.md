@@ -41,3 +41,27 @@ its SHA-256 file. Tags without that release are deferred without claiming them.
 This metadata check does not assert notarization or the owner's manual testing.
 It prevents a tag created before its macOS release from consuming native build
 attempts prematurely. Previously attempted targets are still never retried.
+
+## Windows 2.0.12 corrective validation
+
+Owner request, November 15, 2026: after fixing the Windows file-identity
+compilation error and increasing the version to 2.0.12, build the corrected
+source on both Windows runners. The failed weekly run cannot validate the fix:
+it uses the previous immutable tag, and its jobs skip later run attempts.
+
+`windows-2.0.12-fix-validation.yml` is a manual-only exception for this correction.
+Dispatch it after pushing the corrected source, using the intended branch as
+the workflow ref. It checks out the dispatch's exact `github.sha`, refuses any
+Cargo version other than 2.0.12, and runs native file-identity regression tests,
+compilation and startup checks on Windows x64 and ARM64. Existing package
+helpers then verify each extracted, explicitly unsigned final package, including
+its application identity, dependencies, authenticated Core runtime and integrity.
+Successful packages, checksums and verification reports are retained only as
+Actions artifacts; the `v2.0.12` package label does not create or verify a remote
+tag or GitHub Release.
+
+This workflow has read-only repository permissions and does not publish release
+assets, change tags, update feeds or modify the weekly claim ledger. The Sunday
+schedule, immutable-tag selection, consumed attempts and independent platform
+publication rules remain unchanged. There are no new automatic event triggers
+or retries.

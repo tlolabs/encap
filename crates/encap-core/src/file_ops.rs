@@ -144,6 +144,41 @@ fn resolve_for_conflict_check(path: &Path, canon: Option<PathBuf>) -> PathBuf {
     resolved
 }
 
+#[cfg(windows)]
+fn windows_paths_share_identity(destination: &Path, source: &Path) -> std::io::Result<bool> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+    };
+
+    // Metadata-only access preserves checks for files without read permission.
+    // Backup semantics also permits directory handles; default sharing allows
+    // other readers/writers and deletion, as with ordinary metadata queries.
+    let open = |path: &Path| {
+        fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+    };
+    let destination = open(destination)?;
+    let source = open(source)?;
+    let identity = |file: &fs::File| -> std::io::Result<(u32, u32, u32)> {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: The owned file handle and writable output structure remain
+        // valid throughout this synchronous call. The output is used on success.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok((
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ))
+    };
+    // Keep both handles alive so an index cannot be recycled between queries.
+    Ok(identity(&destination)? == identity(&source)?)
+}
+
 /// Determines whether `destination` refers to the same file or path as `source`,
 /// accounting for symlinks, aliases, parent `..` normalization, hardlinks, and filesystem identity.
 pub fn conflicts_with_path(destination: &Path, source: &Path) -> bool {
@@ -176,15 +211,8 @@ pub fn conflicts_with_path(destination: &Path, source: &Path) -> bool {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        if let (Ok(m1), Ok(m2)) = (fs::metadata(destination), fs::metadata(source)) {
-            if let (Some(v1), Some(v2)) = (m1.volume_serial_number(), m2.volume_serial_number()) {
-                if let (Some(i1), Some(i2)) = (m1.file_index(), m2.file_index()) {
-                    if v1 == v2 && i1 == i2 {
-                        return true;
-                    }
-                }
-            }
+        if windows_paths_share_identity(destination, source).unwrap_or(false) {
+            return true;
         }
     }
 
@@ -249,11 +277,6 @@ mod tests {
             std::os::unix::fs::symlink(&source, &symlink).unwrap();
             assert!(conflicts_with_path(&symlink, &source));
             assert!(conflicts_with_path(&source, &symlink));
-
-            // Hardlink to source
-            let hardlink = temporary.path().join("hardlink.wav");
-            fs::hard_link(&source, &hardlink).unwrap();
-            assert!(conflicts_with_path(&hardlink, &source));
         }
 
         // Distinct file does not conflict
@@ -261,6 +284,28 @@ mod tests {
         assert!(!conflicts_with_path(&distinct, &source));
 
         // Original bytes remain unchanged
+        assert_eq!(fs::read(&source).unwrap(), b"original audio bytes");
+    }
+
+    #[test]
+    fn detects_hard_link_conflicts_but_allows_independent_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("recording.wav");
+        let hardlink = temporary.path().join("hardlink.wav");
+        let independent = temporary.path().join("independent.wav");
+        fs::write(&source, b"original audio bytes").unwrap();
+        fs::hard_link(&source, &hardlink).unwrap();
+        fs::copy(&source, &independent).unwrap();
+
+        // Canonical paths differ, so hard links require physical file identity.
+        assert_ne!(
+            fs::canonicalize(&source).unwrap(),
+            fs::canonicalize(&hardlink).unwrap()
+        );
+        assert!(conflicts_with_path(&hardlink, &source));
+        assert!(conflicts_with_path(&source, &hardlink));
+        assert!(!conflicts_with_path(&independent, &source));
+        assert!(!conflicts_with_path(&source, &independent));
         assert_eq!(fs::read(&source).unwrap(), b"original audio bytes");
     }
 
