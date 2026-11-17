@@ -1,7 +1,7 @@
-//! Native EnCAP adapter checks. Supply the complete, authenticated pinned runtime
-//! with ENCAP_CORE_RUNTIME_DIR; this suite never searches PATH for media tools.
+//! Native linked EnCAP adapter checks. ENCAP_CORE_RUNTIME_DIR supplies external
+//! diagnostic fixture/decoding tools only; production rendering uses linked Core.
 //! Run with --ignored --test-threads=1 to keep comparison measurements isolated.
-use avid_core::{CancellationToken, EventSink, MediaTools, Renderer, Stage};
+use avid_core::{CancellationToken, EventSink, Renderer, Stage};
 use encap_core::{AudioSource, Chapter, EpisodeMetadata, ProjectDocument};
 use encap_video::{RenderMode, VideoRenderer};
 use serde_json::{json, Value};
@@ -41,12 +41,10 @@ impl Harness {
         let runtime = PathBuf::from(std::env::var_os("ENCAP_CORE_RUNTIME_DIR").expect(
             "set ENCAP_CORE_RUNTIME_DIR to the authenticated complete pinned Core runtime",
         ));
-        let tools =
-            MediaTools::from_core_directory(&runtime, &CancellationToken::default()).unwrap();
         Self {
             root: tempfile::tempdir().unwrap(),
             runtime,
-            video: VideoRenderer::new(Renderer::new(tools)),
+            video: VideoRenderer::new(Renderer::new()),
         }
     }
     fn ff(&self, args: &[OsString]) -> Vec<u8> {
@@ -373,6 +371,28 @@ fn static_modes_match_appearance_audio_cadence_duration_and_record_cost() {
             .map(|(a, b)| a.abs_diff(*b) as u64)
             .sum::<u64>();
         let mean_delta = total_delta as f64 / per_frame.len() as f64;
+        if mean_delta > 0.1 {
+            let directory = std::env::var_os("ENCAP_CORE031_EVIDENCE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/core031")
+                });
+            fs::create_dir_all(&directory).unwrap();
+            for (index, output) in outputs.iter().enumerate() {
+                fs::copy(
+                    output,
+                    directory.join(format!("linked-mode-mismatch-{index}.mp4")),
+                )
+                .unwrap();
+            }
+            h.evidence("linked-mode-mismatch.json", &json!({
+                "status":"failed", "core_revision":encap_core::CORE_REVISION,
+                "codec":codec,"width":width,"height":height,
+                "decoded_rgb_mean_absolute_delta":mean_delta,"maximum_expected":0.1,
+                "note":"Production linked render; external tools generated fixtures and independently decoded outputs only.",
+                "measurements":measurements
+            }));
+        }
         assert!(mean_delta <= 0.1, "decoded RGB mean delta {mean_delta}");
         let audio_equal = h.decode(&outputs[0], true) == h.decode(&outputs[1], true);
         assert!(audio_equal, "decoded PCM differs between modes");

@@ -42,6 +42,24 @@ public struct ModelDescriptor: Codable, Sendable, Equatable, Identifiable {
 
     public var downloadSizeBytes: Int64 { artifacts.reduce(0) { $0 + $1.sizeBytes } }
 
+    /// Full digest of the same complete descriptor used by the existing cache ID.
+    public var manifestSHA256: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return SHA256.hash(data: try! encoder.encode(self)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Call while the descriptor's installation is verified and leased. This
+    /// records every artifact/source pin, including auxiliary tokenizer sources.
+    public func provenanceIdentity() throws -> ModelIdentity {
+        try ModelIdentity(installationID: installationID, repository: repository, revision: revision,
+            manifestSHA256: manifestSHA256, artifacts: artifacts.map {
+                try ModelArtifactIdentity(path: $0.path, repository: $0.repository ?? repository,
+                    revision: $0.revision ?? revision, repositoryPath: $0.repositoryPath,
+                    sizeBytes: $0.sizeBytes, sha256: $0.sha256)
+            })
+    }
+
     /// Includes auxiliary tokenizer pins and artifact selection, not only the primary model commit.
     public var installationID: String {
         let encoder = JSONEncoder()

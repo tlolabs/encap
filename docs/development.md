@@ -1,3 +1,11 @@
+# Linked development status
+
+The application now loads `libencap_app`/`encap_app.dll`; it no longer invokes
+`encap-engine` for UI operations. Read [the linked migration](linked-migration.md)
+for current build commands, native SDK prerequisites, deployment isolation and
+unfinished Audio/playback paths. Older commands below describe the historical
+executable runtime and remain relevant only to compatibility diagnostics.
+
 # Native development
 
 ## Git commit policy

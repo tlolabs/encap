@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "scope": "native GUI synthetic project open,model manager,text edit,save",
+  "stable_id_preserved": true,
+  "speaker_preserved": true,
+  "raw_recognition_preserved": true,
+  "word_alignment_invalidated": true,
+  "captions_disabled_after_edit": true
+}

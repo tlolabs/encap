@@ -5,10 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Explicit additional Tiny English model; requires pinned target Whisper+FFmpeg SDKs.
+portable-whisper = ["avid-transcription/whisper"]
+
 [dependencies]
+directories.workspace = true
+avid-core.workspace = true
+sha2.workspace = true
 encap-core = { path = "../encap-core" }
 encap-ffmpeg = { path = "../encap-ffmpeg" }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
+
+# Text contracts require no media/inference SDK or model installation.
+avid-transcription = { git = "https://github.com/tlolabs/avid-core.git", rev = "dd112d497b68df6786f49a71b3611f7f32f090e9", version = "=0.1.0" }

@@ -3,9 +3,9 @@ import XCTest
 @testable import EnCap
 
 final class PerformanceEngineTests: XCTestCase {
-    func testProductionClientImportsPreviewsSavesAndReopensWithCurrentEngine() async throws {
-        guard ProcessInfo.processInfo.environment["ENCAP_SOURCE_ROOT"] != nil else {
-            throw XCTSkip("Set ENCAP_SOURCE_ROOT to exercise the locally built engine")
+    func testLinkedClientImportsPreviewsSavesAndReopensWithoutMediaExecutables() async throws {
+        guard ProcessInfo.processInfo.environment["ENCAP_APP_LIBRARY"] != nil else {
+            throw XCTSkip("Set ENCAP_APP_LIBRARY to exercise the locally built application library")
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

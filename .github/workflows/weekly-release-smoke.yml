@@ -109,10 +109,18 @@ jobs:
             libx11-dev libice-dev libsm-dev libfontconfig1-dev libxrandr-dev \
             libxi-dev libxcursor-dev qt6-base-dev qt6-base-dev-tools \
             xvfb xauth dbus-x11
+      - name: Provision exact linked library sources and SDK
+        run: |
+          python3 -m pip install cmake==3.31.6
+          python3 ../control/.github/scripts/weekly_package.py prepare-linked --source . --target "$SMOKE_TARGET" --tag '${{ matrix.tag }}' --sha '${{ matrix.sha }}'
       - name: Build Linux engine and Qt application
         run: |
           rustup show
-          cargo build --locked --release -p encap-engine -p encap-update
+          if [[ -f include/encap_app.h ]]; then
+            cargo build --locked --release -p encap-update
+          else
+            cargo build --locked --release -p encap-engine -p encap-update
+          fi
           version="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
           cmake -S qt -B build/weekly-smoke -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF -DENCAP_VERSION="$version"
@@ -124,7 +132,11 @@ jobs:
           export ENCAP_TEST_ENGINE="$PWD/target/release/encap-engine"
           export ENCAP_TEST_UPDATER="$PWD/target/release/encap-update"
           export ENCAP_RECOVERY_PATH="$RUNNER_TEMP/encap-smoke/recovery.json"
-          python3 -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          if [[ -f include/encap_app.h ]]; then
+            python3 ../control/.github/scripts/weekly_package.py smoke-linked --source . --target "$SMOKE_TARGET" --tag '${{ matrix.tag }}' --sha '${{ matrix.sha }}'
+          else
+            python3 -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          fi
           xvfb-run -a dbus-run-session -- python3 script/test_native_startup.py build/weekly-smoke/EnCap
 
       - name: Assemble native package with authenticated Core runtime
@@ -197,6 +209,13 @@ jobs:
             python -m aqt install-qt windows desktop 6.10.3 win64_msvc2022_64 --outputdir Qt
           }
           if ($LASTEXITCODE -ne 0) { throw 'Qt installation failed' }
+      - name: Provision exact linked library sources and SDK
+        shell: pwsh
+        run: |
+          python -m pip install cmake==3.31.6
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned CMake installation failed' }
+          python ../control/.github/scripts/weekly_package.py prepare-linked --source . --target "$env:SMOKE_TARGET" --tag '${{ matrix.tag }}' --sha '${{ matrix.sha }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Verified GNU/gnullvm linked SDK unavailable; no MSVC static archive substitution is permitted' }
       - name: Build Windows engine and Qt application
         shell: pwsh
         run: |
@@ -208,7 +227,11 @@ jobs:
           $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
           rustup show; Check-Exit
           rustup target add $target; Check-Exit
-          cargo build --locked --release --target $target -p encap-engine -p encap-update -p encap-portable-update; Check-Exit
+          if (Test-Path include/encap_app.h) {
+            cargo build --locked --release --target $target -p encap-update -p encap-portable-update; Check-Exit
+          } else {
+            cargo build --locked --release --target $target -p encap-engine -p encap-update -p encap-portable-update; Check-Exit
+          }
           $version = python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])'
           Check-Exit
           cmake -S qt -B build/weekly-smoke -A $architecture -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DENCAP_VERSION=$version" "-DCMAKE_PREFIX_PATH=$qtPrefix"
@@ -227,12 +250,16 @@ jobs:
           $qtPrefix = (Resolve-Path "Qt/6.10.3/$qtName").Path
           $env:PATH = "$qtPrefix/bin;$env:PATH"
           $env:QT_PLUGIN_PATH = "$qtPrefix/plugins"
-          $env:ENCAP_TEST_ENGINE = (Resolve-Path "target/$target/release/encap-engine.exe").Path
+          if (-not (Test-Path include/encap_app.h)) { $env:ENCAP_TEST_ENGINE = (Resolve-Path "target/$target/release/encap-engine.exe").Path }
           $env:ENCAP_TEST_UPDATER = (Resolve-Path "target/$target/release/encap-update.exe").Path
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/encap-smoke" | Out-Null
           $env:ENCAP_RECOVERY_PATH = "$env:RUNNER_TEMP/encap-smoke/recovery.json"
-          python -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
-          if ($LASTEXITCODE -ne 0) { throw 'Engine startup smoke failed' }
+          if (Test-Path include/encap_app.h) {
+            python ../control/.github/scripts/weekly_package.py smoke-linked --source . --target "$env:SMOKE_TARGET" --tag '${{ matrix.tag }}' --sha '${{ matrix.sha }}'
+          } else {
+            python -c 'import json,os,subprocess; response=json.loads(subprocess.check_output([os.environ["ENCAP_TEST_ENGINE"], "startup"], text=True, timeout=30)); assert {"providers", "presets", "recovery"} <= response.keys(); print("Engine startup JSON passed")'
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Application startup smoke failed' }
           python script/test_native_startup.py build/weekly-smoke/Release/EnCap.exe
           if ($LASTEXITCODE -ne 0) { throw 'Application startup smoke failed' }
 

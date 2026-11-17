@@ -72,6 +72,7 @@ public enum CaptionBuilder {
         options: CaptionOptions = CaptionOptions(),
         window: CaptionWindow = CaptionWindow()
     ) throws -> [CaptionCue] {
+        try transcript.validate()
         guard options.maximumCharacters > 0, options.maximumWords > 0,
               options.maximumDurationSeconds.isFinite, options.maximumDurationSeconds > 0,
               options.maximumPauseSeconds.isFinite, options.maximumPauseSeconds >= 0 else {

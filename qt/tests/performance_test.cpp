@@ -16,9 +16,9 @@
 #include <cstdio>
 
 // Deterministic playback clock: these tests need no physical audio device.
-namespace { bool playing = false; double position = 0; }
+namespace { bool playing = false; double position = 0; int openCalls = 0; }
 extern "C" {
-int encap_audio_open(const char*) { return 0; }
+int encap_audio_open(const char*) { ++openCalls; return 0; }
 void encap_audio_play(double) { playing = true; }
 void encap_audio_pause() { playing = false; }
 void encap_audio_seek(double value) { position = value; }
@@ -39,42 +39,46 @@ static bool waitUntil(const std::function<bool()>& ready) {
     return false;
 }
 
-// Re-execute this test as a controllable engine, including the old Clap error.
-static int fakeEngine(const QStringList& args) {
-    const auto command = args.value(1);
-    const auto mode = qEnvironmentVariable("ENCAP_PERF_MODE");
-    QFile log(qEnvironmentVariable("ENCAP_PERF_CALLS"));
-    if (log.open(QIODevice::Append)) { log.write(command.toUtf8() + "\n"); log.close(); }
-    if (command == "startup") {
-        if (mode == "legacy") {
-            std::fputs("error: unrecognized subcommand 'startup'\n\nUsage: engine <COMMAND>\n", stderr);
-            return 2;
-        }
-        if (mode == "failure") { std::puts("{\"error\":\"damaged recovery\"}"); return 1; }
-        if (mode == "malformed") { std::puts("{\"providers\":42}"); return 0; }
-        if (mode == "protocol") { std::puts("not json"); return 0; }
-        std::puts("{\"providers\":[],\"presets\":[],\"recovery\":{\"project\":null}}");
-    } else if (command == "providers" || command == "video-presets") std::puts("[]");
-    else if (command == "load-recovery") std::puts("{\"project\":null}");
-    else if (command == "waveform") {
-        QThread::msleep(120);
-        std::puts(args.last() == "newest" ? "{\"peaks\":[1]}" : "{\"peaks\":[0]}");
-    } else if (command == "preview-video") {
-        QThread::msleep(120);
-        if (qEnvironmentVariableIsSet("ENCAP_PREVIEW_FAIL")) {
-            std::puts("{\"error\":\"injected preview failure\"}");
-            return 1;
-        }
-        QImage image(160, 90, QImage::Format_RGB32);
-        image.fill(Qt::red);
-        if (!image.save(args.value(3), "PNG")) return 1;
-        std::puts("{}");
-    } else std::puts("{}");
-    return 0;
-}
-
 class MainWindowPerformanceTest {
 public:
+    static bool testChapterLookup(MainWindow& window) {
+        window.hasProject_ = true;
+        window.project_ = QJsonObject{{"chapters", QJsonArray{
+            QJsonObject{{"id", "a"}, {"title", "First A"}, {"duration_seconds", 3}},
+            QJsonObject{{"id", "b"}, {"title", "B"}, {"duration_seconds", 4}},
+            QJsonObject{{"id", "a"}, {"title", "Duplicate A"}, {"duration_seconds", 99}},
+            QJsonObject{{"id", "c"}, {"title", "C"}, {"duration_seconds", 5}}
+        }}, {"video", QJsonObject{{"export_settings", QJsonObject{
+            {"selected_chapter_ids", QJsonArray{"c", "missing", "a"}},
+            {"selection_initialized", true}
+        }}}}};
+        window.videoOrder_ = {"a", "b", "c", "missing"};
+        window.previewIndex_ = 2;
+        window.tick();
+        if (window.videoSeek_->maximum() != 8 || window.videoSeek_->value() != 5) return false;
+        window.refreshVideo();
+        if (window.videoChapters_->item(0, 1)->text() != "First A" ||
+            window.videoChapters_->item(0, 2)->text() != "00:00:03" ||
+            window.videoChapters_->item(0, 0)->checkState() != Qt::Checked ||
+            window.videoChapters_->item(1, 0)->checkState() != Qt::Unchecked ||
+            window.videoChapters_->item(2, 1)->text() != "C" ||
+            !window.videoChapters_->item(3, 1)->text().isEmpty() ||
+            !window.videoSummary_->text().startsWith("3 of 4 selected")) return false;
+        window.previewIndex_ = 1;
+        window.tick();
+        if (window.videoSeek_->maximum() != 8 || window.videoSeek_->value() != 0) return false;
+        window.setField({"video", "export_settings", "selected_chapter_ids"}, QJsonArray{});
+        window.tick();
+        if (window.videoSeek_->maximum() != 1 || window.videoSeek_->value() != 0) return false;
+        window.recoveryTimer_.stop();
+        window.dirty_ = false;
+        window.project_ = {};
+        window.videoOrder_.clear();
+        window.hasProject_ = false;
+        window.previewIndex_ = 0;
+        return true;
+    }
+
     static int run(const QString& calls) {
         for (const auto& mode : {"legacy", "failure", "malformed", "protocol", "current"}) {
             QFile::remove(calls);
@@ -84,15 +88,28 @@ public:
             QFile log(calls);
             if (!log.open(QIODevice::ReadOnly)) return 2;
             const auto actual = log.readAll();
-            if (QByteArray(mode) == "legacy") {
-                if (actual != "startup\nproviders\nvideo-presets\nload-recovery\n") return 3;
-            } else if (actual != "startup\n") return 4;
-            if (QByteArray(mode) != "legacy" && QByteArray(mode) != "current" &&
+            if (actual != "startup\n") return 4;
+            if (QByteArray(mode) != "current" &&
                 !window.status_->accessibleDescription().startsWith("Error:")) return 5;
         }
         qputenv("ENCAP_PERF_MODE", "current");
         auto window = std::make_unique<MainWindow>();
         if (!waitUntil([&] { return !window->busy_; })) return 6;
+        if (!testChapterLookup(*window)) return 29;
+        // Recovery owns the same client as Save/Open. Reserve the UI before
+        // its queued completion, so these actions cannot collide with autosave.
+        window->hasProject_ = true;
+        window->dirty_ = true;
+        QMetaObject::invokeMethod(&window->recoveryTimer_, "timeout", Qt::DirectConnection);
+        if (!window->engine_->busy() || !window->busy_ || window->modes_->isEnabled()) return 30;
+        bool saved = true;
+        window->saveProject(false, [&](bool value) { saved = value; });
+        if (saved) return 31;
+        if (!waitUntil([&] { return !window->engine_->busy(); }) ||
+            window->busy_ || !window->modes_->isEnabled()) return 32;
+        window->dirty_ = false;
+        window->hasProject_ = false;
+        window->recoveryTimer_.stop();
         window->setStatus("same message", true);
         window->setStatus("same message", false);
         if (!window->status_->styleSheet().isEmpty() || window->status_->accessibleDescription() != "same message") return 14;
@@ -167,7 +184,36 @@ public:
         window->setField({"video", "export_settings", "flip_vertical"}, false);
         window->refreshVideo();
         if (!waitUntil([&] { return !window->artworkEngine_->busy() && !window->videoPreviewPath_.isEmpty(); })) return 24;
+        // Delayed preview/waveform/autosave and native playback entry points
+        // must not start work after the updater reserved its exclusion period.
+        if (!waitUntil([&] { return !window->linkedWorkActive(); })) return 25;
+        QFile::remove(calls);
+        const auto priorOpens = openCalls;
+        window->updateRunning_ = true;
         window->setField({"video", "export_settings", "flip_vertical"}, true);
+        window->refreshVideo();
+        QTimer::singleShot(0,window.get(),[&] { window->requestVideoPreview(); });
+        window->loadWaveforms();
+        window->loadWaveformAt(window->project_.value("audio_sources").toArray(),0,window->waveformGeneration_);
+        bool playbackCalled = false, playbackReady = true;
+        window->openPlayback("blocked-during-update",[&](bool ready) {playbackCalled=true;playbackReady=ready;});
+        playing = false;
+        window->togglePlayback();
+        window->seekPlayback(0,true);
+        window->adjacent(1);
+        window->dirty_ = true;
+        QMetaObject::invokeMethod(&window->recoveryTimer_,"timeout",Qt::DirectConnection);
+        QCoreApplication::processEvents();
+        if (!playbackCalled || playbackReady || playing || openCalls != priorOpens || window->linkedWorkActive() || QFile::exists(calls)) return 26;
+        playing = true;
+        window->togglePlayback(); // Pause remains usable during updater exclusion.
+        if (playing) return 27;
+        window->dirty_ = false;
+        window->recoveryTimer_.stop();
+        window->updateRunning_ = false;
+        window->refreshVideo();
+        if (!waitUntil([&] { return !window->artworkEngine_->busy() && !window->videoPreviewPath_.isEmpty(); })) return 28;
+        window->setField({"video", "export_settings", "flip_vertical"}, false);
         window->refreshVideo();
         window.reset(); // shutdown with pending work must never call the destroyed window
         QCoreApplication::processEvents();
@@ -176,11 +222,6 @@ public:
 };
 
 int main(int argc, char** argv) {
-    if (argc > 1) {
-        QStringList args;
-        for (int i = 0; i < argc; ++i) args.append(QString::fromLocal8Bit(argv[i]));
-        return fakeEngine(args);
-    }
     QApplication app(argc, argv);
     QStandardPaths::setTestModeEnabled(true);
     QCoreApplication::setApplicationName("EnCap Performance Test");
@@ -188,7 +229,7 @@ int main(int argc, char** argv) {
     qputenv("LOCALAPPDATA", temp.path().toUtf8());
     qputenv("XDG_DATA_HOME", temp.path().toUtf8());
     qputenv("XDG_CONFIG_HOME", temp.path().toUtf8());
-    qputenv("ENCAP_TEST_ENGINE", QCoreApplication::applicationFilePath().toUtf8());
+    qputenv("ENCAP_TEST_LIBRARY", ENCAP_FAKE_APP_PATH);
     const auto calls = temp.filePath("calls");
     qputenv("ENCAP_PERF_CALLS", calls.toUtf8());
     const int result = MainWindowPerformanceTest::run(calls);

@@ -18,39 +18,30 @@ final class TranscriptionClientTests: XCTestCase {
         XCTAssertEqual(store.project, opened)
     }
 
-    func testProgressEventsSurviveSplitUnicodeAndKeepDiagnosticTailBounded() async throws {
-        let pipe = Pipe()
-        let event = Data("{\"event\":\"progress\",\"stage\":\"verification\",\"message\":\"Vérification 日本語\",\"completed_bytes\":12,\"total_bytes\":24}\n".utf8)
-        let observed = ProgressEvents()
-        let writer = Task.detached {
-            let handle = pipe.fileHandleForWriting
-            try handle.write(contentsOf: Data(repeating: 120, count: 80_000))
-            try handle.write(contentsOf: Data([10]))
-            // Splitting inside arbitrary UTF-8 bytes must not discard the line.
-            try handle.write(contentsOf: event.prefix(79))
-            try handle.write(contentsOf: event.dropFirst(79))
-            try handle.close()
-        }
-        let tail = EngineClient.readDiagnostics(pipe.fileHandleForReading) { observed.append($0) }
-        try await writer.value
-        XCTAssertLessThanOrEqual(tail.count, 65_536)
-        XCTAssertEqual(observed.values.count, 1)
-        XCTAssertEqual(observed.values.first?.message, "Vérification 日本語")
-        XCTAssertEqual(observed.values.first?.completedBytes, 12)
-        XCTAssertTrue(observed.values.first?.status.contains("Vérification") == true)
+    func testLinkedProgressCopiesUnicodeEventAndKeepsFormatting() throws {
+        let borrowed = Data("{\"event\":\"progress\",\"stage\":\"verification\",\"message\":\"Vérification 日本語\",\"completed_bytes\":12,\"total_bytes\":24}".utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let copied = Data(borrowed)
+        let event = try decoder.decode(EngineProgress.self, from: copied)
+        XCTAssertEqual(event.message, "Vérification 日本語")
+        XCTAssertEqual(event.completedBytes, 12)
+        XCTAssertTrue(event.status.contains("Vérification"))
     }
 
-    func testLargeFinalJSONAndVerboseProgressDoNotDeadlockPipes() async throws {
-        let observed = ProgressEvents()
-        let program = #"BEGIN { for (i=0;i<5000;i++) print "backend diagnostic line" > "/dev/stderr"; print "{\"event\":\"progress\",\"stage\":\"recognition\",\"fraction\":0.5}" > "/dev/stderr"; printf "{\"text\":\""; for (i=0;i<180000;i++) printf "x"; print "\"}"; }"#
-        let output = try await EngineClient.runProcess(
-            executable: URL(fileURLWithPath: "/usr/bin/awk"), arguments: [program],
-            environment: [:], progress: { observed.append($0) }
-        )
-        let value = try XCTUnwrap(JSONSerialization.jsonObject(with: output) as? [String: String])
-        XCTAssertEqual(value["text"]?.count, 180_000)
-        XCTAssertEqual(observed.values.first?.stage, "recognition")
-        XCTAssertEqual(observed.values.first?.status, "recognition · 50%")
+    func testTranscriptionRequestUsesTypedFieldsAndPreservesExplicitProvider() throws {
+        let bytes = try EngineClient.applicationRequest([
+            "transcribe", "/tmp/日本語 project.json", "whisper-large-v3",
+            "--word-timestamps", "--language", "pt-BR", "--alignment-model", "qwen-aligner"
+        ])
+        let request = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        XCTAssertEqual(request["schema_version"] as? Int, 1)
+        XCTAssertEqual(request["operation"] as? String, "transcribe")
+        XCTAssertEqual(request["provider"] as? String, "whisper-large-v3")
+        XCTAssertEqual(request["word_timestamps"] as? Bool, true)
+        XCTAssertEqual(request["alignment_model"] as? String, "qwen-aligner")
+        XCTAssertEqual(request["language"] as? String, "pt-BR")
+        XCTAssertEqual(request["payload"] as? String, "/tmp/日本語 project.json")
     }
 
     func testLegacyModelResponseAndDetailedSharedModelBothDecode() throws {

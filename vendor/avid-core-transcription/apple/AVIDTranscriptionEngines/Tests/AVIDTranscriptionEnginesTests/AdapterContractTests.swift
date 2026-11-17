@@ -242,7 +242,7 @@ private enum OperationFailure: Error, Equatable { case failed }
         #expect(result.language == expected)
         #expect(result.text == original.text)
         #expect(result.provenance == originalProvenance)
-        #expect(result.alignmentProvenance == .init(engineID: "mlx", modelID: "aligner"))
+        #expect(result.alignmentProvenance == .init(engineID: "mlx", modelID: "aligner", runtimeRevisions: EngineProvenance.qwen))
         #expect(result.hasCompleteWordTiming)
     }
 }
@@ -257,8 +257,42 @@ private enum OperationFailure: Error, Equatable { case failed }
     let result = try QwenTranscriptOutput.recognized(segments: [segment], detectedLanguage: nil, request: request, engineID: "mlx")
     #expect(result.language == "pt")
     #expect(result.text == "Hello.")
-    #expect(result.provenance == .init(engineID: "mlx", modelID: "recognizer"))
+    #expect(result.provenance == .init(engineID: "mlx", modelID: "recognizer", runtimeRevisions: EngineProvenance.qwen))
     #expect(result.segments.first?.startSeconds == 12.5)
     let detected = try QwenTranscriptOutput.recognized(segments: [segment], detectedLanguage: "English", request: request, engineID: "mlx")
     #expect(detected.language == "en")
+}
+
+@Test func reportedSDKPinsMatchTheResolvedDependencyRevisions() throws {
+    var package = URL(fileURLWithPath: #filePath)
+    for _ in 0..<3 { package.deleteLastPathComponent() }
+    let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: package.appendingPathComponent("Package.resolved"))) as? [String: Any])
+    let pins = try #require(object["pins"] as? [[String: Any]])
+    let revisions = Dictionary(uniqueKeysWithValues: try pins.map { pin in
+        let name = try #require(pin["identity"] as? String)
+        let state = try #require(pin["state"] as? [String: Any])
+        return (name, try #require(state["revision"] as? String))
+    })
+    for component in [EngineProvenance.whisperKit, EngineProvenance.fluidAudio, EngineProvenance.qwen] {
+        for (name, revision) in component { #expect(revisions[name] == revision) }
+    }
+}
+
+@Test func qwenOutputKeepsIndependentVerifiedRecognitionAndAlignmentIdentities() throws {
+    let catalog = try ModelCatalog.bundled()
+    let recognition = try catalog.model(id: "qwen3-asr-1.7b-4bit").provenanceIdentity()
+    let alignment = try catalog.model(id: "qwen3-forced-aligner-0.6b-4bit").provenanceIdentity()
+    let directory = FileManager.default.temporaryDirectory
+    let request = RecognitionRequest(audioURL: directory.appendingPathComponent("fixture.wav"),
+        modelID: "qwen3-asr-1.7b-4bit", modelDirectory: directory, language: "en", modelIdentity: recognition)
+    let segment = try TranscriptSegment(text: "Hello.", startSeconds: 0, endSeconds: 1)
+    let recognized = try QwenTranscriptOutput.recognized(segments: [segment], detectedLanguage: "English", request: request, engineID: "mlx")
+    #expect(recognized.provenance.modelIdentity == recognition)
+    let alignRequest = AlignmentRequest(audioURL: request.audioURL, modelID: "qwen3-forced-aligner-0.6b-4bit",
+        modelDirectory: directory, transcript: recognized, language: "en", modelIdentity: alignment)
+    let aligned = try QwenTranscriptOutput.aligned(segments: [segment], request: alignRequest, engineID: "mlx")
+    #expect(aligned.provenance == recognized.provenance)
+    #expect(aligned.alignmentProvenance?.modelIdentity == alignment)
+    #expect(aligned.alignmentProvenance?.runtimeRevisions == EngineProvenance.qwen)
+    try aligned.validate()
 }

@@ -1,0 +1,8 @@
+{
+  "helper_pid": 21622,
+  "seconds_after_parent_exit": 1.5296742919890676,
+  "stdout": {
+    "error": "The AVID operation was cancelled safely. A running Core ML or Metal kernel may finish before cancellation is observed."
+  },
+  "stderr": "{\"event\":\"progress\",\"model_id\":\"qwen3-asr-1.7b-4bit\",\"stage\":\"verifying\"}\n{\"event\":\"progress\",\"fraction\":0,\"stage\":\"Loading Qwen ASR\"}\nGenerated tokenizer.json at: /var/folders/pb/b82nxwv91c5d4vcc7cnxm3tm0000gn/T/avid-qwen-1518F6FC-200C-4ED8-96AC-F4D29778235D/tokenizer.json\n"
+}

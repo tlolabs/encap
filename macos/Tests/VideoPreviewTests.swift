@@ -3,10 +3,13 @@ import XCTest
 @testable import EnCap
 
 final class VideoPreviewTests: XCTestCase {
-    func testProductionClientComposesCorePNGWithPackagedRuntime() async throws {
-        guard let sourceRoot = ProcessInfo.processInfo.environment["ENCAP_SOURCE_ROOT"],
-              FileManager.default.fileExists(atPath: sourceRoot + "/target/release/ffmpeg-runtime/SHA256SUMS") else {
-            throw XCTSkip("Set ENCAP_SOURCE_ROOT to a staged production engine with its authenticated runtime")
+    private static func waitForSignal(_ signal: DispatchSemaphore) -> Bool {
+        signal.wait(timeout: .now() + 5) == .success
+    }
+    func testLinkedClientComposesCorePNGWithoutMediaExecutables() async throws {
+        guard let library = ProcessInfo.processInfo.environment["ENCAP_APP_LIBRARY"],
+              FileManager.default.fileExists(atPath: library) else {
+            throw XCTSkip("Set ENCAP_APP_LIBRARY to the locally built linked application library")
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -67,36 +70,76 @@ final class VideoPreviewTests: XCTestCase {
         XCTAssertNotEqual(withMain, VideoPreviewIdentity(chapterID: "one", artwork: artwork, settings: settings, mainArtwork: main, projectIdentity: "first"))
     }
 
-    func testTaskCancellationTerminatesAndJoinsItsEngineProcess() async throws {
-        let marker = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: marker) }
-        let joined = expectation(description: "Cancelled child was terminated and joined")
+    func testShutdownCountsPreparationAndRejectsLaterNativeWork() async throws {
+        let entered = DispatchSemaphore(value: 0)
+        let proceed = DispatchSemaphore(value: 0)
+        let engine = EngineClient(operationPreparationHook: {
+            XCTAssertFalse(Thread.isMainThread)
+            entered.signal()
+            proceed.wait()
+        })
+        let operation = Task { try await engine.waveform(path: "/unavailable/preparing.wav") }
+        let started = await Task.detached { Self.waitForSignal(entered) }.value
+        XCTAssertTrue(started)
+        guard started else { proceed.signal(); _ = try? await operation.value; return }
+        XCTAssertTrue(engine.hasActiveOperations)
+        let returned = expectation(description: "Shutdown waits for preparation cleanup")
+        returned.isInverted = true
+        let shutdown = Task { await engine.shutdown(); returned.fulfill() }
+        await fulfillment(of: [returned], timeout: 0.05)
+        XCTAssertTrue(engine.hasActiveOperations)
+        proceed.signal()
+        do { _ = try await operation.value; XCTFail("Shutdown must cancel a preparing operation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        await shutdown.value
+        XCTAssertFalse(engine.hasActiveOperations)
+        do { _ = try await engine.waveform(path: "/unavailable/after-shutdown.wav"); XCTFail("Closed clients must reject new work") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertFalse(engine.hasActiveOperations)
+    }
+
+    func testCancellationAfterNativeCompletionPreservesSuccessfulResult() async throws {
+        guard let library = ProcessInfo.processInfo.environment["ENCAP_APP_LIBRARY"],
+              FileManager.default.fileExists(atPath: library) else {
+            throw XCTSkip("Set ENCAP_APP_LIBRARY to exercise native completion cancellation")
+        }
+        let completed = DispatchSemaphore(value: 0)
+        let returnFromNative = DispatchSemaphore(value: 0)
+        let engine = EngineClient()
         let task = Task {
-            try await EngineClient.runProcess(
-                executable: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "/usr/bin/touch \"$ENCAP_CANCEL_TEST_MARKER\"; exec /bin/sleep 10"],
-                environment: ["ENCAP_CANCEL_TEST_MARKER": marker.path],
-                processChanged: { process, started in
-                    if !started {
-                        XCTAssertEqual(process.terminationReason, .uncaughtSignal)
-                        joined.fulfill()
-                    }
+            try await engine.linkedOperationForTesting(["build-info"]) { event in
+                if event.event == "complete" {
+                    completed.signal()
+                    _ = Self.waitForSignal(returnFromNative)
                 }
-            )
+            }
         }
-        // Wait for the actual child before cancelling, rather than testing only
-        // Swift task state. exec keeps the sleeping process under the same PID.
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        let didComplete = await Task.detached { Self.waitForSignal(completed) }.value
+        XCTAssertTrue(didComplete)
         task.cancel()
-        await fulfillment(of: [joined], timeout: 2)
-        do {
-            _ = try await task.value
-            XCTFail("A cancelled engine task must not return a successful response")
-        } catch {
-            XCTAssertTrue(task.isCancelled)
+        returnFromNative.signal()
+        let data = try await task.value
+        let value = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNotNil(value["encap_version"])
+        XCTAssertTrue(task.isCancelled)
+        await engine.drain()
+        XCTAssertFalse(engine.hasActiveOperations)
+    }
+
+    func testTaskCancellationAwaitsLinkedWorkerCleanup() async throws {
+        guard let library = ProcessInfo.processInfo.environment["ENCAP_APP_LIBRARY"],
+              FileManager.default.fileExists(atPath: library) else {
+            throw XCTSkip("Set ENCAP_APP_LIBRARY to exercise cooperative linked cancellation")
         }
+        let engine = EngineClient()
+        defer { engine.cleanupSession() }
+        let task = Task { try await engine.waveform(path: "/nonexistent/cancelled-source.wav") }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("A cancelled task must not return success") }
+        catch { XCTAssertTrue(task.isCancelled) }
+        await engine.drain()
+        XCTAssertFalse(engine.hasActiveOperations)
+        await engine.shutdown()
+        XCTAssertFalse(engine.hasActiveOperations)
     }
 }

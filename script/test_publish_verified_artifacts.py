@@ -2,8 +2,10 @@
 """Regression checks for independent, source-bound direct-download releases."""
 import json
 import hashlib
+import io
 import plistlib
 import tempfile
+import tarfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -61,6 +63,97 @@ class PublicationTests(unittest.TestCase):
             package = self.mac_package(root, with_ffmpeg=False)
             with self.assertRaisesRegex(ValueError, "incomplete macOS"):
                 publisher.verify_package(package, VERSION, "macos-arm64")
+
+    def linked_mac_package(self, root, *, source_sha=SHA, source_version=VERSION):
+        path = root / f'EnCap-{VERSION}-macos-arm64.zip'
+        prefix = 'EnCap.app/Contents/'
+        manifest = ('[workspace.package]\nversion = "' + source_version + '"\n').encode()
+        receipt = {'sdk': {'target': 'macos-arm64'},
+                   'source': {'head': source_sha, 'files': {'Cargo.toml': hashlib.sha256(manifest).hexdigest()}}}
+        source_bytes = io.BytesIO()
+        with tarfile.open(fileobj=source_bytes, mode='w:gz') as sources:
+            member = tarfile.TarInfo('Cargo.toml')
+            member.size = len(manifest)
+            sources.addfile(member, io.BytesIO(manifest))
+        with zipfile.ZipFile(path, 'w') as archive:
+            archive.writestr(prefix + 'Info.plist', plistlib.dumps({
+                'CFBundleIdentifier': 'com.tlolabs.encap', 'CFBundleVersion': VERSION,
+                'CFBundleShortVersionString': VERSION}))
+            archive.writestr(prefix + 'Resources/update-config.json', json.dumps({
+                'application_id': 'com.tlolabs.encap', 'repository': 'tlolabs/encap',
+                'version': VERSION, 'channel': 'stable', 'target': 'macos-arm64'}))
+            for name in ('EnCap', 'ffmpeg', 'ffprobe'):
+                archive.writestr(prefix + 'MacOS/' + name, b'fixture')
+            archive.writestr(prefix + 'Frameworks/libencap_app.dylib', b'fixture library')
+            archive.writestr(prefix + 'Resources/EnCAPLinked/build-receipt.json', json.dumps(receipt))
+            archive.writestr(prefix + 'Resources/EnCAPLinked/corresponding-source/encap-source.tar.gz', source_bytes.getvalue())
+        return path
+
+    def test_linked_package_requires_complete_qualification_without_an_engine(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.linked_mac_package(Path(temporary))
+            with patch('linked_runtime.verify_stage', side_effect=ValueError('migration is unqualified')) as verify:
+                with self.assertRaisesRegex(ValueError, 'migration is unqualified'):
+                    publisher.verify_package(package, VERSION, 'macos-arm64')
+            self.assertTrue(verify.call_args.args[0].require_qualified)
+            with patch('linked_runtime.verify_stage') as verify:
+                receipt = publisher.verify_package(package, VERSION, 'macos-arm64')
+            self.assertEqual(receipt['source']['head'], SHA)
+            self.assertTrue(verify.call_args.args[0].require_qualified)
+
+    def test_linked_source_version_and_commit_are_bound_before_any_release_action(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = self.linked_mac_package(root, source_version='0.0.1')
+            with patch('linked_runtime.verify_stage'):
+                with self.assertRaisesRegex(ValueError, 'version/source identity mismatch'):
+                    publisher.verify_package(package, VERSION, 'macos-arm64')
+            self.linked_mac_package(root, source_sha='b' * 40)
+            with patch('linked_runtime.verify_stage'), patch.object(publisher, 'run') as external:
+                with self.assertRaisesRegex(ValueError, 'another verified commit'):
+                    publisher.publish(f'refs/tags/v{VERSION}', SHA, 'macos-arm64', root, source_version=VERSION)
+            external.assert_not_called()
+
+    def test_duplicate_linked_metadata_is_rejected_before_inspection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.linked_mac_package(Path(temporary))
+            with zipfile.ZipFile(package, 'a') as archive:
+                archive.writestr('EnCap.app/Contents/Resources/EnCAPLinked/build-receipt.json', '{}')
+            with patch('linked_runtime.verify_stage') as verify:
+                with self.assertRaisesRegex(ValueError, 'Duplicate or oversized'):
+                    publisher.verify_package(package, VERSION, 'macos-arm64')
+            verify.assert_not_called()
+
+    def test_linked_transcription_report_binds_versioned_framework_and_swift_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.linked_mac_package(Path(temporary))
+            base = 'EnCap.app/Contents/'
+            framework = 'Frameworks/EnCAPTranscription.framework/Versions/A/'
+            files = {framework + 'EnCAPTranscription': b'framework code',
+                     'Resources/EnCAPTranscription/encap-transcription-resources.json': b'build receipt',
+                     'Resources/EnCAPTranscription/encap-transcription-signed.json': b'signed binding',
+                     framework + 'Resources/AVIDTranscription.bundle/models.json': b'catalog',
+                     framework + 'Resources/default.metallib': b'metal',
+                     framework + 'Frameworks/libswiftCompatibilitySpan.dylib': b'swift runtime'}
+            report = {'schema': 1, 'target': 'macos-arm64', 'status': 'passed',
+                      'application_sha256': hashlib.sha256(b'fixture').hexdigest(),
+                      'runtime_files': {name: hashlib.sha256(value).hexdigest() for name, value in files.items()}}
+            with zipfile.ZipFile(package, 'a') as archive:
+                archive.writestr(base + 'Resources/transcription-qualification.json', json.dumps(report))
+                for name, value in files.items():
+                    archive.writestr(base + name, value)
+            publisher.verify_transcription_qualification(package, 'macos-arm64')
+            with zipfile.ZipFile(package, 'a') as archive:
+                archive.writestr(base + framework + 'Frameworks/libswiftCompatibilitySpan.dylib', b'changed runtime')
+            with self.assertRaisesRegex(ValueError, 'runtime resource changed'):
+                publisher.verify_transcription_qualification(package, 'macos-arm64')
+            with zipfile.ZipFile(package, 'a') as archive:
+                archive.writestr(base + framework + 'Frameworks/libswiftCompatibilitySpan.dylib', b'swift runtime')
+            publisher.verify_transcription_qualification(package, 'macos-arm64')
+            with zipfile.ZipFile(package, 'a') as archive:
+                archive.writestr(base + 'Resources/EnCAPTranscription/encap-transcription-signed.json', b'changed binding')
+            with self.assertRaisesRegex(ValueError, 'runtime resource changed'):
+                publisher.verify_transcription_qualification(package, 'macos-arm64')
 
     def test_transcription_qualification_is_bound_to_actual_packaged_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:

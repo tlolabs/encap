@@ -1,4 +1,4 @@
-//! Application limits across engine subprocesses, above Core's four-probe limit.
+//! Application limits across linked jobs and independent diagnostic hosts.
 use crate::CancellationToken;
 use encap_core::{EncapError, Result};
 use fs2::FileExt;
@@ -52,7 +52,7 @@ fn wait(token: &CancellationToken) -> Result<()> {
 }
 
 /// Core operations are blocking. Keep this guard on the application's worker
-/// until Core has returned and all of its child processes/probe workers joined.
+/// until Core has returned and all of its native probe workers have joined.
 pub(crate) struct OperationGuard {
     _destination: Option<File>,
     _slot: File,

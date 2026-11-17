@@ -90,9 +90,10 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "avid-core"
-version = "0.3.3"
-source = "git+https://github.com/tlolabs/avid-core.git?rev=8e27a86ec106028d93130de35a35c0eeda7a9ce3#8e27a86ec106028d93130de35a35c0eeda7a9ce3"
+version = "0.4.0"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=dd112d497b68df6786f49a71b3611f7f32f090e9#dd112d497b68df6786f49a71b3611f7f32f090e9"
 dependencies = [
+ "avid-media-bridge",
  "libdeflate-sys",
  "oxipng",
  "png",
@@ -104,6 +105,41 @@ dependencies = [
  "turbojpeg",
  "turbojpeg-sys",
  "zopfli",
+]
+
+[[package]]
+name = "avid-media-bridge"
+version = "0.4.0"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=dd112d497b68df6786f49a71b3611f7f32f090e9#dd112d497b68df6786f49a71b3611f7f32f090e9"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
+name = "avid-transcription"
+version = "0.1.0"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=dd112d497b68df6786f49a71b3611f7f32f090e9#dd112d497b68df6786f49a71b3611f7f32f090e9"
+dependencies = [
+ "avid-media-bridge",
+ "avid-whisper-bridge",
+ "fs2",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+]
+
+[[package]]
+name = "avid-whisper-bridge"
+version = "0.1.0"
+source = "git+https://github.com/tlolabs/avid-core.git?rev=dd112d497b68df6786f49a71b3611f7f32f090e9#dd112d497b68df6786f49a71b3611f7f32f090e9"
+dependencies = [
+ "cc",
+ "serde_json",
+ "sha2 0.11.1",
 ]
 
 [[package]]
@@ -183,9 +219,9 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cc"
-version = "1.4.5"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -430,8 +466,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "encap-app"
+version = "2.0.13"
+dependencies = [
+ "avid-core",
+ "clap",
+ "directories",
+ "encap-audio",
+ "encap-core",
+ "encap-ffmpeg",
+ "encap-transcript",
+ "encap-video",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "encap-audio"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "encap-core",
  "encap-ffmpeg",
@@ -441,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "encap-core"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "avid-core",
  "directories",
@@ -460,12 +514,13 @@ dependencies = [
 
 [[package]]
 name = "encap-engine"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "avid-core",
  "clap",
  "ctrlc",
  "directories",
+ "encap-app",
  "encap-audio",
  "encap-core",
  "encap-ffmpeg",
@@ -482,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "encap-ffmpeg"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "avid-core",
  "encap-core",
@@ -495,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "encap-portable-update"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "fs2",
  "semver",
@@ -507,35 +562,39 @@ dependencies = [
 
 [[package]]
 name = "encap-release"
-version = "2.0.12"
+version = "2.0.13"
 
 [[package]]
 name = "encap-transcript"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
+ "avid-core",
+ "avid-transcription",
+ "directories",
  "encap-core",
  "encap-ffmpeg",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "uuid",
 ]
 
 [[package]]
 name = "encap-update"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "tlo-updater",
 ]
 
 [[package]]
 name = "encap-video"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "avid-core",
  "encap-core",
- "encap-ffmpeg",
  "fs2",
+ "png",
  "serde_json",
  "tempfile",
  "tracing",
@@ -574,9 +633,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.12"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "flate2"
@@ -1163,6 +1222,12 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "png"

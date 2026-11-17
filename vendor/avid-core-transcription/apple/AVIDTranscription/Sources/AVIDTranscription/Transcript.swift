@@ -22,16 +22,6 @@ public enum TranscriptionError: Error, Equatable, Sendable, LocalizedError {
     }
 }
 
-public struct TranscriptProvenance: Codable, Equatable, Sendable {
-    public let engineID: String
-    public let modelID: String
-
-    public init(engineID: String, modelID: String) {
-        self.engineID = engineID
-        self.modelID = modelID
-    }
-}
-
 /// Describes how a word was timed, independently of how its text was recognized.
 public enum TimingMethod: String, Codable, Sendable {
     case recognizer
@@ -151,6 +141,27 @@ public struct Transcript: Codable, Equatable, Sendable {
 
     public var text: String { segments.map(\.text).joined(separator: "\n") }
 
+    /// Validate imported JSON or mutable host records before timeline/caption use.
+    /// Native inference timestamps remain source-relative and may overlap; their
+    /// starts must nevertheless be ordered. Missing timing remains explicit.
+    public func validate() throws {
+        try provenance.validate()
+        try alignmentProvenance?.validate()
+        var previousStart = 0.0
+        for segment in segments {
+            try validateTimestampPair(segment.startSeconds, segment.endSeconds)
+            for word in segment.words {
+                try validateTimestampPair(word.startSeconds, word.endSeconds)
+                if let start = word.startSeconds {
+                    guard start >= previousStart else {
+                        throw TranscriptionError.invalidTimestamp("word starts must be ordered on the source clock")
+                    }
+                    previousStart = start
+                }
+            }
+        }
+    }
+
     public var hasCompleteWordTiming: Bool {
         segments.allSatisfy { segment in
             if segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
@@ -162,6 +173,7 @@ public struct Transcript: Codable, Equatable, Sendable {
 
     /// Use exactly once when converting engine-local times for an extracted audio clip.
     public func offsettingTimes(by offset: Double) throws -> Transcript {
+        try validate()
         guard offset.isFinite else {
             throw TranscriptionError.invalidTimestamp("offset must be finite")
         }
@@ -188,11 +200,31 @@ public struct Transcript: Codable, Equatable, Sendable {
     }
 
     public func correctingSegment(at index: Int, text: String) throws -> Transcript {
-        guard segments.indices.contains(index) else {
-            throw TranscriptionError.invalidInput("segment index is out of range")
+        try correctingSegments([SegmentCorrection(index: index, text: text)])
+    }
+
+    /// Apply an entire edit transaction or fail without modifying any segment.
+    /// Only the affected segments lose word timing; the transcript-wide alignment
+    /// provenance is cleared because it no longer describes the complete text.
+    public func correctingSegments(_ corrections: [SegmentCorrection]) throws -> Transcript {
+        try validate()
+        guard !corrections.isEmpty else { return self }
+        var indices = Set<Int>()
+        for correction in corrections {
+            guard segments.indices.contains(correction.index), indices.insert(correction.index).inserted else {
+                throw TranscriptionError.invalidInput("correction indices must be valid and unique")
+            }
         }
         var updated = segments
-        updated[index] = try updated[index].replacingText(with: text)
+        for correction in corrections {
+            updated[correction.index] = try updated[correction.index].replacingText(with: correction.text)
+        }
         return try Transcript(segments: updated, language: language, provenance: provenance)
     }
+}
+
+public struct SegmentCorrection: Codable, Equatable, Sendable {
+    public let index: Int
+    public let text: String
+    public init(index: Int, text: String) { self.index = index; self.text = text }
 }

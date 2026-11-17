@@ -1,136 +1,111 @@
-# AVID Core transcription integration and migration
+# Linked AVID Core transcription in EnCAP
 
-This change replaces EnCAP's application-owned transcription stack with a thin
-process adapter to AVID Core. Implementation task:
-`encap-avid-integration-20261103`; baseline
-`2c20da6c6499484c1141c3902d03c9f6afcefba2` (2.0.9).
-Pre-existing audio, persistence, source-removal, Qt, update-test and qualification
-edits were recorded before implementation and retained. No release publication,
-push, platform-support removal, or shared sibling-checkout mutation is authorized
-by this task.
+EnCAP pins immutable Core `v0.4.0`, commit
+`dd112d497b68df6786f49a71b3611f7f32f090e9`. The separate Swift source export contains
+38 unmodified files; its deterministic archive SHA-256 is
+`76f517ddfcf14067ac52c0f84b61b4f3bb7dd11917df30de94385dc0d15428a3`.
+`vendor/AVID_CORE_TRANSCRIPTION_SOURCE_MANIFEST.json` and
+`script/verify_avid_snapshot.rb` authenticate the export, while the adapter's
+`Package.resolved` retains the actual SDK revisions. No build needs an adjacent
+Core repository. Historical verification reports remain historical evidence.
 
-## Dependency ownership and acquisition
+## Application boundary and deployment
 
-EnCAP 2.0.10 refreshes the 34-file Swift snapshot from the published AVID Core
-`v0.3.2` Git commit `8296a9e623c6924c12e456b5fe9e7c10b59dfbde`.
-The deterministic archive has SHA-256
-`a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937`.
-Core 0.3.3 makes no changes under `apple/` relative to 0.3.2, so this
-independently pinned Swift snapshot remains valid and unchanged.
-The archive, manifest and unmodified source remain under `vendor/`;
-`ruby script/verify_avid_snapshot.rb` verifies them before builds. Both original
-Swift packages remain siblings under `vendor/avid-core-transcription/apple`.
-`Package.resolved` retains the exact SDK dependencies. The manifest identifies
-published source provenance; it does not transfer an earlier export's review
-claims to this refreshed archive. The original integration history below remains
-applicable unless superseded by the 2.0.10 release notes.
+`encap-transcript` retains EnCAP's project projection and reconciliation. It
+calls the optional Apple `libEnCAPTranscription.dylib` through ABI/schema 1, or
+Core's public portable Rust APIs. The `helpers/avid_transcriber` directory now
+contains a reusable dynamic-library target plus an optional diagnostic CLI using
+the same service. Production has no `avid-transcriber` process transport.
+The old subprocess adapter is compiled only in tests to preserve historical
+failure/reconciliation fixtures; it is not a production fallback.
 
-AVID Core owns catalog identities, artifact hashes/sizes, anonymous public model
-downloads, resumption, imports, shared-cache locking, verification, scoped model
-leases, inference, forced alignment, and caption grouping. EnCAP owns the typed
-JSON sidecar (`helpers/avid_transcriber`), Rust adapter, user interface, editable
-project projection, persistence and protected output routing. The independent
-Rust `avid-core =0.3.3` and authenticated FFmpeg runtime pins remain separate.
+Apple catalog, installation/resume, verified import/removal, inference and
+alignment remain in the unmodified `AVIDTranscription` and
+`AVIDTranscriptionEngines` Swift libraries. The optional module is loaded only on
+Apple silicon/macOS 14+, from `Contents/Frameworks/EnCAPTranscription.framework`, with its
+SwiftPM catalog, SDK and Metal bundles. The macOS 13 base application and Intel
+media/project support do not gain a launch dependency on it. A debug-only
+`ENCAP_AVID_TRANSCRIPTION_LIBRARY` override names one explicit absolute developer
+library; it establishes no production artifact provenance.
 
-The helper returns one snake_case JSON value on stdout; errors use a nonzero
-exit and `{"error":"..."}`. SDK output is redirected to stderr, alongside
-structured progress events. Rust owns and reaps the child, drains diagnostics,
-and uses private operation files. Cancellation requests cooperative Swift task
-cleanup; a running Metal/Core ML kernel can delay observation, so the host also
-has a bounded grace period before terminating its owned helper. Previous project
-state is applied only after successful complete output.
+The optional portable SDK feature is `encap-transcript/portable-whisper`.
+It uses Core's actual `ModelStore`, verified leases and `recognize_audio`; no
+second PCM decoder or inference engine was added. Build with the exact target
+FFmpeg and patched Whisper SDK receipts. The currently tested macOS Whisper SDK
+has a macOS 14 deployment minimum: enabling that combined feature in the macOS 13
+base artifact is unsupported. Default application builds omit it. Windows/Linux
+build recipes may select it deliberately after provisioning target SDKs and
+native qualification; source portability alone is not target qualification.
 
-## Legacy removal and existing models
+## Capability and verification matrix
 
-The old Apple Speech helper/permission, EnCAP WhisperKit wrapper, whisper.cpp
-build/staging, GGML catalog/download/verification, fallback discovery, and
-Superwhisper/MacWhisper scans are removed from the executable path. New shared
-WhisperKit usage is provided by Core, not the deleted wrapper.
+| Target / provider | Implemented application path | Current EnCAP verification / limitation |
+| --- | --- | --- |
+| macOS ARM64/macOS 14+, full Whisper large-v3 | Optional linked WhisperKit module; quality default | Adapter builds and contract/provenance tests pass; no new full-model inference run |
+| macOS ARM64/macOS 14+, Whisper Turbo | Same module, explicit Turbo selection | Adapter build/contracts; no new actual Turbo inference |
+| macOS ARM64/macOS 14+, Parakeet | Same module, explicit verified installed model | Direct-library actual offline inference/lifecycle diagnostic recorded in task evidence; no universal provider/device qualification |
+| macOS ARM64/macOS 14+, Qwen recognition/alignment | Same module; corrected-text alignment is separate | Direct-library actual recognition and corrected-text alignment each pass two runs, loading cancellation and awaited cleanup; corrected text and original recognition provenance preserved |
+| macOS ARM64, portable Tiny English CPU | Opt-in linked Rust feature; explicit `whisper-cpp-tiny-en` | Actual pinned-model test passes repeated recognition, real word captions, identity, pre-cancel and managed removal; development evidence only |
+| macOS 13/Intel default base | Saved project/transcript editing and portable text contracts | Optional Apple inference unavailable; portable combined SDK deployment/native qualification unresolved |
+| Windows/Linux x64/ARM64 | Portable text contracts; optional Tiny source adapter | Native inference and final artifact qualification unrun; Apple catalog and portable forced alignment unavailable |
 
-No migration deletes old EnCAP model files, verification files, third-party
-caches, manual source directories, or project media. `ENCAP_MODEL_DIR` and old
-verification-cache overrides no longer select an inference backend. Legacy GGML
-`.bin` files are incompatible with the new manifests and require replacement
-downloads. Exact compatible Core ML/MLX folders can be imported through the
-shared verified store; removal deletes the managed installation, not its import
-source. Old ignored build caches can remain on disk without becoming runtime
-dependencies.
+Tiny English is additional and English-only. Full Whisper remains the default;
+no absent provider silently selects Tiny or a cloud service. Its model metadata
+has `is_default:false`, `download_allowed:false` and `inference_compiled`.
+It imports only Core's exact pinned 77,704,715-byte GGML file, SHA-256
+`921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f`, after deliberate
+user selection. It has no downloader, resume API, forced aligner, Parakeet or
+Qwen implementation. Its private EnCAP cache is separate from historical GGML
+files and all Apple/third-party stores. Explicit import copies and verifies the
+source; removal affects only that managed cache. No old cache is auto-adopted.
 
-The default shared cache is
-`~/Library/Application Support/AVID/Transcription/Models`. Models install only
-through explicit acquisition/import, and inference uses local verified files.
-There is no account/API key requirement or audio-upload path. Installed models
-remain usable while upstream is unavailable. The full Whisper large-v3 is the
-quality default; Turbo, Parakeet, Qwen recognition and separate Qwen alignment
-retain their actual catalog sizes, languages and licenses. Recognition language
-support does not imply alignment-language support.
+## Records, editing and subtitle contracts
 
-## Project data, timing and editing
+Both Apple recognition and alignment construct Core's installed-model request
+APIs within `withInstalledModel`, retaining leases through backend unload.
+The adapter persists the complete verified model/tokenizer identity and runtime
+pins rather than attaching today's catalog hash to historical recognition.
+`avid_source_id`, segment `avid_core`, original recognition, later alignment,
+`previous_transcript`, speaker-review warnings and unknown compatibility data
+remain EnCAP project records. Source times are projected into the assembled
+episode exactly once. Trims, offsets, removal/reordering, stable IDs and surviving
+history remain covered by Rust projection/reconciliation tests. Ambiguous legacy
+sources do not receive guessed mappings or invented word timing.
 
-Schema-1/2 archive migration, opaque compatibility data, unknown extensions,
-source media, stable segment/word IDs and manual speakers remain EnCAP data.
-The project model is not replaced by Core's Codable contract. Opening/saving an
-old transcript does not transcribe it again or rewrite its text.
+Ordinary segment SRT/WebVTT exports use Core `export_captions` with one explicit
+cue per valid saved segment and current speaker labels. Grouped word captions use
+Core `caption_cues` and require actual current word timing. Both operations are
+linked and available without an inference SDK, model or Apple module on every
+base target. Core owns ordering, positive duration, escaping/newline and timestamp
+validation. TXT remains EnCAP's speaker-aware projection. Export does not mutate
+saved text or manufacture timings; no animation or burned-in captions were added.
 
-New `avid_source_id` and segment `avid_core` extensions describe source identity,
-immutable recognition/alignment records and reversible source-to-episode timing.
-See [the project-format extension](project-format.md#avid-transcription-extensions).
-Core source-clock timings are projected into the assembled episode exactly once;
-source removal adjusts projected times while retaining the original record.
-Untimed text is valid and visible, but cannot be exported as timed subtitles or
-word captions. No evenly spaced word times are invented. Editing segment text
-clears its word alignment; forced realignment uses the edited text while retaining
-host IDs and speakers. A legacy transcript without reliable source provenance
-must be rerecognized before automatic realignment can safely map it to audio.
+## Lifetime, testing and unresolved qualification
 
-Rerecognition matches identities using source, text and timing rather than segment
-position. Ambiguous prior records are retained once in `previous_transcript`;
-both clients display a persisted warning when manual speakers need review.
-Realignment retains initial recognition separately from the latest alignment.
-Each model provenance carries the complete shared manifest installation identity
-and immutable SDK snapshot identity.
-New imports use per-instance UUID identities, so reopening an archive and adding
-the original file again cannot make the two instances share transcript identity.
-Retained source-linked segments survive adjacent-source removal even if native
-timing slightly overshoots; only projected bounds are clipped to playable media.
-History follows a surviving carrier, or falls back to optional project-level
-storage when retained audio has no active segment. Removing all audio clears
-transcript/history explicitly.
+Before loading Swift, Rust checks the bounded original source/ABI/platform receipt, complete resource inventory and hashes, including the required Core catalog and MLX metallib. Missing/corrupt resources return an error before SwiftPM can evaluate its fatal resource accessor. Packaging records normalized dylib code identities; after signing, the binder verifies unchanged code and binds the new raw dylib/signature bytes to the original receipt. Runtime verification launches no integrity helper.
 
-TXT preserves the existing project projection. On supported helper platforms,
-ordinary SRT and WebVTT formatting uses Core `CaptionExporter` with existing
-segment boundaries and speaker labels. Core escapes markup, folds embedded
-newlines, validates ordered positive-duration cues and rounds timestamps; these
-are intentional export differences, without rewriting saved transcript records.
-Other targets retain the existing SRT writer pending a portable Core exporter.
-The small ordinary-WebVTT addition is available through
-`encap-engine export-transcript PAYLOAD OUTPUT vtt`; ordinary segment export
-does not require word timing, model installation or inference. Existing word-caption
-SRT/WebVTT actions remain in both clients; no new ordinary-WebVTT UI is claimed.
-Errors from an available Core helper never select the legacy writer. Shared
-word-caption output requires actual usable word timings. Subtitle files do not
-implement animated or burned-in social captions; no such renderer is claimed.
+Every inference invocation owns a token and retained request/resources until
+blocking execution returns. Swift provider progress first enters a copied queue;
+the synchronous C entry point drains callbacks on its calling worker, so UI
+callbacks never borrow provider-owned buffers. Cancellation signals the Swift
+task and waits for provider cleanup. No library thread is killed and no hard
+process-style timeout is promised. The dynamic module remains loaded until
+process exit; the application drains jobs before quitting or updating.
 
-## Platform decision still required
+`script/build_avid_transcriber.sh` stages the linked module/resources/SDK licenses
+and checksummed source receipt. Its relocation probe directly loads the staged
+library with an empty PATH and lists the catalog without acquiring models.
+`script/qualify_transcription.py --application ...` uses the native application's
+linked-operation diagnostics; `--engine` remains an optional diagnostic client.
+Catalog smoke is separate from actual inference and final signed-package smoke.
+Standard distribution still requires complete functional/artifact qualification
+and the repository's signing/notarization policy. The overall linked migration
+remains incomplete while required upstream Audio/playback contracts are missing.
 
-The base app continues targeting macOS 13; Qt target configurations remain.
-The new helper requires Apple silicon, macOS 14+, Swift 6.3+ and the Metal
-toolchain. Intel Mac, macOS 13, Windows x64/ARM64 and Linux x64/ARM64 currently
-have no qualified new inference backend. Their saved transcript editing/export
-and ordinary Audio/Video paths remain independent.
+Task diagnostics are retained outside the repository at
+`/private/tmp/encap-linked-20261116-dc1e968`: Swift adapter tests, source verifier,
+Python staging/notarization checks, native Tiny model test and direct-library
+Apple runs identify their actual inputs. Upstream Core qualification is supporting
+evidence; it never qualifies an EnCAP target or a later source/artifact by itself.
 
-The owner must decide whether those targets may ship with transcription
-unavailable, or whether shared Core inference parity must be completed first.
-That decision is pending. Removing legacy executable logic does not establish
-replacement parity. Builds/tests remain diagnostic; only independently verified
-functional target artifacts can publish. An unsupported or unverified artifact
-must not be advertised as a complete transcription replacement.
-
-## Verification record
-
-Detailed commands, outcomes, independent-review results, and remaining unrun
-checks are recorded in [the verification report](verification/transcription-avid-core.md).
-Core's earlier 45-test clean review concerns the upstream source, not this app's
-integration. EnCAP requires its own tests, real packaged inference and independent
-review. Short synthesized speech runs are functional smoke tests, not an accuracy
-benchmark or a minimum-OS qualification.
+The packaged optional module uses a standard versioned framework with catalog/Metal resources and notices in its Resources directory. The compatibility runtime is copied from the selected Xcode toolchain and referenced directly relative to the framework executable; developer runpaths are removed. Original and signed raw-hash receipts live in outer application Resources/EnCAPTranscription and are sealed by the enclosing app. Runtime source Git identity is not exposed by the installed toolchain; exact vendor/compiler/binary/notice identities are recorded and missing corresponding Swift runtime sources remain a distribution limitation.

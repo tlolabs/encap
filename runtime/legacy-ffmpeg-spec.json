@@ -1,0 +1,426 @@
+{
+  "schema": 1,
+  "recipe": 7,
+  "status": "release-gated",
+  "release_repository": "tlolabs/avid-core",
+  "source": {
+    "version": "9.0.1",
+    "tag": "n9.0.1",
+    "revision": "bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa",
+    "git": "https://git.ffmpeg.org/ffmpeg.git",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+    "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+    "release_key_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+    "tag_key_fingerprint": "DD1EC9E8DE085C629B3E1846B18E8928B3948D64",
+    "tag_key_certificate": {
+      "path": "runtime/ffmpeg/keys/tag.asc",
+      "sha256": "df684077f7c2426295e1b4af4c8aa94f7ed6b0441bee88cbb88ead07d375b1b6",
+      "retrieved_from": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xDD1EC9E8DE085C629B3E1846B18E8928B3948D64"
+    }
+  },
+  "source_date_epoch": 1786505071,
+  "dependencies": {
+    "x264": {
+      "version": "stable-b35605a",
+      "git": "https://code.videolan.org/videolan/x264.git",
+      "revision": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "license": "GPL-2.0-or-later",
+      "reason": "Existing software H.264 encoder; native FFmpeg has no equivalent libx264 encoder."
+    },
+    "x265": {
+      "version": "4.1",
+      "url": "https://download.videolan.org/pub/videolan/x265/x265_4.1.tar.gz",
+      "sha256": "a31699c6a89806b74b0151e5e6a7df65de4b49050482fe5ebf8a4379d7af8f29",
+      "license": "GPL-2.0-or-later",
+      "reason": "Existing software HEVC encoder."
+    },
+    "lame": {
+      "version": "4.0",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/4.0/lame-4.0.tar.gz",
+      "sha256": "3df5124d5ad3a98312ffd7ba6a9b36230e4f8a3e66d3ce0f425e336c32d216eb",
+      "license": "LGPL-2.0-or-later",
+      "reason": "EnCAP MP3 export explicitly selects libmp3lame."
+    },
+    "zlib": {
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "license": "Zlib",
+      "reason": "PNG artwork decoding and preview encoding."
+    },
+    "nasm": {
+      "version": "2.16.03",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz",
+      "sha256": "1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148",
+      "license": "BSD-2-Clause",
+      "reason": "Build-only assembler for existing x86 codec optimizations."
+    }
+  },
+  "configure": [
+    "--disable-autodetect",
+    "--disable-shared",
+    "--enable-static",
+    "--disable-debug",
+    "--disable-doc",
+    "--disable-ffplay",
+    "--disable-network",
+    "--disable-devices",
+    "--enable-indev=lavfi",
+    "--disable-protocols",
+    "--enable-protocol=file,pipe",
+    "--disable-encoders",
+    "--disable-filters",
+    "--enable-gpl",
+    "--disable-version3",
+    "--disable-nonfree",
+    "--enable-libx264",
+    "--enable-libx265",
+    "--enable-libmp3lame",
+    "--enable-zlib",
+    "--enable-ffmpeg",
+    "--enable-ffprobe",
+    "--enable-swscale",
+    "--enable-swresample"
+  ],
+  "encoders": [
+    "libx264",
+    "libx265",
+    "libmp3lame",
+    "aac",
+    "png",
+    "mjpeg",
+    "bmp",
+    "tiff",
+    "flac",
+    "pcm_s16le",
+    "pcm_s24le",
+    "pcm_s32le",
+    "pcm_f32le",
+    "pcm_f64le",
+    "pcm_s16be",
+    "pcm_s24be",
+    "pcm_s32be",
+    "pcm_f32be",
+    "pcm_f64be",
+    "rawvideo",
+    "wrapped_avframe"
+  ],
+  "filters": [
+    "scale",
+    "crop",
+    "split",
+    "gblur",
+    "overlay",
+    "format",
+    "pad",
+    "trim",
+    "setpts",
+    "atrim",
+    "aformat",
+    "asetpts",
+    "concat",
+    "loop",
+    "hflip",
+    "vflip",
+    "aresample",
+    "fps",
+    "null",
+    "anull",
+    "color",
+    "sine",
+    "testsrc2"
+  ],
+  "required": {
+    "encoders": [
+      "libx264",
+      "libx265",
+      "libmp3lame",
+      "aac",
+      "png",
+      "pcm_s16le"
+    ],
+    "decoders": [
+      "aac",
+      "alac",
+      "mp3",
+      "flac",
+      "vorbis",
+      "opus",
+      "wmav1",
+      "wmav2",
+      "wmapro",
+      "wmalossless",
+      "h264",
+      "hevc",
+      "png",
+      "mjpeg",
+      "webp",
+      "bmp",
+      "tiff",
+      "pcm_s16le",
+      "pcm_s24le",
+      "pcm_s32le",
+      "pcm_f32le",
+      "pcm_f64le",
+      "pcm_s16be",
+      "pcm_s24be",
+      "pcm_s32be",
+      "pcm_f32be",
+      "pcm_f64be"
+    ],
+    "muxers": [
+      "wav",
+      "aiff",
+      "mp3",
+      "mp4",
+      "mov",
+      "ipod",
+      "adts",
+      "image2",
+      "rawvideo",
+      "framemd5",
+      "null"
+    ],
+    "demuxers": [
+      "wav",
+      "aiff",
+      "mp3",
+      "aac",
+      "mov",
+      "flac",
+      "ogg",
+      "asf",
+      "image2",
+      "png_pipe",
+      "jpeg_pipe",
+      "webp_pipe",
+      "bmp_pipe",
+      "tiff_pipe",
+      "ffmetadata"
+    ],
+    "parsers": [
+      "aac",
+      "h264",
+      "hevc",
+      "mpegaudio",
+      "flac",
+      "opus",
+      "vorbis",
+      "png"
+    ],
+    "bsfs": [
+      "aac_adtstoasc",
+      "extract_extradata"
+    ],
+    "protocols": [
+      "file",
+      "pipe"
+    ],
+    "filters": [
+      "scale",
+      "crop",
+      "split",
+      "gblur",
+      "overlay",
+      "format",
+      "pad",
+      "trim",
+      "setpts",
+      "atrim",
+      "aformat",
+      "asetpts",
+      "concat",
+      "loop",
+      "hflip",
+      "vflip",
+      "aresample",
+      "fps",
+      "null",
+      "anull",
+      "color",
+      "sine",
+      "testsrc2"
+    ],
+    "devices": [
+      "lavfi"
+    ]
+  },
+  "targets": [
+    {
+      "id": "macos-arm64",
+      "os": "macos",
+      "arch": "arm64",
+      "runner": "macos-15",
+      "toolchain": "Apple clang / Xcode SDK; MACOSX_DEPLOYMENT_TARGET=13.0",
+      "required_encoders": [
+        "aac_at"
+      ],
+      "hardware_qualification": "Optional VideoToolbox observation; software qualification is required independently.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [
+        "h264_videotoolbox",
+        "hevc_videotoolbox"
+      ],
+      "minimum_os": "macOS 15 (hosted-runner qualification; macOS 13 untested)",
+      "qualification_os": "macos-15"
+    },
+    {
+      "id": "macos-x86_64",
+      "os": "macos",
+      "arch": "x86_64",
+      "runner": "macos-15-intel",
+      "toolchain": "Apple clang / Xcode SDK; MACOSX_DEPLOYMENT_TARGET=13.0",
+      "required_encoders": [
+        "aac_at"
+      ],
+      "hardware_qualification": "Optional VideoToolbox observation; software qualification is required independently.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [
+        "h264_videotoolbox",
+        "hevc_videotoolbox"
+      ],
+      "minimum_os": "macOS 15 (hosted-runner qualification; macOS 13 untested)",
+      "qualification_os": "macos-15-intel"
+    },
+    {
+      "id": "windows-x86_64",
+      "os": "windows",
+      "arch": "x86_64",
+      "runner": "windows-2025",
+      "toolchain": "MSYS2 CLANG64/CLANGARM64 clang; native Windows execution",
+      "required_encoders": [],
+      "hardware_qualification": "not_required: Windows and Linux hardware encoding is outside current project scope.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [],
+      "minimum_os": "Windows Server 2025 (hosted-runner qualification; Windows 10 1809 untested)",
+      "extra_cflags": [
+        "-fno-builtin-lrintf"
+      ],
+      "compiler_workaround": "LLVM SSE2 vector lrint pattern permits unaligned memory operands for aligned CVTPS2DQ. Use the CRT lrintf implementation; retain all other vectorization and codec assembly. See docs/ffmpeg/repair-audit-2026-09-16.md.",
+      "qualification_os": "windows-2025"
+    },
+    {
+      "id": "windows-arm64",
+      "os": "windows",
+      "arch": "arm64",
+      "runner": "windows-11-arm",
+      "toolchain": "MSYS2 CLANG64/CLANGARM64 clang; native Windows execution",
+      "required_encoders": [],
+      "hardware_qualification": "not_required: Windows and Linux hardware encoding is outside current project scope.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [],
+      "minimum_os": "Windows 11 ARM64 (hosted-runner qualification; Windows 10 1809 untested)",
+      "qualification_os": "windows-11-arm"
+    },
+    {
+      "id": "linux-x86_64",
+      "os": "linux",
+      "arch": "x86_64",
+      "runner": "ubuntu-24.04",
+      "toolchain": "GCC on Ubuntu 24.04; glibc baseline requires host qualification",
+      "required_encoders": [],
+      "hardware_qualification": "not_required: Windows and Linux hardware encoding is outside current project scope.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [],
+      "minimum_os": "Ubuntu 24.04 glibc/toolkit baseline",
+      "qualification_os": "ubuntu-24.04"
+    },
+    {
+      "id": "linux-arm64",
+      "os": "linux",
+      "arch": "arm64",
+      "runner": "ubuntu-24.04-arm",
+      "toolchain": "GCC on Ubuntu 24.04; glibc baseline requires host qualification",
+      "required_encoders": [],
+      "hardware_qualification": "not_required: Windows and Linux hardware encoding is outside current project scope.",
+      "dependencies": [
+        "x264",
+        "x265",
+        "lame",
+        "zlib",
+        "nasm"
+      ],
+      "optional_encoders": [],
+      "minimum_os": "Ubuntu 24.04 glibc/toolkit baseline",
+      "qualification_os": "ubuntu-24.04-arm"
+    }
+  ],
+  "qualification_blockers": [],
+  "build_tools": {
+    "cmake": "3.31.6",
+    "python_minimum": "3.11",
+    "make": "GNU Make, version recorded",
+    "pkg_config": "pkg-config/pkgconf, version recorded",
+    "cmake_archives": {
+      "macos": {
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz",
+        "sha256": "330b9514f5112e5ed4fb08b8b05803b776fd9b539a6ae12927d14dcc0ee2ba8d"
+      },
+      "linux-x86_64": {
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz",
+        "sha256": "5a1133ff103c71eb5120e2cc3de922733e7d8a26a98ae716397e8676adb367bf"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-aarch64.tar.gz",
+        "sha256": "b4cc788d63112b2749b40627e719eb5d3b8ed8f00c36d77189f4019cfe64bc9e"
+      },
+      "windows-x86_64": {
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip",
+        "sha256": "d163cd3ab4959b0a53fa8988f2ddbd2e6c501658201e6a154386bad9dbe4f836"
+      },
+      "windows-arm64": {
+        "url": "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-arm64.zip",
+        "sha256": "fa648fd417f44e6cb08928964a480ade0d18df421f9b623639dba22f9b301e4e"
+      }
+    }
+  },
+  "encoding_policy": {
+    "reference": "software",
+    "priorities": [
+      "quality",
+      "predictability",
+      "compatibility",
+      "reproducibility",
+      "cross-platform consistency",
+      "reasonable performance"
+    ],
+    "windows_linux_hardware": "not_required: outside current project scope",
+    "macos_hardware": "optional VideoToolbox only; validate output, not byte or size equivalence"
+  },
+  "qualification_policy": {
+    "manifest": "manifest.json",
+    "scope": "Native Core runtime plus existing host packaging evidence",
+    "host_packaging": "required",
+    "older_os": "Untested; hosted runner OS qualification authorized by user on 2026-09-16"
+  }
+}

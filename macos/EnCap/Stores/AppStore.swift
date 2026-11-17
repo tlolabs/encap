@@ -153,7 +153,11 @@ final class AppStore: ObservableObject {
     }
 
     func prepareToTerminate() async {
+        recoveryObservation?.cancel()
+        engine.cancelCurrentOperation()
+        await engine.drain()
         try? await engine.clearRecovery()
+        await engine.shutdown()
         cleanupSession()
     }
 
@@ -865,7 +869,7 @@ final class AppStore: ObservableObject {
         } else if selectedVideoDuration > 0 && videoCurrentTime >= selectedVideoDuration - 0.04 {
             seekVideo(to: 0, autoplay: true)
             status = "Playing Video preview."
-        } else if let player {
+        } else if let player, videoPlaybackIndex != nil {
             player.play()
             isVideoPlaying = true
             isPlaying = true

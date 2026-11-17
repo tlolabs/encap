@@ -11,7 +11,12 @@ $actualVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $Folde
 if ([Version]$actualVersion -ne [Version]($Version + '.0')) { throw 'Native executable and Cargo version disagree' }
 $executables = @(Get-ChildItem -LiteralPath $Folder -Recurse -File -Filter '*.exe')
 if (!$executables.Count) { throw 'No executables to verify' }
-foreach ($name in @('EnCap.exe','encap-engine.exe','encap-update.exe','encap-portable-update.exe')) {
+$firstParty = @('EnCap.exe','encap-update.exe','encap-portable-update.exe')
+if (Test-Path -LiteralPath (Join-Path $Folder 'EnCAPLinked/build-receipt.json')) {
+    # Qt/MSVC loads the supported GNU/gnullvm C ABI DLL; static archives never cross that boundary.
+    $firstParty += 'encap_app.dll'
+} else { $firstParty += 'encap-engine.exe' } # historical tagged packages only
+foreach ($name in $firstParty) {
     $path = Join-Path $Folder $name
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing first-party executable: $name" }
     $signature = Get-AuthenticodeSignature -LiteralPath $path

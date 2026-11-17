@@ -153,11 +153,21 @@ pub fn inspect_files(paths: &[PathBuf]) -> Result<ProjectDocument> {
         });
         position += duration;
     }
-    Ok(ProjectDocument {
+    let mut project = ProjectDocument {
         audio_sources: sources,
         chapters,
         ..ProjectDocument::default()
-    })
+    };
+    // Only genuinely new imports acquire the linked profile's supported default.
+    // Schema migration and saved explicit choices retain their persisted values.
+    let settings = avid_core::Renderer::new().default_settings();
+    project.video.export_settings.encoding = match settings.encoding {
+        avid_core::Encoding::Automatic => "automatic",
+        avid_core::Encoding::Hardware => "hardware",
+        avid_core::Encoding::Software => "software",
+    }
+    .into();
+    Ok(project)
 }
 
 fn inspect_wave(file: &mut File, path: &Path) -> Result<AudioFormat> {

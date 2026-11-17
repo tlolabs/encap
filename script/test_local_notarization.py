@@ -82,7 +82,7 @@ class NotarizationDefaults(unittest.TestCase):
     def test_transcription_qualification_runs_after_nested_signing_before_app_signing(self):
         text = (ROOT / 'script/sign_macos_release.sh').read_text()
         finish = text.index('python3 "$ROOT/script/ffmpeg_runtime.py" finish ')
-        qualify = text.index('python3 "$ROOT/script/qualify_transcription.py" --engine ')
+        qualify = text.index('python3 "$ROOT/script/qualify_transcription.py" --application ')
         enclosing_signature = text.index('sign "$APP"')
         self.assertLess(text.index('sign "$FRAMEWORK"'), finish)
         self.assertLess(finish, qualify)
@@ -98,6 +98,8 @@ class NotarizationDefaults(unittest.TestCase):
             script.mkdir()
             for name in ('sign_macos_release.sh', 'qualify_transcription.py'):
                 shutil.copy2(ROOT / 'script' / name, script / name)
+            (script / 'linked_runtime.py').write_text('import sys\n# Mock verification only; never qualifies real source.\n')
+            (script / 'stage_avid_transcriber.py').write_text('import sys\n# Signature binding mocked only in signing policy fixture.\n')
             (script / 'ffmpeg_runtime.py').write_text(
                 'import sys\nfrom pathlib import Path\n'
                 'if sys.argv[1] == "finish":\n'
@@ -107,16 +109,24 @@ class NotarizationDefaults(unittest.TestCase):
             resources = app / 'Contents/Resources'
             binaries.mkdir(parents=True)
             (resources / 'FFmpeg').mkdir(parents=True)
-            bundle = resources / 'AVIDTranscription.bundle'
+            module = app / 'Contents/Frameworks/EnCAPTranscription.framework/Versions/A'
+            module.mkdir(parents=True)
+            (module / 'EnCAPTranscription').write_text('test library')
+            (module / 'Resources').mkdir()
+            metadata = resources / 'EnCAPTranscription'
+            metadata.mkdir()
+            (metadata / 'encap-transcription-resources.json').write_text('{}')
+            (metadata / 'encap-transcription-signed.json').write_text('{}')
+            bundle = module / 'Resources/AVIDTranscription.bundle'
             bundle.mkdir()
             (bundle / 'models.json').write_text('{}')
             (resources / 'FFmpeg/build.json').write_text('{"target":"macos-arm64"}')
             (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.0.1'}))
-            for name in ('EnCap', 'avid-transcriber', 'ffmpeg', 'ffprobe'):
+            for name in ('ffmpeg', 'ffprobe'):
                 (binaries / name).write_text('#!/bin/sh\nexit 0\n')
                 (binaries / name).chmod(0o755)
-            engine = binaries / 'encap-engine'
-            engine.write_text('#!/bin/sh\ncase "$1" in\n'
+            engine = binaries / 'EnCap'
+            engine.write_text('#!/bin/sh\n[ "$1" = "--linked-operation" ] && shift\ncase "$1" in\n'
                               'transcription-status) printf \'%s\\n\' \'{"available":false,"reason":"fixture unsupported platform"}\';;\n'
                               'validate-tools) printf \'%s\\n\' \'{}\';;\n*) exit 9;;\nesac\n')
             engine.chmod(0o755)
@@ -145,8 +155,8 @@ elif name == 'codesign':
             contents = path / 'Contents'
             report = json.loads((contents / 'Resources/transcription-qualification.json').read_text())
             assert report['status'] == 'unavailable'
-            assert report['engine_sha256'] == hashlib.sha256((contents / 'MacOS/encap-engine').read_bytes()).hexdigest()
-            assert report['runtime_files']['Resources/AVIDTranscription.bundle/_CodeSignature/CodeResources']
+            assert report['application_sha256'] == hashlib.sha256((contents / 'MacOS/EnCap').read_bytes()).hexdigest()
+            assert report['runtime_files']['Frameworks/EnCAPTranscription.framework/Versions/A/Resources/AVIDTranscription.bundle/_CodeSignature/CodeResources']
             for relative, expected in report['runtime_files'].items():
                 assert hashlib.sha256((contents / relative).read_bytes()).hexdigest() == expected
             assert (contents / 'Resources/FFmpeg/signed-payload.json').read_text() == 'finished'
@@ -181,8 +191,8 @@ elif name != 'spctl': raise SystemExit('unexpected tool ' + name)
                 prefix = 'EnCap.app/Contents/'
                 report = json.loads(package.read(prefix + 'Resources/transcription-qualification.json'))
                 self.assertEqual(report['status'], 'unavailable')
-                self.assertEqual(report['engine_sha256'], hashlib.sha256(package.read(prefix + 'MacOS/encap-engine')).hexdigest())
-                self.assertIn('Resources/AVIDTranscription.bundle/_CodeSignature/CodeResources', report['runtime_files'])
+                self.assertEqual(report['application_sha256'], hashlib.sha256(package.read(prefix + 'MacOS/EnCap')).hexdigest())
+                self.assertIn('Frameworks/EnCAPTranscription.framework/Versions/A/Resources/AVIDTranscription.bundle/_CodeSignature/CodeResources', report['runtime_files'])
                 for relative, expected in report['runtime_files'].items():
                     self.assertEqual(hashlib.sha256(package.read(prefix + relative)).hexdigest(), expected, relative)
 

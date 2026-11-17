@@ -174,7 +174,7 @@ fn automatic_mode_preserves_animation_unknown_formats_and_cached_frame_budget() 
     );
     for image in [
         png_header(false),
-        vec![0xff, 0xd8, 0xff, 0xda, 1, 2, 0xff, 0xd9],
+        vec![0xff, 0xd8, 0xff, 0xda, 0, 2, 1, 0xff, 0xd9],
     ] {
         fs::write(&main, image).unwrap();
         assert_eq!(
@@ -245,363 +245,178 @@ fn completion_confirmation_is_required_and_forwarded() {
     );
 }
 
-#[cfg(unix)]
-mod processes {
+// Real linked media fixtures replace the obsolete fake-process graph tests.
+// No external media executable creates or decodes these inputs.
+mod linked {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::{Duration, Instant};
+    use std::io::Write;
 
-    fn shell(path: &Path, body: &str) {
-        fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    fn fake(root: &Path, mode: &str) -> Renderer {
-        let ffmpeg = root.join("ffmpeg");
-        let ffprobe = root.join("ffprobe");
-        shell(
-            &ffprobe,
-            &format!(
-                r#"
-if [ "$1" = -version ]; then echo 'ffprobe version 9.0.1'; exit; fi
-printf '%s\n' "$@" >> '{root}/probes'
-if [ '{mode}' = probe_sleep ]; then exec /bin/sleep 20; fi
-if [ '{mode}' = corrupt ]; then echo 'private path and stderr' >&2; exit 1; fi
-echo 100x100
-"#,
-                root = root.display()
-            ),
-        );
-        shell(
-            &ffmpeg,
-            &format!(
-                r#"
-if [ "$1" = -version ]; then echo 'ffmpeg version 9.0.1'; exit; fi
-if [ "$2" = -filters ]; then echo ' ... setsar V->V'; exit; fi
-if [ "$2" = -encoders ]; then
- echo ' V..... h264_videotoolbox hardware'
- echo ' V..... libx264 software'
- echo ' V..... libx265 software'
- exit
-fi
-printf '%s\n' "$@" >> '{root}/arguments'
-for last do :; done
-printf partial > "$last"
-if [ '{mode}' = encode_sleep ]; then exec /bin/sleep 20; fi
-if [ '{mode}' = fail ]; then echo 'private stderr' >&2; exit 1; fi
-case " $* " in *h264_videotoolbox*) exit 1;; esac
-printf complete > "$last"
-"#,
-                root = root.display()
-            ),
-        );
-        let tools =
-            avid_core::MediaTools::from_paths(ffmpeg, ffprobe, &CancellationToken::default())
-                .unwrap();
-        Renderer::new(tools)
-    }
-
-    fn assert_clean(root: &Path, project: &ProjectDocument, output: &Path) {
-        assert_eq!(fs::read(output).unwrap(), b"old output");
-        for source in &project.audio_sources {
-            assert_eq!(fs::read(&source.source_path).unwrap(), b"audio");
-        }
-        assert_eq!(
-            fs::read(project.metadata.artwork_path.as_ref().unwrap()).unwrap(),
-            b"image"
-        );
-        assert_eq!(
-            fs::read(project.project_path.as_ref().unwrap()).unwrap(),
-            b"project"
-        );
-        assert!(!fs::read_dir(root).unwrap().any(|entry| entry
+    fn image(path: &Path, width: u32, height: u32) {
+        let file = fs::File::create(path).unwrap();
+        let mut encoder = png::Encoder::new(file, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
             .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".avid-")));
+            .write_image_data(&vec![128; (width * height * 3) as usize])
+            .unwrap();
     }
-
-    #[test]
-    fn graph_uses_shared_reference_and_automatic_fallback() {
-        let root = tempfile::tempdir().unwrap();
-        let mut project = project(root.path());
-        let renderer = fake(root.path(), "success");
-        let output = root.path().join("out.mp4");
-        project.video.export_settings.encoding = "automatic".into();
-        let before = project.clone();
-        let request = render_request(&project, &output).unwrap();
-        export_with_renderer(&project, &request, &renderer, &CancellationToken::default()).unwrap();
-        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        let graph = include_str!("../tests/fixtures/encap-graph.txt").trim();
-        assert!(arguments.lines().any(|line| line == graph));
-        assert!(arguments.contains("h264_videotoolbox\n"));
-        assert!(arguments.contains("libx264\n"));
-        assert!(!arguments.contains("\n-ss\n"));
-        assert!(!arguments.contains("\n-map_chapters\n"));
-        assert_eq!(fs::read(&output).unwrap(), b"complete");
-        assert_eq!(project, before);
-        project.video.export_settings.codec = "hevc".into();
+    fn wave(path: &Path, rate: u32) {
+        let samples = rate / 2;
+        let bytes = samples * 2;
+        let mut file = fs::File::create(path).unwrap();
+        file.write_all(b"RIFF").unwrap();
+        file.write_all(&(36 + bytes).to_le_bytes()).unwrap();
+        file.write_all(b"WAVEfmt ").unwrap();
+        for value in [16u32, 0x0001_0001, rate, rate * 2, 0x0010_0002] {
+            file.write_all(&value.to_le_bytes()).unwrap();
+        }
+        file.write_all(b"data").unwrap();
+        file.write_all(&bytes.to_le_bytes()).unwrap();
+        for index in 0..samples {
+            let sample = ((index as f64 / rate as f64 * 440.0 * std::f64::consts::TAU).sin()
+                * 5000.0) as i16;
+            file.write_all(&sample.to_le_bytes()).unwrap();
+        }
+    }
+    fn fixture(root: &Path) -> ProjectDocument {
+        let mut project = project(root);
+        image(project.metadata.artwork_path.as_deref().unwrap(), 32, 48);
+        for (index, source) in project.audio_sources.iter_mut().enumerate() {
+            wave(&source.source_path, if index == 0 { 44100 } else { 48000 });
+            source.duration_seconds = 0.5;
+            project.chapters[index].start_time_seconds = index as f64 * 0.25;
+            project.chapters[index].duration_seconds = 0.25;
+        }
+        // Fixtures deliberately select software; production preserves explicit
+        // project settings and separately uses Core's profile-aware defaults.
         project.video.export_settings.encoding = "software".into();
-        export_with_renderer(
-            &project,
-            &render_request(&project, &output).unwrap(),
-            &renderer,
-            &CancellationToken::default(),
-        )
-        .unwrap();
-        assert!(fs::read_to_string(root.path().join("arguments"))
-            .unwrap()
-            .contains("-tag:v\nhvc1\n"));
+        project.video.export_settings.fps = 24;
+        project
     }
 
     #[test]
-    fn failure_cancellation_timeout_and_artwork_preflight_preserve_files() {
-        for mode in ["fail", "corrupt", "probe_sleep", "encode_sleep", "success"] {
-            let root = tempfile::tempdir().unwrap();
-            let mut project = project(root.path());
-            let output = root.path().join("out.mp4");
-            fs::write(&output, b"old output").unwrap();
-            // Only the deliberate sleep fixtures need a short timeout. Applying
-            // 80 ms to ordinary failures can test scheduler load instead of the
-            // fallback/error contract on shared native CI runners.
-            let timeout = if mode.ends_with("sleep") {
-                Duration::from_millis(80)
-            } else {
-                Duration::from_secs(5)
-            };
-            let renderer = fake(root.path(), mode).with_options(avid_core::OperationOptions {
-                probe_timeout: Some(timeout),
-                render_timeout: Some(timeout),
-                ..Default::default()
-            });
-            project.video.export_settings.encoding = "automatic".into();
-            if mode == "success" {
-                project.video.export_settings.encoding = "hardware".into();
-            }
-            let request = render_request(&project, &output).unwrap();
-            let error =
-                export_with_renderer(&project, &request, &renderer, &CancellationToken::default())
-                    .unwrap_err()
-                    .to_string();
-            assert!(!error.contains("private"));
-            if mode.ends_with("sleep") {
-                assert!(error.contains("timed out"));
-            }
-            if mode == "fail" {
-                assert!(error.contains("software fallback also failed"), "{error}");
-            }
-            assert_clean(root.path(), &project, &output);
-        }
-        for mode in ["probe_sleep", "encode_sleep"] {
-            let root = tempfile::tempdir().unwrap();
-            let project = project(root.path());
-            let output = root.path().join("out.mp4");
-            fs::write(&output, b"old output").unwrap();
-            let renderer = fake(root.path(), mode);
-            let token = CancellationToken::default();
-            let signal = token.clone();
-            let cancel = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(100));
-                signal.cancel();
-            });
-            let start = Instant::now();
-            let error = export_with_renderer(
-                &project,
-                &render_request(&project, &output).unwrap(),
-                &renderer,
-                &token,
-            )
-            .unwrap_err();
-            cancel.join().unwrap();
-            assert!(error.to_string().contains("cancelled"));
-            assert!(start.elapsed() < Duration::from_secs(2));
-            assert_clean(root.path(), &project, &output);
-        }
-    }
-
-    #[test]
-    fn main_artwork_empty_selection_and_all_protected_aliases() {
+    fn session_inspection_invalidates_changed_source_and_has_profile_defaults() {
         let root = tempfile::tempdir().unwrap();
-        let mut project = project(root.path());
-        let renderer = fake(root.path(), "success");
-        let output = root.path().join("out.mp4");
-        fs::write(&output, b"old output").unwrap();
-        let chapter_art = root.path().join("override.png");
-        fs::write(&chapter_art, b"image").unwrap();
-        project.chapters[0].image_path = Some(chapter_art.clone());
-        project.video.export_settings.selected_chapter_ids = vec!["0".into()];
-        // Even with a selected override, the main artwork must be inspected first.
-        let request = render_request(&project, &output).unwrap();
-        export_with_renderer(&project, &request, &renderer, &CancellationToken::default()).unwrap();
-        let probes = fs::read_to_string(root.path().join("probes")).unwrap();
-        assert!(probes.find("cover.png").unwrap() < probes.find("override.png").unwrap());
-        fs::write(&output, b"old output").unwrap();
-        for source in request.protected_paths {
+        let project = fixture(root.path());
+        let path = project.metadata.artwork_path.as_deref().unwrap();
+        let token = CancellationToken::default();
+        let renderer = VideoRenderer::discover(&token).unwrap();
+        assert_eq!(renderer.inspect_image(path, &token).unwrap(), (32, 48));
+        assert_eq!(
+            renderer.clone().inspect_image(path, &token).unwrap(),
+            (32, 48)
+        );
+        image(path, 64, 32);
+        assert_eq!(renderer.inspect_image(path, &token).unwrap(), (64, 32));
+        let capabilities = renderer.capabilities(&token).unwrap();
+        assert!(!capabilities.linked_version.is_empty());
+        assert_eq!(renderer.default_settings().width, 1920);
+        assert!(
+            (renderer
+                .probe_audio_duration(&project.audio_sources[0].source_path, &token)
+                .unwrap()
+                .unwrap()
+                - 0.5)
+                .abs()
+                < 0.001
+        );
+    }
+
+    #[test]
+    fn linked_preview_both_modes_publish_and_preserve_project() {
+        let root = tempfile::tempdir().unwrap();
+        let project = fixture(root.path());
+        let before = project.clone();
+        let token = CancellationToken::default();
+        let renderer = VideoRenderer::discover(&token).unwrap();
+        let output = root.path().join("new folder/預覽.png");
+        renderer
+            .preview(&project, &output, Some("1"), &token)
+            .unwrap();
+        assert!(fs::read(&output).unwrap().starts_with(b"\x89PNG"));
+        assert_eq!(renderer.inspect_image(&output, &token).unwrap(), (160, 90));
+        for mode in [RenderMode::Simple, RenderMode::PerFrame] {
+            let output = root.path().join(format!("{mode:?}.mp4"));
+            renderer
+                .export_with_mode(&project, &output, mode, &token)
+                .unwrap();
+            assert!(fs::metadata(&output).unwrap().len() > 100);
+            let duration = renderer
+                .probe_audio_duration(&output, &token)
+                .unwrap()
+                .unwrap();
+            assert!((duration - 0.5).abs() < 0.05, "{duration}");
+        }
+        assert_eq!(project, before);
+    }
+
+    #[test]
+    fn linked_failure_precancel_and_aliases_preserve_destinations() {
+        let root = tempfile::tempdir().unwrap();
+        let mut project = fixture(root.path());
+        let token = CancellationToken::default();
+        let renderer = VideoRenderer::discover(&token).unwrap();
+        let output = root.path().join("old.mp4");
+        fs::write(&output, b"existing destination").unwrap();
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        assert!(renderer.export(&project, &output, &cancelled).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"existing destination");
+        let main = project.metadata.artwork_path.as_deref().unwrap();
+        fs::write(main, b"corrupt image").unwrap();
+        assert!(renderer.export(&project, &output, &token).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"existing destination");
+        image(main, 32, 48);
+        for protected in protected_paths(&project) {
+            assert!(renderer
+                .preview(&project, &protected, None, &token)
+                .is_err());
             let alias = root.path().join("alias.mp4");
-            fs::hard_link(&source, &alias).unwrap();
-            assert!(export_with_renderer(
-                &project,
-                &render_request(&project, &alias).unwrap(),
-                &renderer,
-                &CancellationToken::default()
-            )
-            .is_err());
-            fs::remove_file(&alias).unwrap();
-            std::os::unix::fs::symlink(&source, &alias).unwrap();
-            assert!(export_with_renderer(
-                &project,
-                &render_request(&project, &alias).unwrap(),
-                &renderer,
-                &CancellationToken::default()
-            )
-            .is_err());
+            fs::hard_link(&protected, &alias).unwrap();
+            assert!(renderer.export(&project, &alias, &token).is_err());
             fs::remove_file(&alias).unwrap();
         }
         project.video.export_settings.selected_chapter_ids.clear();
         project.video.export_settings.selection_initialized = true;
-        assert!(export_with_renderer(
-            &project,
-            &render_request(&project, &output).unwrap(),
-            &renderer,
-            &CancellationToken::default()
-        )
-        .is_err());
-        assert_clean(root.path(), &project, &output);
-        project.metadata.artwork_path = None;
-        assert!(render_request(&project, &output)
-            .unwrap_err()
-            .to_string()
-            .contains("Add project artwork"));
+        assert!(renderer.export(&project, &output, &token).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"existing destination");
     }
 
     #[test]
-    fn reusable_session_caches_inspection_and_invalidates_changed_source() {
-        let root = tempfile::tempdir().unwrap();
-        let project = project(root.path());
-        let image = project.metadata.artwork_path.as_deref().unwrap();
-        let renderer = VideoRenderer::new(fake(root.path(), "success"));
-        let token = CancellationToken::default();
-        assert_eq!(renderer.inspect_image(image, &token).unwrap(), (100, 100));
-        renderer.clone().inspect_image(image, &token).unwrap();
-        let count = || {
-            fs::read_to_string(root.path().join("probes"))
-                .unwrap()
-                .lines()
-                .filter(|line| *line == image.to_string_lossy())
-                .count()
-        };
-        assert_eq!(count(), 1);
-        fs::write(image, b"changed image with a new file length").unwrap();
-        renderer.inspect_image(image, &token).unwrap();
-        assert_eq!(count(), 2);
-    }
-
-    #[test]
-    fn session_preview_and_render_modes_keep_project_composition_and_publication() {
-        let root = tempfile::tempdir().unwrap();
-        let mut project = project(root.path());
-        fs::write(
-            project.metadata.artwork_path.as_ref().unwrap(),
-            png_header(false),
-        )
-        .unwrap();
-        let renderer = VideoRenderer::new(fake(root.path(), "success"));
-        let token = CancellationToken::default();
-        let preview = root.path().join("new folder/預覽.png");
-        // Fake FFmpeg emulates output creation, while Core owns staging and
-        // publication, including creation of a missing destination directory.
-        renderer
-            .preview(&project, &preview, Some("1"), &token)
-            .unwrap();
-        assert_eq!(fs::read(&preview).unwrap(), b"complete");
-        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        assert!(arguments.contains("gblur=sigma=20"));
-        assert!(arguments.contains("pad=90:90"));
-        assert!(arguments.contains("hflip"));
-        assert!(arguments.contains("-frames:v\n1\n-f\nimage2\n"));
-        assert!(renderer
-            .preview(&project, &preview, Some("missing"), &token)
-            .is_err());
-        let protected = project.project_path.as_ref().unwrap();
-        assert!(renderer.preview(&project, protected, None, &token).is_err());
-        assert_eq!(fs::read(protected).unwrap(), b"project");
-        let output = root.path().join("cached.mp4");
-        renderer.export(&project, &output, &token).unwrap();
-        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        assert!(arguments.contains("loop=loop=-1:size=1:start=0"));
-        assert!(arguments.contains("aformat=sample_rates=48000:channel_layouts=stereo"));
-        fs::remove_file(root.path().join("arguments")).unwrap();
-        renderer
-            .export_with_mode(&project, &output, RenderMode::PerFrame, &token)
-            .unwrap();
-        let arguments = fs::read_to_string(root.path().join("arguments")).unwrap();
-        assert!(!arguments.contains("loop=loop=-1:size=1:start=0"));
-        project.chapters[1].image_path = Some(root.path().join("animated.gif"));
-        fs::write(
-            project.chapters[1].image_path.as_ref().unwrap(),
-            b"GIF89a01",
-        )
-        .unwrap();
-        fs::remove_file(root.path().join("arguments")).unwrap();
-        renderer.export(&project, &output, &token).unwrap();
-        assert!(!fs::read_to_string(root.path().join("arguments"))
-            .unwrap()
-            .contains("loop=loop=-1:size=1:start=0"));
-    }
-
-    #[test]
-    fn preview_cancellation_and_failure_preserve_existing_destination() {
-        for mode in ["fail", "encode_sleep"] {
-            let root = tempfile::tempdir().unwrap();
-            let project = project(root.path());
-            let output = root.path().join("preview.png");
-            fs::write(&output, b"old output").unwrap();
-            let renderer = VideoRenderer::new(fake(root.path(), mode));
-            let token = CancellationToken::default();
-            let signal = token.clone();
-            let cancel = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(100));
-                signal.cancel();
-            });
-            assert!(renderer.preview(&project, &output, None, &token).is_err());
-            cancel.join().unwrap();
-            assert_clean(root.path(), &project, &output);
+    fn progress_cancellation_drains_worker_and_keeps_other_token_live() {
+        struct Cancel<'a>(&'a CancellationToken);
+        impl EventSink for Cancel<'_> {
+            fn progress(&self, _: avid_core::Progress) {
+                self.0.cancel();
+            }
         }
-    }
-
-    #[test]
-    fn cancelling_one_export_does_not_cancel_an_independent_job() {
-        let sleeping = tempfile::tempdir().unwrap();
-        let successful = tempfile::tempdir().unwrap();
-        let project_slow = project(sleeping.path());
-        let output_slow = sleeping.path().join("out.mp4");
-        fs::write(&output_slow, b"old output").unwrap();
-        let slow = VideoRenderer::new(fake(sleeping.path(), "encode_sleep"));
-        let fast = VideoRenderer::new(fake(successful.path(), "success"));
+        let root = tempfile::tempdir().unwrap();
+        let mut project = fixture(root.path());
+        // A long requested timeline ensures a progress callback precedes EOF.
+        project.chapters[0].duration_seconds = 30.0;
+        project.chapters[1].start_time_seconds = 30.0;
+        let output = root.path().join("cancel.mp4");
+        fs::write(&output, b"old").unwrap();
         let token = CancellationToken::default();
-        let worker_token = token.clone();
-        let worker_project = project_slow.clone();
-        let worker_output = output_slow.clone();
-        let worker =
-            std::thread::spawn(move || slow.export(&worker_project, &worker_output, &worker_token));
-        let fast_token = CancellationToken::default();
-        let fast_project = project(successful.path());
-        let fast_output = successful.path().join("out.mp4");
-        let cancel = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(200));
-            token.cancel();
-        });
-        fast.export(&fast_project, &fast_output, &fast_token)
+        let renderer = VideoRenderer::discover(&token).unwrap();
+        assert!(renderer
+            .export_with_events(
+                &project,
+                &output,
+                Some(RenderMode::PerFrame),
+                &token,
+                &Cancel(&token)
+            )
+            .is_err());
+        assert!(token.is_cancelled());
+        assert_eq!(fs::read(&output).unwrap(), b"old");
+        let independent = CancellationToken::default();
+        let preview = root.path().join("independent.png");
+        renderer
+            .preview(&fixture(root.path()), &preview, None, &independent)
             .unwrap();
-        cancel.join().unwrap();
-        assert!(worker
-            .join()
-            .unwrap()
-            .unwrap_err()
-            .to_string()
-            .contains("cancelled"));
-        assert!(!fast_token.is_cancelled());
-        assert_eq!(fs::read(fast_output).unwrap(), b"complete");
-        assert_clean(sleeping.path(), &project_slow, &output_slow);
+        assert!(!independent.is_cancelled());
     }
 }

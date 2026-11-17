@@ -2,11 +2,11 @@
   "schema_version": 1,
   "scope": "Apple transcription components, catalog tooling, documentation, repository policy and license at the published AVID Core source revision; not the complete Rust repository or model weights",
   "repository": "https://github.com/tlolabs/avid-core",
-  "source_tag": "v0.3.2",
-  "source_commit": "8296a9e623c6924c12e456b5fe9e7c10b59dfbde",
+  "source_tag": "v0.4.0",
+  "source_commit": "dd112d497b68df6786f49a71b3611f7f32f090e9",
   "source_acquisition": "Unmodified files exported from immutable Git commit objects; this manifest does not assert an independent audit of the export",
   "source_bundle": "AVID_CORE_TRANSCRIPTION_SOURCE.tar.gz",
-  "source_bundle_sha256": "a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937",
+  "source_bundle_sha256": "76f517ddfcf14067ac52c0f84b61b4f3bb7dd11917df30de94385dc0d15428a3",
   "files": [
     {
       "path": "AGENTS.md",
@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "sha256": "6d61b8c58aedfb4e344edece96e5118a183ffbf6346c389a9fd66ef912012b62",
-      "size_bytes": 19253,
+      "sha256": "66bdd6b4971ead297fd7f11ed870ad8f2a941fd0e43750426aece554906bedaa",
+      "size_bytes": 7858,
       "mode": 420
     },
     {
@@ -40,14 +40,14 @@
     },
     {
       "path": "apple/AVIDTranscription/Package.swift",
-      "sha256": "b9d501c0d3e4989bb066e8bcd0f5c1941bc379c2e8217f2ae93f670b98002f3c",
-      "size_bytes": 607,
+      "sha256": "8a9251dc98f1c195b4aa495596386599eb4cb647eae07818e9a63409495f2556",
+      "size_bytes": 619,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Captioning.swift",
-      "sha256": "86e072bfc6a18d42ad75a90000c55c2c6d5a5caba4ce052fe6129a9148317988",
-      "size_bytes": 10968,
+      "sha256": "18ac4edc046743af35faf85f7fbbf2ad528d913e6963aef999bad007c234ca30",
+      "size_bytes": 11002,
       "mode": 420
     },
     {
@@ -58,20 +58,26 @@
     },
     {
       "path": "apple/AVIDTranscription/Sources/AVIDTranscription/ModelCatalog.swift",
-      "sha256": "b2967d5765c362622644a4308310d36b1b1d30e2ac8b2ccceefc1ec3dfa44d16",
-      "size_bytes": 8623,
+      "sha256": "c1093ee76c1ca5354e7fa1cfbe3c510aa88988f09a9131ba89bc17449a5f6c4d",
+      "size_bytes": 9637,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscription/Sources/AVIDTranscription/ModelStore.swift",
-      "sha256": "53abc5544f08e02ae66188f03ebdbefb6fa8fef7af0b828d07ed4e4316a9b88a",
-      "size_bytes": 18284,
+      "sha256": "dd884977fc531da3ba5968f7faf9b704a2bc7331aa8f5398896b31cc93d0d214",
+      "size_bytes": 18622,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Provenance.swift",
+      "sha256": "5cad306910e32770f381eaf05009298d5681e38d7d14d8a40ae19a9c2db78633",
+      "size_bytes": 7393,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Providers.swift",
-      "sha256": "cfac96dc5a1241de08f24e05857f87bfb69a1a3a332b5ef6d0c0c769c331cab6",
-      "size_bytes": 3067,
+      "sha256": "896d4adcb1db21589ea935f873bc145455567a2c8c7c38c12fa80765ea80dec7",
+      "size_bytes": 4412,
       "mode": 420
     },
     {
@@ -82,8 +88,8 @@
     },
     {
       "path": "apple/AVIDTranscription/Sources/AVIDTranscription/Transcript.swift",
-      "sha256": "a5ec85d25f5584bc287f3acefddf78a0bb47a135e6715a1db11204478282f761",
-      "size_bytes": 7751,
+      "sha256": "b39df1da6637802d32f801dfa0ccf74c0dd9a6c2e92f02def7dec5291dbf8099",
+      "size_bytes": 9431,
       "mode": 420
     },
     {
@@ -106,14 +112,20 @@
     },
     {
       "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/ModelStoreTests.swift",
-      "sha256": "16305b79ab5efbd9b47c18ff5bbee8cf66b013df3723f490a861db3d6302044a",
-      "size_bytes": 25568,
+      "sha256": "d3fc7c12ed181a524778f45c2e32b0f525ecbdade0124367cb0aad5b12cec39d",
+      "size_bytes": 26918,
+      "mode": 420
+    },
+    {
+      "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/ProvenanceTests.swift",
+      "sha256": "3036f6a5c8dedefdc806c2fb6aa6909a79ee7763d1ccb490e9685f63f5825b00",
+      "size_bytes": 6442,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscription/Tests/AVIDTranscriptionTests/TranscriptTests.swift",
-      "sha256": "eca08d1111c84cab85a91f020aae9a0a9dff4dd1e2967aec5d4894c164963485",
-      "size_bytes": 4363,
+      "sha256": "966af4c19cabcdf2cab031b9451c4d8cfe452f1bcad7b1919feb83a308fa45e2",
+      "size_bytes": 6096,
       "mode": 420
     },
     {
@@ -141,9 +153,15 @@
       "mode": 420
     },
     {
+      "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/EngineProvenance.swift",
+      "sha256": "40b2c1c4383d9f81b7dc67367593347a9e74545a2355780aa7680447e7d9fef7",
+      "size_bytes": 536,
+      "mode": 420
+    },
+    {
       "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/FluidAudioProvider.swift",
-      "sha256": "c68ace748aee47e6cd6c7ccb1c084b6f480d04442f92323b20cac92ceafee6d3",
-      "size_bytes": 3199,
+      "sha256": "19478ad235ae876e8040828500f0fac9b1bf65e78d610544d57fd61f2420a0ab",
+      "size_bytes": 3304,
       "mode": 420
     },
     {
@@ -160,20 +178,20 @@
     },
     {
       "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/QwenProviders.swift",
-      "sha256": "2b39bf38dbd2b0e42e5365a6f36d99c281fd14d1b5c0bbf49d3212de9f2d9c22",
-      "size_bytes": 11338,
+      "sha256": "10b4b30851f0a8c2fe575d6e8d8ca32612ac2e28708c003be75b6a80c559d454",
+      "size_bytes": 11528,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscriptionEngines/Sources/AVIDTranscriptionEngines/WhisperKitProvider.swift",
-      "sha256": "ba564969fe42e2a4fc468939bffbab9b6d0be7de949f40040c8023dacd0afdbd",
-      "size_bytes": 8391,
+      "sha256": "43f49289e6026a708fb56d651edf2dd56c8e8e44a4e69fb137820b0162ca4076",
+      "size_bytes": 8496,
       "mode": 420
     },
     {
       "path": "apple/AVIDTranscriptionEngines/Sources/avid-transcribe/Command.swift",
-      "sha256": "4e7f85895138ced498abeabbf6363255edb798c9f16ad580fa34c6e43d49259e",
-      "size_bytes": 10040,
+      "sha256": "5c2d83d57fbdda88e1ad31acd798ff2d2b09bfede206cc0673aa7cacc169a3ec",
+      "size_bytes": 9982,
       "mode": 420
     },
     {
@@ -184,14 +202,14 @@
     },
     {
       "path": "apple/AVIDTranscriptionEngines/Tests/AVIDTranscriptionEnginesTests/AdapterContractTests.swift",
-      "sha256": "a4c42f1fb09d49c3479ab2f05e57b47c3593e8bcacc32fd7fb9610205143e730",
-      "size_bytes": 13258,
+      "sha256": "fc3afc67765a82f76b2017e1c97a98174fe0fbf53557ca197a113d9035cff1b9",
+      "size_bytes": 15656,
       "mode": 420
     },
     {
       "path": "apple/README.md",
-      "sha256": "0995bc67d7194b72afcc0e169dbb845c717e6a3ae076bf1beb717279d61748aa",
-      "size_bytes": 9362,
+      "sha256": "b31452f3ade1bf132f1f1bfd210f666aaae058b1a5a8f317e5fc32665c4f16e8",
+      "size_bytes": 10275,
       "mode": 420
     },
     {
@@ -211,6 +229,12 @@
       "sha256": "2837a4cdb13cce81e3b442f9b1b856b07d4159024ede6b01ab6e4ab6fcf4f9a6",
       "size_bytes": 14587,
       "mode": 493
+    },
+    {
+      "path": "tests/fixtures/transcript-provenance-v1.json",
+      "sha256": "30e025c986100001082aab49c66ff15d66224c5b0810afe32780c93db4072f5e",
+      "size_bytes": 3573,
+      "mode": 420
     }
   ]
 }

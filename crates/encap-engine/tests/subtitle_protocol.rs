@@ -1,7 +1,7 @@
-//! The saved-segment export uses Core's helper without word-caption regrouping.
+//! Saved-segment export calls linked Core independently of inference or executables.
 #![cfg(unix)]
 use serde_json::{json, Value};
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
 
 fn invoke(payload: &Path, output: &Path, helper: &Path, format: &str, ok: bool) {
     let response = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
@@ -10,6 +10,8 @@ fn invoke(payload: &Path, output: &Path, helper: &Path, format: &str, ok: bool) 
         .arg(output)
         .arg(format)
         .env("ENCAP_AVID_TRANSCRIBER", helper)
+        .env("ENCAP_AVID_TRANSCRIPTION_LIBRARY", "/missing/library")
+        .env("PATH", "")
         .output()
         .unwrap();
     assert_eq!(
@@ -33,36 +35,28 @@ fn segment_subtitle_exports_route_formats_and_preserve_output_on_core_failure() 
     }]}))
     .unwrap();
     fs::write(&payload, &source).unwrap();
-    fs::write(
-        &helper,
-        r#"#!/bin/sh
-[ "$1" = subtitles ] && [ "$2" = --transcript ] && [ -f "$3" ] && [ "$4" = --format ] || exit 2
-printf '"Core %s segment cues\\n"\n' "$5"
-"#,
-    )
-    .unwrap();
-    fs::set_permissions(&helper, fs::Permissions::from_mode(0o755)).unwrap();
     for format in ["srt", "vtt"] {
         let output = root.path().join(format!("episode.{format}"));
         invoke(&payload, &output, &helper, format, true);
-        assert_eq!(
-            fs::read_to_string(&output).unwrap(),
-            format!("Core {format} segment cues\n")
-        );
-        // Core errors must preserve the existing output, without selecting the
-        // retained writer used on platforms where Core has no exporter.
-        let failing = root.path().join("failed-helper");
+        let expected = if format == "srt" {
+            "1\n00:00:00,000 --> 00:00:01,000\nHost: Original segment\n\n"
+        } else {
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHost: Original segment\n\n"
+        };
+        assert_eq!(fs::read_to_string(&output).unwrap(), expected);
+        // Invalid segment bounds fail before publication, independent of model
+        // availability and without substituting the old writer/helper.
+        let invalid = root.path().join("invalid.json");
         fs::write(
-            &failing,
-            "#!/bin/sh\nprintf '%s\\n' '{\"error\":\"invalid Core cues\"}'\nexit 1\n",
+            &invalid,
+            serde_json::to_vec(&json!({"transcript_segments":[{
+                "id":"one","start_time_seconds":1.0,"end_time_seconds":0.0,"text":"Original segment"
+            }]}))
+            .unwrap(),
         )
         .unwrap();
-        fs::set_permissions(&failing, fs::Permissions::from_mode(0o755)).unwrap();
-        invoke(&payload, &output, &failing, format, false);
-        assert_eq!(
-            fs::read_to_string(&output).unwrap(),
-            format!("Core {format} segment cues\n")
-        );
+        invoke(&invalid, &output, &helper, format, false);
+        assert_eq!(fs::read_to_string(&output).unwrap(), expected);
         invoke(&payload, &payload, &helper, format, false);
         assert_eq!(fs::read(&payload).unwrap(), source);
     }

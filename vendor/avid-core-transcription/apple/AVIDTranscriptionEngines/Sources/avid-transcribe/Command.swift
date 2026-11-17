@@ -52,8 +52,8 @@ struct Command {
             case .mlx: recognizer = QwenASRProvider()
             }
             let transcript = try await store.withInstalledModel(id: modelID, progress: reportDownload) { installed in
-                let request = RecognitionRequest(audioURL: audio, modelID: modelID,
-                    modelDirectory: installed.directory, language: options.language, sourceStartSeconds: options.offset)
+                let request = try RecognitionRequest(audioURL: audio, installedModel: installed,
+                    language: options.language, sourceStartSeconds: options.offset)
                 return try await recognizer.transcribe(request, progress: reportInference)
             }
             if let alignID = options.alignModel {
@@ -95,7 +95,7 @@ struct Command {
                                         offline: options.offline, progress: reportDownload)
         return try await store.withInstalledModel(id: descriptor.id, progress: reportDownload) { installed in
             try await QwenAlignmentProvider().align(AlignmentRequest(audioURL: audio,
-                modelID: descriptor.id, modelDirectory: installed.directory, transcript: transcript,
+                installedModel: installed, transcript: transcript,
                 language: language, sourceStartSeconds: options.offset), progress: reportInference)
         }
     }

@@ -1,0 +1,27 @@
+[package]
+name = "encap-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+portable-whisper = ["encap-transcript/portable-whisper"]
+
+[dependencies]
+avid-core.workspace = true
+clap.workspace = true
+directories.workspace = true
+encap-audio = { path = "../encap-audio" }
+encap-core = { path = "../encap-core" }
+encap-ffmpeg = { path = "../encap-ffmpeg" }
+encap-transcript = { path = "../encap-transcript" }
+encap-video = { path = "../encap-video" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true

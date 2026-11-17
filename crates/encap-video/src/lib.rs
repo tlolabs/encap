@@ -1,6 +1,6 @@
 //! EnCAP project and artwork workflow adapter over the canonical Video renderer.
 //! Operations block; callers must run them on application workers and join them
-//! before replacing runtime tools. Every operation receives its own cancellation token.
+//! before unloading linked libraries. Every operation receives its own cancellation token.
 
 pub use avid_core::{
     CancellationToken, Capabilities as VideoCapabilities,
@@ -8,21 +8,19 @@ pub use avid_core::{
 };
 use avid_core::{Clip, EventSink, Input, PreviewRequest, RenderRequest, Renderer, Timeline};
 use encap_core::{Chapter, EncapError, ProjectDocument, Result};
-use encap_ffmpeg::MediaTools;
 use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex, OnceLock,
+        OnceLock,
     },
-    time::SystemTime,
 };
 
 mod artwork;
 mod lifecycle;
 
 /// A reusable session: clones share Core's bounded artwork/duration caches.
-/// Core owns probing, composition graphs, subprocesses, and atomic publication.
+/// Core owns linked probing, composition graphs, and atomic publication.
 #[derive(Clone, Debug)]
 pub struct VideoRenderer {
     renderer: Renderer,
@@ -34,27 +32,28 @@ impl VideoRenderer {
         Self { renderer }
     }
 
-    /// Authenticate/discover the bundled runtime before reusing a matching session.
-    /// Discovery is repeated so caching never bypasses runtime integrity checks.
+    /// Reuse the linked Core session; no executable discovery or PATH fallback.
     pub fn discover(cancellation: &CancellationToken) -> Result<Self> {
         let _operation = lifecycle::OperationGuard::acquire(None, cancellation)?;
-        let tools = MediaTools::discover_with_cancellation(cancellation)?.into_core();
-        let fingerprint = ToolFingerprint::new(&tools);
-        static SESSION: OnceLock<Mutex<Option<(ToolFingerprint, VideoRenderer)>>> = OnceLock::new();
-        let mut session = SESSION
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .map_err(|_| {
-                EncapError::Message("Video renderer session could not be accessed.".into())
-            })?;
-        if let Some((cached, renderer)) = session.as_ref() {
-            if cached == &fingerprint {
-                return Ok(renderer.clone());
-            }
-        }
-        let renderer = Self::new(Renderer::new(tools));
-        *session = Some((fingerprint, renderer.clone()));
-        Ok(renderer)
+        static SESSION: OnceLock<VideoRenderer> = OnceLock::new();
+        Ok(SESSION.get_or_init(|| Self::new(Renderer::new())).clone())
+    }
+
+    /// Profile-aware settings for a newly created project. Persisted explicit
+    /// settings are never rewritten to suit the linked encoder profile.
+    pub fn default_settings(&self) -> avid_core::RenderSettings {
+        self.renderer.default_settings()
+    }
+
+    pub fn probe_audio_duration(
+        &self,
+        audio: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<f64>> {
+        let _operation = lifecycle::OperationGuard::acquire(None, cancellation)?;
+        self.renderer
+            .probe_audio_duration(audio, cancellation)
+            .map_err(EncapError::from)
     }
 
     pub fn capabilities(&self, cancellation: &CancellationToken) -> Result<VideoCapabilities> {
@@ -187,27 +186,6 @@ impl VideoRenderer {
     }
 }
 
-#[derive(PartialEq)]
-struct ToolFingerprint(Vec<(PathBuf, Option<(u64, SystemTime)>)>);
-impl ToolFingerprint {
-    fn new(tools: &avid_core::MediaTools) -> Self {
-        Self(
-            [tools.ffmpeg(), tools.ffprobe()]
-                .into_iter()
-                .map(|path| {
-                    let fingerprint = std::fs::metadata(path).ok().and_then(|metadata| {
-                        metadata
-                            .modified()
-                            .ok()
-                            .map(|modified| (metadata.len(), modified))
-                    });
-                    (path.to_path_buf(), fingerprint)
-                })
-                .collect(),
-        )
-    }
-}
-
 pub fn capabilities(cancellation: &CancellationToken) -> Result<VideoCapabilities> {
     VideoRenderer::discover(cancellation)?.capabilities(cancellation)
 }
@@ -291,25 +269,6 @@ fn protected_paths(project: &ProjectDocument) -> Vec<PathBuf> {
         )
         .chain(project.project_path.iter().cloned())
         .collect()
-}
-
-// Keep focused legacy adapter tests on the original comparison path.
-#[cfg(test)]
-fn export_with_renderer(
-    project: &ProjectDocument,
-    request: &RenderRequest,
-    renderer: &Renderer,
-    cancellation: &CancellationToken,
-) -> Result<()> {
-    let _operation = lifecycle::OperationGuard::acquire(Some(&request.output), cancellation)?;
-    renderer
-        .inspect_image(main_artwork(project)?, cancellation)
-        .map_err(EncapError::from)?;
-    let events = CompletionEvents::new(&Diagnostics);
-    renderer
-        .render_with_mode(request, RenderMode::PerFrame, cancellation, &events)
-        .map_err(EncapError::from)?;
-    events.require_complete()
 }
 
 fn main_artwork(project: &ProjectDocument) -> Result<&Path> {
@@ -420,12 +379,22 @@ impl EventSink for CompletionEvents<'_> {
 struct Diagnostics;
 impl EventSink for Diagnostics {
     fn diagnostic(&self, line: &str) {
-        tracing::debug!(diagnostic = line, "Video media tool");
+        // Native diagnostics may contain local paths; keep raw details in the
+        // local log and send only stages/numeric progress through UI callbacks.
+        tracing::debug!(diagnostic = line, "Linked Video library");
     }
     fn stage(&self, stage: avid_core::Stage) {
+        if let Some(handler) = encap_core::current_progress_handler() {
+            handler(serde_json::json!({"schema_version":1,"event":"stage","stage":stage.as_str()}));
+        }
         tracing::debug!(stage = stage.as_str(), "Video stage");
     }
     fn progress(&self, progress: avid_core::Progress) {
+        if let Some(handler) = encap_core::current_progress_handler() {
+            handler(serde_json::json!({"schema_version":1,"event":"progress",
+                "elapsed_seconds":progress.elapsed_seconds,"duration_seconds":progress.duration_seconds,
+                "fraction":progress.fraction,"eta_seconds":progress.eta_seconds}));
+        }
         tracing::debug!(
             elapsed_seconds = progress.elapsed_seconds,
             duration_seconds = progress.duration_seconds,

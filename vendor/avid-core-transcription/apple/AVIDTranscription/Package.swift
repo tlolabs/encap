@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AVIDTranscription",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "AVIDTranscription", targets: ["AVIDTranscription"]),
         .executable(name: "avid-transcription", targets: ["avid-transcription"]),

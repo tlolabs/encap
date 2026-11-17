@@ -54,7 +54,8 @@ public actor FluidAudioProvider: TranscriptionProvider {
             progress(.init(stage: "Finished", fraction: 1))
             return try Transcript(
                 segments: segments, language: code,
-                provenance: .init(engineID: engineID, modelID: request.modelID)
+                provenance: .init(engineID: engineID, modelID: request.modelID,
+                    modelIdentity: request.modelIdentity, runtimeRevisions: EngineProvenance.fluidAudio)
             ).offsettingTimes(by: request.sourceStartSeconds)
         }, cleanup: {
             await manager.cleanup()

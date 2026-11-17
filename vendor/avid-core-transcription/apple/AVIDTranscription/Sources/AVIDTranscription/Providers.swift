@@ -17,16 +17,27 @@ public struct RecognitionRequest: Sendable {
     public let language: String?
     /// Offset of the input's first sample on the original source audio's clock.
     public let sourceStartSeconds: Double
+    /// Supply from a verified model lease; absent for older direct callers.
+    public let modelIdentity: ModelIdentity?
 
     public init(
         audioURL: URL, modelID: String, modelDirectory: URL,
-        language: String? = nil, sourceStartSeconds: Double = 0
+        language: String? = nil, sourceStartSeconds: Double = 0, modelIdentity: ModelIdentity? = nil
     ) {
         self.audioURL = audioURL
         self.modelID = modelID
         self.modelDirectory = modelDirectory
         self.language = language
         self.sourceStartSeconds = sourceStartSeconds
+        self.modelIdentity = modelIdentity
+    }
+
+    public init(audioURL: URL, installedModel: InstalledModel,
+                language: String? = nil, sourceStartSeconds: Double = 0) throws {
+        self.init(audioURL: audioURL, modelID: installedModel.descriptor.id,
+            modelDirectory: installedModel.directory, language: language,
+            sourceStartSeconds: sourceStartSeconds,
+            modelIdentity: try installedModel.descriptor.provenanceIdentity())
     }
 
     public func validate() throws {
@@ -37,6 +48,7 @@ public struct RecognitionRequest: Sendable {
             throw TranscriptionError.invalidTimestamp("source offset must be finite and nonnegative")
         }
         guard !modelID.isEmpty else { throw TranscriptionError.invalidInput("model ID is empty") }
+        try modelIdentity?.validate()
     }
 }
 
@@ -56,10 +68,11 @@ public struct AlignmentRequest: Sendable {
     public let transcript: Transcript
     public let language: String?
     public let sourceStartSeconds: Double
+    public let modelIdentity: ModelIdentity?
 
     public init(
         audioURL: URL, modelID: String, modelDirectory: URL, transcript: Transcript,
-        language: String? = nil, sourceStartSeconds: Double = 0
+        language: String? = nil, sourceStartSeconds: Double = 0, modelIdentity: ModelIdentity? = nil
     ) {
         self.audioURL = audioURL
         self.modelID = modelID
@@ -67,13 +80,23 @@ public struct AlignmentRequest: Sendable {
         self.transcript = transcript
         self.language = language
         self.sourceStartSeconds = sourceStartSeconds
+        self.modelIdentity = modelIdentity
+    }
+
+    public init(audioURL: URL, installedModel: InstalledModel, transcript: Transcript,
+                language: String? = nil, sourceStartSeconds: Double = 0) throws {
+        self.init(audioURL: audioURL, modelID: installedModel.descriptor.id,
+            modelDirectory: installedModel.directory, transcript: transcript,
+            language: language, sourceStartSeconds: sourceStartSeconds,
+            modelIdentity: try installedModel.descriptor.provenanceIdentity())
     }
 
     public func validate() throws {
         try RecognitionRequest(
             audioURL: audioURL, modelID: modelID, modelDirectory: modelDirectory,
-            language: language, sourceStartSeconds: sourceStartSeconds
+            language: language, sourceStartSeconds: sourceStartSeconds, modelIdentity: modelIdentity
         ).validate()
+        try transcript.validate()
     }
 }
 

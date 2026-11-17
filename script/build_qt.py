@@ -44,7 +44,8 @@ def copy_required(source, destination):
 
 
 def stage_helpers(output, tools, host, reference):
-    names = ['encap-engine', 'ffmpeg', 'ffprobe']
+    # Unfinished Audio/Qt PCM compatibility still requires the authenticated pair.
+    names = ['ffmpeg', 'ffprobe']
     if not reference:
         names.append('encap-update')
     if host == 'win':
@@ -52,18 +53,18 @@ def stage_helpers(output, tools, host, reference):
     suffix = '.exe' if host == 'win' else ''
     for name in names:
         copy_required(tools / (name + suffix), output / (name + suffix))
-    # Only a supported macOS reference package can carry the shared helper.
-    if reference and (tools / 'avid-transcriber').is_file():
-        copy_required(tools / 'avid-transcriber', output / 'avid-transcriber')
-        for bundle in (tools.parent / 'Resources').glob('*.bundle'):
-            shutil.copytree(bundle, output.parent / 'Resources' / bundle.name, dirs_exist_ok=True)
-        for library in tools.glob('*.dylib'):
-            copy_required(library, output / library.name)
-        copy_required(tools.parent / 'Resources/avid-transcriber-resources.json', output.parent / 'Resources/avid-transcriber-resources.json')
-        licenses = tools.parent / 'Resources/AVIDTranscriptionLicenses'
-        if not licenses.is_dir():
-            raise FileNotFoundError(licenses)
-        shutil.copytree(licenses, output.parent / 'Resources/AVIDTranscriptionLicenses', dirs_exist_ok=True)
+    linked_source = tools.parent / 'Frameworks' if reference else tools
+    library_name = 'encap_app.dll' if host == 'win' else ('libencap_app.dylib' if reference else 'libencap_app.so')
+    linked_output = output.parent / 'Frameworks' if reference else output
+    run(sys.executable, ROOT / 'script/linked_runtime.py', 'verify-stage', '--directory', linked_source)
+    copy_required(linked_source / library_name, linked_output / library_name)
+    source_metadata = linked_source.parent / 'Resources/EnCAPLinked' if reference else linked_source / 'EnCAPLinked'
+    output_metadata = linked_output.parent / 'Resources/EnCAPLinked' if reference else linked_output / 'EnCAPLinked'
+    shutil.copytree(source_metadata, output_metadata, dirs_exist_ok=True)
+    if reference and (linked_source / 'EnCAPTranscription.framework').is_dir():
+        shutil.copytree(linked_source / 'EnCAPTranscription.framework', linked_output / 'EnCAPTranscription.framework', dirs_exist_ok=True, symlinks=True)
+        shutil.copytree(linked_source.parent / 'Resources/EnCAPTranscription', linked_output.parent / 'Resources/EnCAPTranscription', dirs_exist_ok=True)
+    run(sys.executable, ROOT / 'script/linked_runtime.py', 'verify-stage', '--directory', linked_output)
     qualification = tools.parent / 'Resources/transcription-qualification.json' if reference else tools / 'transcription-qualification.json'
     if qualification.is_file():
         copy_required(qualification, output / 'transcription-qualification.json')
@@ -138,12 +139,13 @@ def build(args):
     run('cmake', '--build', build_dir, '--config', 'Release', '--parallel')
     suffix = '.exe' if host == 'win' else ''
     test_tools = build_dir / ('Release' if host == 'win' else '')
-    copy_required(tools / ('encap-engine' + suffix), test_tools / ('encap-engine' + suffix))
+    linked_tools = tools.parent / 'Frameworks' if reference else tools
+    linked_name = 'encap_app.dll' if host == 'win' else ('libencap_app.dylib' if reference else 'libencap_app.so')
     if host == 'win':
         for name in ('encap-playback', 'encap-media'):
             copy_required(build_dir / 'native/Release' / (name + '.dll'), test_tools / (name + '.dll'))
     environment = os.environ.copy()
-    environment['ENCAP_TEST_ENGINE'] = str(tools / ('encap-engine' + suffix))
+    environment['ENCAP_TEST_LIBRARY'] = str(linked_tools / linked_name)
     if host == 'win' and args.qt_prefix:
         environment['PATH'] = str(test_tools) + os.pathsep + str(args.qt_prefix / 'bin') + os.pathsep + environment['PATH']
         environment['QT_PLUGIN_PATH'] = str(args.qt_prefix / 'plugins')
@@ -186,6 +188,14 @@ def build(args):
             if list(destination.rglob(forbidden)):
                 raise ValueError(f'Internal reference contains forbidden production component: {forbidden}')
         run('codesign', '--force', '--deep', '--sign', '-', destination)
+        # Nested signing changes raw bytes. Bind only unchanged code, then seal
+        # the outer resource receipts without re-signing those nested objects.
+        if (frameworks / 'EnCAPTranscription.framework').is_dir():
+            run(sys.executable, ROOT / 'script/stage_avid_transcriber.py', '--bind-signature',
+                frameworks / 'EnCAPTranscription.framework', '--metadata-directory', contents / 'Resources/EnCAPTranscription')
+        run(sys.executable, ROOT / 'script/linked_runtime.py', 'verify-stage', '--directory', frameworks, '--bind-signature')
+        run('codesign', '--force', '--sign', '-', destination)
+        run('codesign', '--verify', '--deep', '--strict', destination)
         archive = ROOT / f'dist/internal/EnCap-{version}-INTERNAL-Qt-Reference-osx-arm64.zip'
         archive.unlink(missing_ok=True)
         run('ditto', '-c', '-k', '--keepParent', destination, archive)
@@ -247,7 +257,7 @@ def build(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rid', choices=TARGETS, required=True)
-    parser.add_argument('--tools', type=Path, required=True, help='staged Rust engine and authenticated FFmpeg binaries')
+    parser.add_argument('--tools', type=Path, required=True, help='verified linked application library/receipt and unfinished authenticated Audio runtime')
     parser.add_argument('--qt-prefix', type=Path, help='Qt installation prefix containing bin, lib and plugins')
     parser.add_argument('--run', action='store_true', help='launch the internal macOS Qt reference')
     options = parser.parse_args()

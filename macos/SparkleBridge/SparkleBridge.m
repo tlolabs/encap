@@ -1,28 +1,33 @@
 #import "SparkleBridge.h"
 
 #import <Foundation/Foundation.h>
+#include <stdatomic.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 
 static id EnCapUpdaterController;
 static BOOL EnCapWorkInProgress;
+static _Atomic unsigned long EnCapLinkedOperations;
+static BOOL EnCapHasWorkInProgress(void) { return EnCapWorkInProgress || atomic_load(&EnCapLinkedOperations) != 0; }
+void EnCapLinkedWorkStarted(void) { atomic_fetch_add(&EnCapLinkedOperations, 1); }
+void EnCapLinkedWorkFinished(void) { atomic_fetch_sub(&EnCapLinkedOperations, 1); }
 
 // Sparkle is loaded dynamically; these selectors follow SPUUpdaterDelegate.
 @interface EnCapUpdateDelegate : NSObject
 @end
 @implementation EnCapUpdateDelegate
 - (BOOL)updater:(id)updater mayPerformUpdateCheck:(NSInteger)check error:(NSError **)error {
-    if (EnCapWorkInProgress && error) *error = [NSError errorWithDomain:@"com.tlolabs.encap.updates" code:1 userInfo:@{NSLocalizedDescriptionKey:@"Finish the current operation before updating."}];
-    return !EnCapWorkInProgress;
+    if (EnCapHasWorkInProgress() && error) *error = [NSError errorWithDomain:@"com.tlolabs.encap.updates" code:1 userInfo:@{NSLocalizedDescriptionKey:@"Finish the current operation before updating."}];
+    return !EnCapHasWorkInProgress();
 }
 - (BOOL)updater:(id)updater shouldProceedWithUpdate:(id)item updateCheck:(NSInteger)check error:(NSError **)error {
     return [self updater:updater mayPerformUpdateCheck:check error:error];
 }
 - (NSArray *)allowedSystemProfileKeysForUpdater:(id)updater { return @[]; }
 - (BOOL)updater:(id)updater shouldPostponeRelaunchForUpdate:(id)item untilInvokingBlock:(void (^)(void))installHandler {
-    if (!EnCapWorkInProgress) return NO;
+    if (!EnCapHasWorkInProgress()) return NO;
     [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
-        if (!EnCapWorkInProgress) { [timer invalidate]; installHandler(); }
+        if (!EnCapHasWorkInProgress()) { [timer invalidate]; installHandler(); }
     }];
     return YES;
 }

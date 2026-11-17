@@ -108,3 +108,18 @@ fn startup_matches_legacy_commands_and_preserves_recovery_errors() {
     );
     assert_eq!(std::fs::read(&recovery).unwrap(), b"invalid recovery");
 }
+
+#[test]
+fn compatibility_validation_rejects_missing_executable_pair() {
+    let missing =
+        std::env::temp_dir().join(format!("encap-missing-tools-{}", uuid::Uuid::new_v4()));
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .arg("validate-compatibility-tools")
+        .env("ENCAP_FFMPEG", missing.join("ffmpeg"))
+        .env("ENCAP_FFPROBE", missing.join("ffprobe"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result["error"].as_str().is_some());
+}

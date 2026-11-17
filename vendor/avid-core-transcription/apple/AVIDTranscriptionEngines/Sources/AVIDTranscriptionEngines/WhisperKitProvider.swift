@@ -87,7 +87,8 @@ public actor WhisperKitProvider: TranscriptionProvider {
             try Task.checkCancellation()
             let result = try Transcript(
                 segments: segments, language: detectedLanguage ?? language,
-                provenance: .init(engineID: engineID, modelID: request.modelID)
+                provenance: .init(engineID: engineID, modelID: request.modelID,
+                    modelIdentity: request.modelIdentity, runtimeRevisions: EngineProvenance.whisperKit)
             ).offsettingTimes(by: request.sourceStartSeconds)
             await pipeline.unloadModels()
             return result

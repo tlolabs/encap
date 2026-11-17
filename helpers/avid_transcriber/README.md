@@ -1,94 +1,63 @@
-# EnCAP AVID transcription bridge
+# EnCAP linked transcription adapter
 
-This sidecar adapts the vendored, reviewed AVID Core Swift libraries to EnCAP's
-owned-process boundary. It contains no model catalog, downloader, recognizer,
-alignment implementation, or caption grouping implementation of its own.
-Production engine support is Apple silicon and macOS 14 or later; the base app
-has its own deployment target. This package does not establish support for other
-targets.
+This package builds `libEnCAPTranscription.dylib` and an optional diagnostic
+`avid-transcriber` client of the same service. Production EnCAP loads the library
+through [ABI 1](../../include/encap_transcription.h); it never launches the client.
+The shared model catalog, download, verification, recognition, alignment and
+caption behavior remain in the unmodified Core Swift packages.
 
-Build with Swift 6.3 or later, Xcode, and the installed Metal toolchain. Use
-`script/build_avid_transcriber.sh` to stage the executable **and** its SwiftPM
-resource bundles/Metal library. An executable copied without resources is not a
-complete helper installation. `Package.resolved` retains the reviewed dependency
-pins; the local packages come from `vendor/avid-core-transcription/apple`, not a
-mutable sibling checkout.
+The adapter and both upstream packages identify immutable Core `v0.4.0`, commit
+`dd112d497b68df6786f49a71b3611f7f32f090e9`. Run
+`ruby script/verify_avid_snapshot.rb`; the source archive, file manifest,
+`TranscriptWire.swift` source identity and frozen SwiftPM resolution move together.
+The complete source is vendored, so a sibling checkout is unnecessary.
 
-## Protocol version 1
+`script/build_avid_transcriber.sh DESTINATION` builds the dynamic product with
+Swift 6.3+, Xcode and the installed Metal toolchain. It stages a versioned framework, SwiftPM
+catalog/SDK/Metal resources, resolved SDK licenses and checksummed receipt, then
+loads the relocated module with an empty PATH for a catalog smoke. The smoke
+neither downloads a model nor qualifies actual inference. A copied dylib without
+its resources is incomplete.
 
-The executable is `avid-transcriber`. Each invocation emits exactly one JSON
-value on stdout. Success exits zero. Failure exits nonzero with
-`{"error":"plain-language explanation"}`. Error 130 represents cancellation.
-Library diagnostics and newline-delimited progress JSON use stderr. SDK stdout
-is redirected to stderr internally so it cannot corrupt the protocol. A progress
-record has `event:"progress"`, `stage`, optional `fraction`, `model_id`,
-`artifact_path`, `completed_bytes`, and `total_bytes`.
+The optional module requires Apple silicon and macOS 14. EnCAP's macOS 13 and
+Intel base application does not link it at launch; Rust checks compatibility
+before loading it from `Contents/Frameworks/EnCAPTranscription.framework`. Missing or
+incompatible optional inference leaves saved transcript editing and subtitle
+export available. No deployment minimum is silently raised.
 
-All commands accept optional `--cache DIRECTORY`. Otherwise
-`ENCAP_AVID_MODEL_CACHE` overrides the shared default
-`~/Library/Application Support/AVID/Transcription/Models`. The default remains
-shared across AVID hosts. These options do not import legacy GGML weights.
+ABI execution blocks an application worker. A request is
+`{"schema_version":1,"arguments":["models"]}`; request JSON is at most 4 MiB.
+The argument adapter retains the existing explicit operations: `status`, `models`,
+`providers`, `install-model`, `verify-model`, `import-model`, `remove-model`,
+`transcribe`, `realign`, `captions` and `subtitles`. Transcript inputs use owned
+operation files; complete project manifests never enter this media request.
+Results own opaque handles with explicit length/copy/release. Invalid handles,
+schemas and sizes produce errors. Progress is copied into a bounded queue by
+Swift provider tasks and delivered on the executing host worker. Hosts copy each
+borrowed callback span before UI dispatch. Cancel the token and await execute;
+CoreML/Metal kernels may delay cooperative cancellation. Keep the library loaded
+until process exit and drain all work before application shutdown or updates.
 
-| Command | Arguments | JSON result |
-| --- | --- | --- |
-| `status` | none | Protocol version, default model ID, platform, and cache path |
-| `models` | none | All shared catalog models, including the separate aligner |
-| `providers` | none | Present recognition model choices; verification occurs before inference |
-| `install-model` | `--model ID` | Model metadata after shared verified installation |
-| `verify-model` | `--model ID` | Model metadata after offline verification |
-| `import-model` | `--model ID --source DIRECTORY` | Metadata after exact verified copy into the shared cache |
-| `remove-model` | `--model ID` | Metadata after removal of shared managed revisions/partials |
-| `transcribe` | `--input AUDIO [--model ID] [--language CODE] [--alignment-model ID] [--source-offset SECONDS]` | Source-clock transcript |
-| `realign` | `--input AUDIO --transcript JSON [--model ALIGNER_ID] [--language CODE] [--source-offset SECONDS]` | Corrected text with separate alignment provenance |
-| `captions` | `--transcript JSON --format srt\|vtt` | JSON string containing shared grouped captions |
+Full Whisper large-v3 remains the quality default. Whisper Turbo, Parakeet,
+Qwen recognition and Qwen corrected-text alignment retain separate explicit model
+selections. Inference uses `RecognitionRequest(installedModel:)` and
+`AlignmentRequest(installedModel:)` inside `withInstalledModel`, so the exact
+verified model/tokenizer manifest, runtime revisions and exposed build provenance
+survive into EnCAP's source-clock record. Loading, inference and awaited provider
+unload all remain under the lease. Installation/import/download/removal are
+explicit model operations; there is no implicit inference download.
 
-`transcribe` defaults to the shared quality model, full Whisper large-v3.
-`realign` defaults to the shared Qwen forced aligner. Inference and alignment
-require already installed, locally verified models. They never install a missing
-model implicitly. Installation is a separate explicit operation. Recognition and
-alignment language lists are validated separately; locale hints are normalized to
-base language codes before validation.
+`TranscriptWire` retains original recognition separately from later alignment.
+New provenance records include `model_identity`, `runtime_revisions` and, where
+exposed, `runtime_build_sha256`, as well as the source bundle and installation
+identity. Historical absent identities stay absent. Rust owns EnCAP's single
+source-to-episode projection, stable IDs, manual speakers, edit history and
+ambiguous-source rejection. Corrected text invalidates affected timing; alignment
+preserves corrected text and does not run another recognition pass.
 
-Model metadata retains EnCAP's existing `id`, `name`, `download_size`,
-`languages`, `description`, `installed`, and `download_allowed` fields. Additional
-fields expose `download_size_bytes`, `role`, `engine`, `recognition_languages`,
-`timing_languages`, `license`, `installation_id`, `repository`, `revision`,
-`installation_state`, and `is_default`. `installed` is a cheap presence check,
-not an integrity assertion. `installation_state` distinguishes `missing`,
-`present_unverified`, and a freshly `verified` mutation/verification result.
+Portable Tiny English is a separate explicit Rust adapter, described in
+[the application integration](../../docs/transcription-avid-core.md). It is not
+an alias for large-v3 or the Apple catalog. No legacy GGML file, import source or
+third-party model cache is deleted, converted or adopted automatically.
 
-Transcript objects use explicit snake_case keys: `segments`, `language`,
-`provenance`, and optional `alignment_provenance`. Each provenance has
-`engine_id`/`model_id`, plus `model_installation_id` (the full-manifest identity
-used by Core's model store) and `source_bundle_sha256` for newly produced records.
-Realignment preserves the original recognition identity while recording the new
-alignment identity. The shared source hash in `TranscriptWire.swift` must be
-updated together with a deliberate vendor-snapshot update. Segments have `text`, `words`, and optional
-`start_seconds`/`end_seconds`; words add optional `confidence`/`timing_method`.
-`timing_method` retains AVID's enum values (`recognizer`, `forcedAlignment`,
-`manual`, `estimated`). Missing boundaries remain absent. The adapter never
-invents word timing and never adds EnCAP episode offsets. Rust owns the
-reversible source-to-episode projection. A nonzero `--source-offset` is for an
-extracted input clip and is applied by Core exactly once; realignment inputs
-already contain their source-clock offset.
-When recognition and alignment are requested together, `recognition_segments`
-also preserves the original recognition segments/words before alignment. The
-normal `segments` array contains the aligned view. Rust retains the original
-recognition record separately from later alignment and episode projections.
-
-The caption command applies the shared default grouping options to the provided
-clock without modifying the recognition record. EnCAP must pass its explicitly
-projected episode view when episode captions are wanted. Missing word timing is
-an error. SRT/WebVTT export provides timed subtitle cues; animated or burned-in
-captions require a separate host renderer.
-
-SIGINT and SIGTERM cancel the operation's Swift task and await provider cleanup.
-An owned-parent monitor also cancels if the Rust parent exits or crashes.
-The shared model lease spans verification, loading, inference, and unload;
-concurrent removal fails while leased. A currently executing Core ML or Metal
-kernel may finish before cancellation is observed. The owning host must drain
-both pipes and wait for its child; a forced process termination cannot report
-graceful task cleanup. No other process is targeted by this helper.
-
-Model removal only calls Core's managed-store removal. It does not delete manual
-import source folders, legacy EnCAP GGML files, or third-party model caches.
+The framework embeds the exact compatibility runtime selected by `swift-stdlib-tool` from the selected Xcode toolchain. Developer Xcode/Metal runpaths are removed; only system Swift lookup and direct loader-relative embedded dependencies remain. Original receipts and post-sign raw bindings live outside the framework in `Contents/Resources/EnCAPTranscription`, so binding cannot invalidate the framework resource seal. The installed Apple compiler build, runtime hash and Xcode acknowledgment identify that runtime; an exact matching runtime source Git revision is not exposed by the toolchain and is not invented. Corresponding runtime sources remain a distribution limitation.

@@ -30,7 +30,7 @@ when opening the document.
 
 Historical aliases remain accepted: `m4a` is treated as AAC/M4A, and older encoder
 names are normalized during migration. A native client carries
-an opaque compatibility payload across its Rust process boundary. Unknown fields
+an opaque compatibility payload across its versioned Rust application boundary. Unknown fields
 at the manifest, metadata, audio-source, chapter, transcript-segment, and export
 settings levels are merged back during save rather than silently discarded.
 
@@ -165,3 +165,8 @@ schema.
 configuration and reserves `compositions` plus extension fields for future layers,
 keyframes, caption styles, animation triggers, render variants, and queued exports;
 2.0 neither interprets nor creates those future objects.
+
+The linked application interface uses small operation-specific requests containing
+payload paths. The 8 MiB project manifest limit is unchanged and is independent
+of Core media requests (4 MiB). The facade never truncates transcripts or places
+an entire project into the Core media schema.

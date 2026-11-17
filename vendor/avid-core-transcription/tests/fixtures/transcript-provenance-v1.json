@@ -1,0 +1,99 @@
+{
+  "segments": [
+    {
+      "text": "Synthetic provenance fixture.",
+      "words": [
+        {
+          "text": "Synthetic",
+          "startSeconds": 2,
+          "endSeconds": 2.4,
+          "confidence": null,
+          "timingMethod": "forcedAlignment"
+        },
+        {
+          "text": "provenance",
+          "startSeconds": 2.5,
+          "endSeconds": 2.9,
+          "confidence": null,
+          "timingMethod": "forcedAlignment"
+        },
+        {
+          "text": "fixture.",
+          "startSeconds": 3,
+          "endSeconds": 3.4,
+          "confidence": null,
+          "timingMethod": "forcedAlignment"
+        }
+      ],
+      "startSeconds": 2,
+      "endSeconds": 3.4
+    }
+  ],
+  "language": "en",
+  "provenance": {
+    "engineID": "fixture-recognizer",
+    "modelID": "synthetic-fixture-model",
+    "modelIdentity": {
+      "schemaVersion": 1,
+      "installationID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "repository": "fixture-org/synthetic-weights",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "manifestSHA256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "artifacts": [
+        {
+          "path": "fixture-model.bin",
+          "repository": "fixture-org/synthetic-weights",
+          "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "repositoryPath": "models/fixture-model.bin",
+          "sizeBytes": 4096,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "path": "tokenizer/fixture-tokenizer.json",
+          "repository": "fixture-org/synthetic-tokenizer",
+          "revision": "1111111111111111111111111111111111111111",
+          "repositoryPath": "fixture-tokenizer.json",
+          "sizeBytes": 256,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    "runtimeRevisions": {
+      "whisper.cpp": "4979e04f5dcaccb36057e059bbaed8a2f5288315"
+    },
+    "runtimeBuildSHA256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "alignmentProvenance": {
+    "engineID": "fixture-aligner",
+    "modelID": "synthetic-fixture-aligner",
+    "modelIdentity": {
+      "schemaVersion": 1,
+      "installationID": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-ffffffffffffffff",
+      "repository": "fixture-org/synthetic-weights",
+      "revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "manifestSHA256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "artifacts": [
+        {
+          "path": "fixture-model.bin",
+          "repository": "fixture-org/synthetic-weights",
+          "revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "repositoryPath": "models/fixture-model.bin",
+          "sizeBytes": 4096,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "path": "tokenizer/fixture-tokenizer.json",
+          "repository": "fixture-org/synthetic-tokenizer",
+          "revision": "1111111111111111111111111111111111111111",
+          "repositoryPath": "fixture-tokenizer.json",
+          "sizeBytes": 256,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    "runtimeRevisions": {
+      "whisper.cpp": "4979e04f5dcaccb36057e059bbaed8a2f5288315"
+    },
+    "runtimeBuildSHA256": "3333333333333333333333333333333333333333333333333333333333333333"
+  }
+}

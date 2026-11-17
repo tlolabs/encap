@@ -22,9 +22,10 @@ def command(engine, *arguments, timeout=1800):
     env = dict(os.environ, PATH="")
     # Exercise packaged discovery; overrides must not substitute a developer
     # helper or media tools for the packaged executables under qualification.
-    for key in ("ENCAP_AVID_TRANSCRIBER", "ENCAP_FFMPEG", "ENCAP_FFPROBE"):
+    for key in ("ENCAP_AVID_TRANSCRIBER", "ENCAP_AVID_TRANSCRIPTION_LIBRARY", "ENCAP_FFMPEG", "ENCAP_FFPROBE"):
         env.pop(key, None)
-    result = subprocess.run([str(engine), *map(str, arguments)], env=env,
+    prefix = [str(item) for item in engine] if isinstance(engine, (tuple, list)) else [str(engine)]
+    result = subprocess.run([*prefix, *map(str, arguments)], env=env,
                             capture_output=True, timeout=timeout)
     try:
         value = json.loads(result.stdout)
@@ -35,6 +36,14 @@ def command(engine, *arguments, timeout=1800):
     return value
 
 
+def linked_module(engine):
+    engine = Path(engine[0] if isinstance(engine, (tuple, list)) else engine)
+    return next((p.resolve() for p in (
+        engine.parent / "../Frameworks/EnCAPTranscription.framework/Versions/A/EnCAPTranscription",
+        engine.parent / "EnCAPTranscription.framework/Versions/A/EnCAPTranscription",
+    ) if p.is_file()), None)
+
+
 def qualify(engine, model, install_model=False):
     status = command(engine, "transcription-status", timeout=120)
     if not isinstance(status, dict) or not isinstance(status.get("available"), bool):
@@ -42,9 +51,9 @@ def qualify(engine, model, install_model=False):
     if not status["available"]:
         return {"status": "unavailable", "reason": status.get("reason") or "Shared runtime is unavailable; a shared-engine port or an explicit owner support-policy decision is required.",
                 "model": model}
-    helper = engine.parent / "avid-transcriber"
-    if not helper.is_file():
-        raise ValueError("Transcription is advertised as available without the packaged shared helper")
+    module = linked_module(engine)
+    if module is None:
+        raise ValueError("Transcription is advertised as available without the packaged linked library")
     command(engine, "providers", timeout=120)
     models = command(engine, "models", timeout=120)
     item = next((item for item in models if item["id"] == model), None)
@@ -55,7 +64,7 @@ def qualify(engine, model, install_model=False):
             return {"status": "not_run", "reason": f"Shared model {model} is not installed. Provision the shared cache or explicitly pass --install-model for an anonymous pinned download.", "model": model}
         command(engine, "install-model", model, timeout=7200)
     if platform.system() != "Darwin":
-        raise ValueError("The packaged shared helper requires native macOS qualification")
+        raise ValueError("The packaged Apple linked module requires native macOS qualification")
     with tempfile.TemporaryDirectory(prefix="encap-avid-qualification-") as directory:
         temporary = Path(directory)
         source = temporary / "input"
@@ -106,34 +115,35 @@ def qualify(engine, model, install_model=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--engine", type=Path, required=True)
+    executable = parser.add_mutually_exclusive_group(required=True)
+    executable.add_argument("--engine", type=Path, help="optional diagnostic command-line client")
+    executable.add_argument("--application", type=Path, help="native app linked-operation diagnostics")
     parser.add_argument("--model", default=os.environ.get("ENCAP_QUALIFICATION_MODEL", "parakeet-tdt-v3"))
     parser.add_argument("--install-model", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    engine = args.engine.resolve(strict=True)
+    engine = (args.application or args.engine).resolve(strict=True)
+    diagnostic = [engine, "--linked-operation"] if args.application else engine
     runtime_files = {}
-    helper = engine.parent / "avid-transcriber"
     app_layout = engine.parent.name == "MacOS" and (engine.parent.parent / "Info.plist").is_file()
     runtime_root = engine.parent.parent if app_layout else engine.parent
-    if helper.is_file():
-        runtime_files[helper.relative_to(runtime_root).as_posix()] = hashlib.sha256(helper.read_bytes()).hexdigest()
-        directories = [engine.parent, runtime_root / "Resources"] if app_layout else [engine.parent]
-        for directory in directories:
-            for item in sorted(directory.iterdir()):
-                if item.suffix == ".bundle" and item.is_dir():
-                    for file in sorted(item.rglob("*")):
-                        if file.is_file():
-                            runtime_files[file.relative_to(runtime_root).as_posix()] = hashlib.sha256(file.read_bytes()).hexdigest()
-                elif item.suffix == ".dylib" and item.is_file():
+    module = linked_module(engine)
+    if module is not None:
+        for item in sorted(module.parent.rglob("*")):
+            if item.is_file():
+                runtime_files[item.relative_to(runtime_root).as_posix()] = hashlib.sha256(item.read_bytes()).hexdigest()
+        metadata = runtime_root / "Resources/EnCAPTranscription" if app_layout else engine.parent / "EnCAPTranscription-metadata"
+        if metadata.is_dir():
+            for item in sorted(metadata.rglob("*")):
+                if item.is_file():
                     runtime_files[item.relative_to(runtime_root).as_posix()] = hashlib.sha256(item.read_bytes()).hexdigest()
     system = {"Darwin": "macos", "Windows": "windows", "Linux": "linux"}.get(platform.system(), platform.system().lower())
     machine = {"aarch64": "arm64", "amd64": "x86_64"}.get(platform.machine().lower(), platform.machine().lower())
     label = "intel" if system == "macos" and machine == "x86_64" else "x64" if machine == "x86_64" else machine
-    report = {"schema": 1, "target": system + "-" + label, "runtime_files": runtime_files, "engine_sha256": hashlib.sha256(engine.read_bytes()).hexdigest(),
+    report = {"schema": 1, "target": system + "-" + label, "runtime_files": runtime_files, ("application_sha256" if args.application else "engine_sha256"): hashlib.sha256(engine.read_bytes()).hexdigest(),
               "native_environment": {"system": platform.system(), "machine": platform.machine(), "version": platform.platform()}}
     try:
-        report.update(qualify(engine, args.model, args.install_model))
+        report.update(qualify(diagnostic, args.model, args.install_model))
     except Exception as error:
         report.update(status="failed", error=str(error))
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -74,7 +74,17 @@ class OwnershipTests(unittest.TestCase):
         self.assertFalse((ROOT / '.github/actions/source-ffmpeg').exists())
         discovery = (ROOT / 'crates/encap-ffmpeg/src/runtime.rs').read_text()
         self.assertNotIn('MediaTools::discover', discovery)
-        self.assertIn('avid_core::FFMPEG_RUNTIME_SPECIFICATION', discovery)
+        self.assertIn('include_str!("../../../runtime/legacy-ffmpeg-spec.json")', discovery)
+        self.assertNotIn('avid_core::FFMPEG_RUNTIME_SPECIFICATION', discovery)
+        specification = (ROOT / 'runtime/legacy-ffmpeg-spec.json').read_bytes()
+        expected_hash = hashlib.sha256(specification).hexdigest()
+        for filename in ('core-runtime.json', 'platform-runtimes.json'):
+            for record in json.loads((ROOT / 'runtime' / filename).read_text())['targets'].values():
+                self.assertEqual(record['spec_sha256'], expected_hash)
+        metadata = json.loads(subprocess.check_output(
+            ['cargo', 'metadata', '--locked', '--offline', '--format-version', '1'], cwd=ROOT))
+        core, = [package for package in metadata['packages'] if package['name'] == 'avid-core']
+        self.assertEqual(specification, (Path(core['manifest_path']).parent / 'runtime/ffmpeg/spec.json').read_bytes())
 
 
 if __name__ == '__main__':

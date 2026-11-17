@@ -80,4 +80,29 @@ final class TranscriptTests: XCTestCase {
             audioURL: audio, modelID: "model", modelDirectory: model, sourceStartSeconds: -1
         ).validate())
     }
+
+    func testBatchCorrectionsValidateWholeTransactionAndKeepUnaffectedWords() throws {
+        let transcript = try Transcript(segments: [
+            TranscriptSegment(text: "wrong", words: [TranscriptWord(text: "wrong", startSeconds: 0, endSeconds: 1)]),
+            TranscriptSegment(text: "kept", words: [TranscriptWord(text: "kept", startSeconds: 1, endSeconds: 2)]),
+        ], provenance: provenance, alignmentProvenance: .init(engineID: "aligner", modelID: "fixture"))
+        let corrected = try transcript.correctingSegments([.init(index: 0, text: "fixed")])
+        XCTAssertTrue(corrected.segments[0].words.isEmpty)
+        XCTAssertEqual(corrected.segments[1], transcript.segments[1])
+        XCTAssertNil(corrected.alignmentProvenance)
+        XCTAssertEqual(try transcript.correctingSegments([]), transcript)
+        XCTAssertThrowsError(try transcript.correctingSegments([.init(index: 0, text: "fixed"), .init(index: 2, text: "invalid")]))
+        XCTAssertThrowsError(try transcript.correctingSegments([.init(index: 0, text: "first"), .init(index: 0, text: "second")]))
+        XCTAssertEqual(transcript.segments[0].text, "wrong")
+    }
+
+    func testTranscriptValidationRejectsMissingProvenanceAndOutOfOrderWords() throws {
+        let missing = try Transcript(segments: [], provenance: .init(engineID: "", modelID: ""))
+        XCTAssertThrowsError(try missing.validate())
+        let outOfOrder = try Transcript(segments: [TranscriptSegment(text: "two one", words: [
+            TranscriptWord(text: "two", startSeconds: 2, endSeconds: 3),
+            TranscriptWord(text: "one", startSeconds: 1, endSeconds: 2),
+        ])], provenance: provenance)
+        XCTAssertThrowsError(try outOfOrder.validate())
+    }
 }

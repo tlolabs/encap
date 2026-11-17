@@ -126,27 +126,14 @@ final class ReviewRegressionTests: XCTestCase {
         XCTAssertEqual(settings.qualityPreset, "160k")
     }
 
-    func testEngineDrainsBothPipesBeyondTheirCapacity() async throws {
-        let data = try await EngineClient.runProcess(
-            executable: URL(fileURLWithPath: "/usr/bin/perl"),
-            arguments: ["-e", "alarm 10; print STDERR 'e' x 2000000; print 'x' x 2000000;"],
-            environment: ProcessInfo.processInfo.environment
-        )
-        XCTAssertEqual(data.count, 2_000_000)
-        XCTAssertEqual(data.first, Character("x").asciiValue)
-    }
-
-    func testEngineReportsStructuredFailureAfterLargeDiagnostics() async {
-        do {
-            _ = try await EngineClient.runProcess(
-                executable: URL(fileURLWithPath: "/usr/bin/perl"),
-                arguments: ["-e", "alarm 10; print STDERR 'e' x 2000000; print '{\"error\":\"test failure\"}'; exit 1;"],
-                environment: ProcessInfo.processInfo.environment
-            )
-            XCTFail("Expected an engine failure")
-        } catch {
-            XCTAssertEqual(error.localizedDescription, "test failure")
-        }
+    func testApplicationRequestsPreserveLiteralPathsAndRejectMalformedArguments() throws {
+        let bytes = try EngineClient.applicationRequest(["inspect-files", "--", "--literal.wav", "/音声.wav"])
+        let request = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        XCTAssertEqual(request["files"] as? [String], ["--literal.wav", "/音声.wav"])
+        XCTAssertThrowsError(try EngineClient.applicationRequest(["save", "only-one-field"]))
+        XCTAssertThrowsError(try EngineClient.applicationRequest(["build-info", "--language", "en"]))
+        XCTAssertThrowsError(try EngineClient.applicationRequest(["transcribe", "p", "m", "--language", "en", "--language", "fr"]))
+        XCTAssertThrowsError(try EngineClient.applicationRequest(["waveform", String(repeating: "x", count: 70_000)]))
     }
 
     func testSessionCleanupCannotDeleteUnownedDirectories() throws {

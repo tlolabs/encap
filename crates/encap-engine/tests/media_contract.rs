@@ -353,12 +353,12 @@ fn reopened_project_with_psd_cover_exports_complete_audio_and_metadata() {
 #[ignore = "requires the explicit approved FFmpeg/ffprobe release pair"]
 fn release_pair_has_complete_audio_transcript_video_capabilities() {
     let h = Harness::new();
-    h.engine(&[s("validate-tools")], true);
+    h.engine(&[s("validate-compatibility-tools")], true);
     h.engine(&[s("video-capabilities")], true);
     let version = String::from_utf8(h.ff(&[s("-version")])).unwrap();
     let identifier = version.split_whitespace().nth(2).unwrap();
     let dependencies: Value =
-        serde_json::from_str(avid_core::FFMPEG_RUNTIME_SPECIFICATION).unwrap();
+        serde_json::from_str(include_str!("../../../runtime/legacy-ffmpeg-spec.json")).unwrap();
     assert_eq!(
         identifier,
         dependencies["source"]["version"].as_str().unwrap()

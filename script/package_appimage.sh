@@ -21,6 +21,13 @@ DESKTOP="$(find "$APPDIR/usr/share/applications" -name '*.desktop' -print -quit)
 # The verified FFmpeg pair only links system libraries. Keep it out of
 # linuxdeploy's ELF rewriting, then restore the exact source-built bytes.
 rm "$APPDIR/usr/bin/ffmpeg" "$APPDIR/usr/bin/ffprobe"
+LINKED_LIBRARY="$APPDIR/usr/bin/libencap_app.so"
+if [[ -f "$LINKED_LIBRARY" ]]; then
+  python3 "$ROOT_DIR/script/linked_runtime.py" verify-stage --directory "$APPDIR/usr/bin"
+  # This library is loaded by absolute application-relative path, so it does
+  # not need an AppImage RPATH rewrite. Preserve its fixed-source binary hash.
+  rm "$LINKED_LIBRARY"
+fi
 # GLib/GIO remains a system dependency, as documented, rather than copying the
 # runner's desktop-integration stack into the self-contained application.
 SYSTEM_INTEGRATION=()
@@ -30,6 +37,10 @@ for pattern in 'libgio-2.0.so*' 'libgobject-2.0.so*' 'libglib-2.0.so*' 'libgmodu
 done
 linuxdeploy "${SYSTEM_INTEGRATION[@]}" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/EnCap" --desktop-file "$DESKTOP" --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/$(basename "$DESKTOP" .desktop).png"
 cp -p "$STAGE/bin/ffmpeg" "$STAGE/bin/ffprobe" "$APPDIR/usr/bin/"
+if [[ -f "$STAGE/bin/libencap_app.so" ]]; then
+  cp -p "$STAGE/bin/libencap_app.so" "$LINKED_LIBRARY"
+  python3 "$ROOT_DIR/script/linked_runtime.py" verify-stage --directory "$APPDIR/usr/bin"
+fi
 # Retain distro license texts referenced by copied dependency copyright files.
 mkdir -p "$APPDIR/usr/share/common-licenses"
 cp -a /usr/share/common-licenses/. "$APPDIR/usr/share/common-licenses/"

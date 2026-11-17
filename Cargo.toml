@@ -6,6 +6,7 @@ members = [
     "crates/encap-transcript",
     "crates/encap-video",
     "crates/encap-engine",
+    "crates/encap-app",
     "crates/encap-release",
     "crates/encap-update",
     "crates/encap-portable-update",
@@ -14,15 +15,15 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "2.0.12"
+version = "2.0.13"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/tlolabs/encap"
 
 [workspace.dependencies]
-# Core owns the matched, validated FFmpeg/ffprobe runtime.
-avid-core = { git = "https://github.com/tlolabs/avid-core.git", rev = "8e27a86ec106028d93130de35a35c0eeda7a9ce3", version = "=0.3.3" }
+# Core owns linked media; no production legacy-subprocess feature is enabled.
+avid-core = { git = "https://github.com/tlolabs/avid-core.git", rev = "dd112d497b68df6786f49a71b3611f7f32f090e9", version = "=0.4.0" }
 base64 = "0.22.1"
 clap = { version = "4.5.47", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }

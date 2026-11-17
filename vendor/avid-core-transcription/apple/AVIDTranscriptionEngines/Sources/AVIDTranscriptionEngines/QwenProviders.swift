@@ -170,7 +170,8 @@ enum QwenTranscriptOutput {
         try Transcript(
             segments: segments,
             language: QwenLanguages.code(for: detectedLanguage) ?? QwenLanguages.code(for: request.language),
-            provenance: .init(engineID: engineID, modelID: request.modelID)
+            provenance: .init(engineID: engineID, modelID: request.modelID,
+                modelIdentity: request.modelIdentity, runtimeRevisions: EngineProvenance.qwen)
         ).offsettingTimes(by: request.sourceStartSeconds)
     }
 
@@ -181,7 +182,8 @@ enum QwenTranscriptOutput {
         return try Transcript(
             segments: segments, language: QwenLanguages.code(for: effectiveLanguage),
             provenance: request.transcript.provenance,
-            alignmentProvenance: .init(engineID: engineID, modelID: request.modelID)
+            alignmentProvenance: .init(engineID: engineID, modelID: request.modelID,
+                modelIdentity: request.modelIdentity, runtimeRevisions: EngineProvenance.qwen)
         )
     }
 }

@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "scope": "post-review-fixes local package integrity and transcription publication preflight only; no publication",
+  "archive": "/tmp/encap-avid-integration-20261103/EnCap-2.0.9-macos-arm64.zip",
+  "sha256": "f2beaad4feb649246e16926686d3ca395339709c08e2adc02482151e4dbd3f22",
+  "size_bytes": 58919328,
+  "normal_verify_log": "/tmp/encap-avid-integration-20261103/normal-verify-post-review-fixes.log",
+  "native_tests": {
+    "total": 52,
+    "skipped": 2,
+    "failures": 0
+  }
+}

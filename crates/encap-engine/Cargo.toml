@@ -9,7 +9,12 @@ license.workspace = true
 name = "encap-engine"
 path = "src/main.rs"
 
+[features]
+default = []
+portable-whisper = ["encap-app/portable-whisper"]
+
 [dependencies]
+encap-app = { path = "../encap-app" }
 avid-core.workspace = true
 clap.workspace = true
 ctrlc.workspace = true

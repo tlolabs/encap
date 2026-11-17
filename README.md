@@ -1,5 +1,11 @@
 # EnCap — Encoder with Chapter Assembly Protocol
 
+> Linked-library migration is in progress and is not a qualified release. Native
+> hosts now use the shared EnCAP application library; chaptered Audio export and
+> Qt fallback PCM decoding still require upstream Core APIs. See the
+> [migration/status matrix](docs/linked-migration.md) before using older build or
+> executable-runtime instructions below.
+
 [![Latest release](https://img.shields.io/github/v/release/tlolabs/encap?display_name=tag)](https://github.com/tlolabs/encap/releases/latest)
 [![Native builds](https://github.com/tlolabs/encap/actions/workflows/build-platforms.yml/badge.svg)](https://github.com/tlolabs/encap/actions/workflows/build-platforms.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)

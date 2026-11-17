@@ -1,5 +1,6 @@
-//! Core owns the media pair; EnCAP binds platform-signed copies to its pinned artifact.
-use avid_core::{CancellationToken, MediaTools};
+//! Unfinished Audio compatibility transport only. This historical executable
+//! manifest never authenticates the linked Core library.
+use super::{CancellationToken, MediaTools};
 use encap_core::EncapError;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -160,7 +161,8 @@ fn packaged_pair() -> encap_core::Result<(PathBuf, PathBuf, String)> {
     }
     let spec = read_json(&metadata.join("spec.json"))?;
     let core_spec: Value =
-        serde_json::from_str(avid_core::FFMPEG_RUNTIME_SPECIFICATION).expect("Core specification");
+        serde_json::from_str(include_str!("../../../runtime/legacy-ffmpeg-spec.json"))
+            .expect("Core specification");
     let build = read_json(&metadata.join("build.json"))?;
     let provenance = read_json(&metadata.join("encap-runtime.json"))?;
     if spec != core_spec
@@ -212,7 +214,9 @@ pub fn resolve(
     token: &CancellationToken,
 ) -> encap_core::Result<MediaTools> {
     if token.is_cancelled() {
-        return Err(unavailable());
+        return Err(EncapError::Message(
+            "Media tool validation was cancelled safely.".into(),
+        ));
     }
     let (ffmpeg, ffprobe, version) =
         match (ffmpeg, ffprobe) {
@@ -229,15 +233,11 @@ pub fn resolve(
             )),
         };
     let tools = MediaTools::from_paths(ffmpeg, ffprobe, token).map_err(|error| {
-        tracing::error!(code=error.code(), details=?error, "Core media tool validation failed");
-        match error {
-            avid_core::Error::Cancelled => {
-                EncapError::Message("Media tool validation was cancelled safely.".into())
-            }
-            avid_core::Error::Timeout(_) => {
-                EncapError::Message("The bundled media tools did not respond in time.".into())
-            }
-            _ => unavailable(),
+        tracing::error!(details=?error, "Compatibility media tool validation failed");
+        if token.is_cancelled() {
+            EncapError::Message("Media tool validation was cancelled safely.".into())
+        } else {
+            unavailable()
         }
     })?;
     if let Some(version) = version {

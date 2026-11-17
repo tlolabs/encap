@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Acquire attested AVID Core runtimes and package the exact verified pair."""
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -8,7 +9,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import tomllib
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = json.loads((ROOT / 'runtime/core-runtime.json').read_text())
@@ -133,12 +136,98 @@ def core_identity():
     return dict(version=core['version'], revision=pin['rev'], source=source)
 
 
+def linked_source():
+    return (ROOT / 'include/encap_app.h').is_file()
+
+
+def linked_identity(binary, target):
+    directory = (binary.parent / 'Frameworks'
+                 if target.startswith('macos') and not (binary / 'libencap_app.dylib').is_file() else binary)
+    name = 'encap_app.dll' if target.startswith('windows') else ('libencap_app.dylib' if target.startswith('macos') else 'libencap_app.so')
+    from linked_runtime import verify_stage
+    verify_stage(SimpleNamespace(directory=directory, bind_signature=False, require_qualified=False))
+    api = ctypes.CDLL(str((directory / name).resolve()))
+    for function in ('encap_app_abi_version', 'encap_app_schema_version'):
+        operation = getattr(api, function)
+        operation.argtypes = []
+        operation.restype = ctypes.c_uint32
+        if operation() != 1:
+            raise ValueError('Unsupported linked application ABI/schema')
+    api.encap_app_create.argtypes = []
+    api.encap_app_create.restype = ctypes.c_uint64
+    api.encap_app_cancel_create.argtypes = []
+    api.encap_app_cancel_create.restype = ctypes.c_uint64
+    api.encap_app_release.argtypes = [ctypes.c_uint64]
+    api.encap_app_release.restype = ctypes.c_int32
+    api.encap_app_execute_json.argtypes = [ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p,
+                                         ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p]
+    api.encap_app_execute_json.restype = ctypes.c_uint64
+    api.encap_app_buffer_len.argtypes = [ctypes.c_uint64]
+    api.encap_app_buffer_len.restype = ctypes.c_size_t
+    api.encap_app_buffer_copy.argtypes = [ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t]
+    api.encap_app_buffer_copy.restype = ctypes.c_size_t
+    app = token = result = 0
+    try:
+        app, token = api.encap_app_create(), api.encap_app_cancel_create()
+        if not app or not token:
+            raise ValueError('Could not create linked identity operation')
+        request = b'{"schema_version":1,"operation":"build-info"}'
+        buffer = ctypes.create_string_buffer(request)
+        result = api.encap_app_execute_json(app, token, buffer, len(request), None, None)
+        if not result:
+            raise ValueError('Linked identity execution failed')
+        length = api.encap_app_buffer_len(result)
+        if not 0 < length <= 64 * 1024 * 1024:
+            raise ValueError('Invalid linked identity result size')
+        output = ctypes.create_string_buffer(length)
+        if api.encap_app_buffer_copy(result, output, length) != length:
+            raise ValueError('Linked identity result was truncated')
+        envelope = json.loads(output.raw)
+        if envelope.get('schema_version') != 1 or envelope.get('ok') is not True:
+            raise ValueError('Linked application identity operation failed')
+        return envelope['result']
+    finally:
+        for handle in (result, token, app):
+            if handle:
+                api.encap_app_release(handle)
+
+
 def engine_identity(binary, target):
-    engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
-    identity = json.loads(subprocess.check_output([str(engine.resolve()), 'build-info'], timeout=30))
+    if linked_source():
+        identity = linked_identity(binary, target)
+    else:
+        # Historical source tags retain their original executable protocol.
+        engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
+        identity = json.loads(subprocess.check_output([str(engine.resolve()), 'build-info'], timeout=30))
     if identity['avid_core'] != core_identity():
-        raise ValueError('Packaged engine differs from pinned AVID Core')
+        raise ValueError('Packaged application differs from pinned AVID Core')
+    version = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['package']['version']
+    if identity.get('encap_version') != version:
+        raise ValueError('Packaged application differs from its source version')
     return identity
+
+
+def validate_pair(binary, metadata, target):
+    """Bounded execution of the already authenticated compatibility pair only."""
+    version = json.loads((metadata / 'spec.json').read_text())['source']['version']
+    versions = []
+    for name in pair(target):
+        executable = (binary / name).resolve()
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            subprocess.run([str(executable), '-version'], stdin=subprocess.DEVNULL,
+                           stdout=stdout, stderr=stderr, env=dict(os.environ, PATH=''),
+                           timeout=10, check=True)
+            if stdout.tell() > 64 * 1024 or stderr.tell() > 64 * 1024:
+                raise ValueError('Compatibility tool version output exceeded its bound')
+            stdout.seek(0)
+            lines = stdout.read().decode('utf-8', errors='strict').splitlines()
+            first = lines[0].split() if lines else []
+        expected_name = name.removesuffix('.exe')
+        if len(first) < 3 or first[:2] != [expected_name, 'version'] or first[2] != version:
+            raise ValueError('Authenticated compatibility tool version differs from its specification')
+        versions.append(first[2])
+    if versions[0] != versions[1]:
+        raise ValueError('Compatibility tool versions disagree')
 
 
 def stage(target, runtime, binary):
@@ -147,8 +236,11 @@ def stage(target, runtime, binary):
     plan = selected_plan(target, runtime=runtime)
     if plan['targets'][target]['sha256'] != selected_plan(target)['targets'][target]['sha256']:
         raise ValueError('Runtime differs from explicitly requested source')
-    engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
-    subprocess.run([str(engine.resolve()), 'validate-core-runtime', str(runtime.resolve())], check=True, timeout=60)
+    if linked_source():
+        validate_pair(runtime, runtime, target)
+    else:
+        engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
+        subprocess.run([str(engine.resolve()), 'validate-core-runtime', str(runtime.resolve())], check=True, timeout=60)
     binary.mkdir(parents=True, exist_ok=True)
     for item in runtime.iterdir():
         destination = binary / item.name
@@ -193,8 +285,11 @@ def validate(target, binary, metadata, runtime=None):
         raise ValueError('Packaged Core/application provenance mismatch')
     if runtime:
         verify(runtime, target)
-    engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
-    subprocess.run([str(engine.resolve()), 'validate-tools'], env=dict(os.environ, PATH=''), check=True, timeout=60)
+    if linked_source():
+        validate_pair(binary, metadata, target)
+    else:
+        engine = binary / ('encap-engine.exe' if target.startswith('windows') else 'encap-engine')
+        subprocess.run([str(engine.resolve()), 'validate-tools'], env=dict(os.environ, PATH=''), check=True, timeout=60)
     return provenance
 
 

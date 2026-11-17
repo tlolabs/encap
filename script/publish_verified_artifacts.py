@@ -12,7 +12,9 @@ import sys
 import tempfile
 import tomllib
 import zipfile
+import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "tlolabs/encap"
@@ -47,6 +49,53 @@ def publication_identity(ref, sha, version):
     raise ValueError(f"Ref {ref!r} is not eligible for publication")
 
 
+def verify_linked_archive(archive, metadata_prefix, library_path, version, target):
+    """Inspect an immutable package locally; this function never uploads anything."""
+    from linked_runtime import verify_stage
+    selected = [item for item in archive.infolist()
+                if item.filename.startswith(metadata_prefix) or item.filename == library_path]
+    names = [item.filename for item in selected]
+    if len(names) != len(set(names)) or sum(item.file_size for item in selected) > 1024**3:
+        raise ValueError('Duplicate or oversized linked package metadata')
+    with tempfile.TemporaryDirectory(prefix='encap-linked-package-inspection-') as temporary:
+        directory = Path(temporary)
+        for item in selected:
+            if item.is_dir():
+                continue
+            name = item.filename
+            mode = item.external_attr >> 16
+            if (name.startswith('/') or '\\' in name or ':' in name
+                    or any(part in ('', '.', '..') for part in name.split('/'))
+                    or stat.S_ISLNK(mode) or stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
+                raise ValueError('Unsafe linked package path or file type')
+            relative = ('EnCAPLinked/' + name.removeprefix(metadata_prefix)
+                        if name.startswith(metadata_prefix) else Path(library_path).name)
+            output = directory / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(item) as source, output.open('xb') as destination:
+                import shutil
+                shutil.copyfileobj(source, destination)
+        # No startup-only result can qualify a replacement with outstanding
+        # Audio/playback/dependency-source contracts.
+        verify_stage(SimpleNamespace(directory=directory, bind_signature=False, require_qualified=True))
+        receipt = json.loads((directory / 'EnCAPLinked/build-receipt.json').read_text())
+        actual_target = {'macos-intel': 'macos-x86_64', 'windows-x64': 'windows-x86_64',
+                         'linux-x64': 'linux-x86_64'}.get(target, target)
+        if receipt['sdk']['target'] != actual_target:
+            raise ValueError('Linked qualification belongs to another target')
+        source = receipt['source']
+        import tarfile
+        with tarfile.open(directory / 'EnCAPLinked/corresponding-source/encap-source.tar.gz') as sources:
+            matches = [item for item in sources.getmembers() if item.name == 'Cargo.toml']
+            if len(matches) != 1 or not matches[0].isfile() or matches[0].size > 1024 * 1024:
+                raise ValueError('Linked application source manifest missing')
+            manifest = sources.extractfile(matches[0]).read()
+        if (hashlib.sha256(manifest).hexdigest() != source['files'].get('Cargo.toml')
+                or tomllib.loads(manifest.decode())['workspace']['package']['version'] != version):
+            raise ValueError('Linked application version/source identity mismatch')
+        return receipt
+
+
 def verify_package(path, version, target):
     expected = f"EnCap-{version}-{target}.{TARGETS[target]}"
     if (path.name != expected or not path.is_file()
@@ -64,10 +113,14 @@ def verify_package(path, version, target):
             names = set(archive.namelist())
             if target.startswith("macos-"):
                 root = "EnCap.app/Contents/"
+                metadata_prefix = root + 'Resources/EnCAPLinked/'
+                library_path = root + 'Frameworks/libencap_app.dylib'
+                linked = library_path in names or metadata_prefix + 'build-receipt.json' in names
                 required = {root + name for name in
-                            ("Info.plist", "MacOS/EnCap", "MacOS/encap-engine",
+                            ("Info.plist", "MacOS/EnCap",
                              "MacOS/ffmpeg", "MacOS/ffprobe",
                              "Resources/update-config.json")}
+                required |= {library_path, metadata_prefix + 'build-receipt.json'} if linked else {root + 'MacOS/encap-engine'}
                 if not required <= names:
                     raise ValueError(f"{path.name}: incomplete macOS application")
                 info = plistlib.loads(archive.read(root + "Info.plist"))
@@ -77,8 +130,11 @@ def verify_package(path, version, target):
                     raise ValueError(f"{path.name}: wrong macOS identity")
                 config = json.loads(archive.read(root + "Resources/update-config.json"))
             else:
-                required = {"EnCap.exe", "encap-engine.exe", "ffmpeg.exe",
+                metadata_prefix, library_path = 'EnCAPLinked/', 'encap_app.dll'
+                linked = library_path in names or metadata_prefix + 'build-receipt.json' in names
+                required = {"EnCap.exe", "ffmpeg.exe",
                             "ffprobe.exe", "update-config.json"}
+                required |= {library_path, metadata_prefix + 'build-receipt.json'} if linked else {'encap-engine.exe'}
                 if not required <= names:
                     raise ValueError(f"{path.name}: incomplete Windows application")
                 config = json.loads(archive.read("update-config.json"))
@@ -90,6 +146,8 @@ def verify_package(path, version, target):
                 "target": target,
             }.items()):
                 raise ValueError(f"{path.name}: wrong packaged update identity")
+            if linked:
+                return verify_linked_archive(archive, metadata_prefix, library_path, version, target)
 
 
 def verify_transcription_qualification(path, target):
@@ -111,17 +169,31 @@ def verify_transcription_qualification(path, target):
         if report.get("target") != target:
             raise ValueError("Transcription qualification belongs to another target")
         binary_prefix = prefix + "MacOS/" if prefix else ""
-        engine_name = binary_prefix + "encap-engine" + (".exe" if target.startswith("windows-") else "")
-        if hashlib.sha256(archive.read(engine_name)).hexdigest() != report.get("engine_sha256"):
-            raise ValueError("Transcription qualification belongs to another engine binary")
+        linked_metadata = prefix + 'Resources/EnCAPLinked/build-receipt.json' if prefix else 'EnCAPLinked/build-receipt.json'
+        linked = linked_metadata in archive.namelist()
+        executable_name = binary_prefix + ('EnCap' if linked else 'encap-engine') + ('.exe' if target.startswith('windows-') else '')
+        identity_key = 'application_sha256' if linked else 'engine_sha256'
+        if hashlib.sha256(archive.read(executable_name)).hexdigest() != report.get(identity_key):
+            raise ValueError('Transcription qualification belongs to another application binary')
         files = report.get("runtime_files", {})
-        helper_name = "MacOS/avid-transcriber" if prefix else "avid-transcriber"
+        helper_name = ('Frameworks/EnCAPTranscription.framework/Versions/A/EnCAPTranscription' if prefix else 'EnCAPTranscription/libEnCAPTranscription.dylib') if linked else ('MacOS/avid-transcriber' if prefix else 'avid-transcriber')
         if not isinstance(files, dict) or helper_name not in files:
-            raise ValueError("Qualification did not identify the actual shared helper")
+            raise ValueError('Qualification did not identify the actual linked module or historical helper')
+        if linked and prefix:
+            framework = 'Frameworks/EnCAPTranscription.framework/Versions/A/'
+            metadata = 'Resources/EnCAPTranscription/'
+            required = {framework + 'EnCAPTranscription',
+                        metadata + 'encap-transcription-resources.json',
+                        metadata + 'encap-transcription-signed.json',
+                        framework + 'Frameworks/libswiftCompatibilitySpan.dylib'}
+            actual = {item.filename.removeprefix(prefix) for item in archive.infolist()
+                      if item.filename.startswith((prefix + framework, prefix + metadata)) and not item.is_dir()}
+            if not required <= files.keys() or set(files) != actual:
+                raise ValueError('Qualification does not cover the complete linked framework/resource/Swift-runtime inventory')
         if not any(name.endswith("models.json") for name in files) or not any(name.endswith(".metallib") for name in files):
             raise ValueError("Qualification is missing shared catalog/Metal resources")
         for name, digest in files.items():
-            if Path(name).is_absolute() or ".." in Path(name).parts:
+            if Path(name).is_absolute() or ".." in Path(name).parts or '\\' in name:
                 raise ValueError("Invalid qualified runtime path")
             try:
                 actual = hashlib.sha256(archive.read(prefix + name)).hexdigest()
@@ -379,7 +451,9 @@ def publish(ref, sha, target, directory, source_version=None):
     path = directory / f"EnCap-{version}-{target}.{TARGETS[target]}"
     if not path.is_file():
         raise ValueError(f"Expected verified {target} artifact {path.name} in {directory}")
-    verify_package(path, version, target)
+    linked = verify_package(path, version, target)
+    if linked is not None and linked['source']['head'] != sha:
+        raise ValueError('Linked application source receipt belongs to another verified commit')
     verify_transcription_qualification(path, target)
     digest = sha256(path)
     checksum = directory / f"{path.name}.sha256"

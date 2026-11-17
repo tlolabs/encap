@@ -120,6 +120,27 @@ fn untitled() -> String {
     "Untitled".into()
 }
 
+/// Resolve the archive filename used by saving and destination reservations.
+pub fn project_save_path(requested_path: &Path) -> PathBuf {
+    if requested_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("encap"))
+        .unwrap_or(false)
+    {
+        requested_path.to_path_buf()
+    } else {
+        match requested_path.file_name() {
+            Some(file_name) => {
+                let mut name = file_name.to_os_string();
+                name.push(".encap");
+                requested_path.with_file_name(name)
+            }
+            None => requested_path.with_extension("encap"),
+        }
+    }
+}
+
 pub fn save_project(project: &ProjectDocument, requested_path: &Path) -> Result<PathBuf> {
     save_project_cancellable(project, requested_path, &|| false)
 }
@@ -137,23 +158,7 @@ pub fn save_project_cancellable(
         .as_deref()
         .and_then(|value| serde_json::from_str::<CompatibilityPayload>(value).ok())
         .unwrap_or_default();
-    let target = if requested_path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("encap"))
-        .unwrap_or(false)
-    {
-        requested_path.to_path_buf()
-    } else {
-        match requested_path.file_name() {
-            Some(file_name) => {
-                let mut name = file_name.to_os_string();
-                name.push(".encap");
-                requested_path.with_file_name(name)
-            }
-            None => requested_path.with_extension("encap"),
-        }
-    };
+    let target = project_save_path(requested_path);
     let parent = match target.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),

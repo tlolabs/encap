@@ -1,103 +1,152 @@
 # Native application architecture
 
-```text
-SwiftUI/AppKit (production macOS) ----------> encap-engine (one JSON response)
-Qt 6 Widgets (Windows/Linux/internal Mac) --> |
-                        |-- encap-core: project model and ZIP persistence
-                        |-- encap-audio -> encap-ffmpeg
-                        |-- encap-transcript -> avid-transcriber JSON sidecar
-                        |                         `-- AVIDTranscription / Engines
-                        `-- encap-video adapter -> avid-core -> FFmpeg/ffprobe
+The linked migration is in progress. The application and project boundary is
+linked, as are available Video, image and Transcript operations. Audio-only
+export and Qt's fallback PCM decoder still need public Core replacements; they
+remain working compatibility paths and prevent a complete migration claim.
 
-All modes resolve the same Core-built FFmpeg/ffprobe pair.
+```text
+SwiftUI/AppKit (production macOS) ----> EnCAP application ABI1/schema1
+Qt Widgets (Windows/Linux) ----------> libencap_app
+  diagnostic encap-engine ----------> same reusable application services
+  built-in --linked-operation ------> same reusable application services
+                                       |-- encap-core: project/ZIP/edit/recovery
+                                       |-- encap-audio: peer Audio workflow
+                                       |     `-- existing subprocess export [Core gap]
+                                       |-- encap-video: peer Video workflow
+                                       |     `-- linked avid-core 0.4.0
+                                       `-- encap-transcript: peer Transcript workflow
+                                             |-- linked Core Rust subtitle contracts
+                                             |-- optional portable tiny.en recognition
+                                             `-- isolated linked Apple Swift module
+                                                   `-- AVIDTranscription / Engines
+Qt native audio output <--- native decoder + FFmpeg PCM compatibility [Core gap]
 ```
 
-`encap-core` contains platform-neutral data and long-term file compatibility.
-The three user modes are separate crates and do not depend on one another.
-`encap-ffmpeg` is deliberately narrow: it locates and validates bundled tools,
-passes arguments without a shell, drains output without pipe deadlocks, records
-diagnostics, and terminates child processes on cancellation for Audio export.
-Core validates the complete original runtime directory before staging. Every mode
-checks the pinned Core checksum manifest, metadata, source archive, target and
-Core/application identity, plus original and post-sign hashes before using the pair.
-Core's explicit `MediaTools::from_paths` validates both tools with the operation's
-cancellation token. Video receives that same validated pair without rediscovery.
-Release builds never use environment or PATH FFmpeg. Debug fixture overrides
-require both absolute paths; invalid, partial or mismatched pairs fail.
-AVID Core owns Video probing, capabilities, graphs and rendering, plus in-process
-JPEG/PNG optimization and metadata removal. `optimize-artwork` passes a separate
-output and protected project/media paths directly to Core; clients adopt the new
-artwork path only after success. The original image remains intact.
+## Application and project boundary
 
-Audio-only export, sample-layout parsing and waveform previews remain existing
-EnCAP implementations because Core has no equivalent public operations. They are
-outstanding **Core gaps**, not a completed ownership migration. Project archives,
-episode metadata and schema migrations are EnCAP product logic. Core's Swift
-packages own transcription catalog, verified model acquisition/cache leases,
-recognition, alignment, and caption contracts. Production Transcript passes the
-original media to those providers and has no separate FFmpeg conversion path.
+`encap-app` contains reusable EnCAP operations extracted from `encap-engine`.
+Both existing UIs translate their application commands into a narrow, versioned,
+operation-specific request and invoke `libencap_app` directly on a host worker.
+The diagnostic CLI and built-in `--linked-operation` modes call those same
+services. No production UI needs an `encap-engine` child for project operations.
+SwiftUI/AppKit and Qt Widgets remain the desktop presentation implementations;
+this migration adds no mobile app or UI rewrite.
 
-Ordinary supported-host SRT/WebVTT export maps existing segment boundaries and
-speakers to Core `CaptionCue`/`CaptionExporter`; word-caption grouping separately
-uses `CaptionBuilder`. Core's Apple-only exporter cannot replace saved SRT export
-on the other desktop targets, where the existing writer remains an explicit
-portable-exporter gap. A supported helper failure is reported without fallback.
-Core's subtitle escaping, newline folding and strict ordered positive-duration
-cues are intentional differences; invalid legacy cues must be corrected to export
-through Core. TXT remains EnCAP's plain-text project projection.
+The [application interface](linked-application-api.md) defines owned opaque
+handles, ABI/schema checks, bounded result copying, callbacks, per-operation
+cancellation and per-application recovery storage. Requests are at most 64 KiB.
+Project payload files are read separately with the existing 8 MiB manifest
+limit; Core's 4 MiB media JSON limit never receives an entire project. Typed Rust
+media adapters do not assume that EnCAP's application schema is Core's schema.
 
-The signal handler cancels Core Rust tokens used by Audio/Video and the Transcript
-sidecar adapter. Rust Core events/errors and Swift Core model/inference progress
-are adapted at the JSON boundary; Core has no universal cross-language wire type.
-EnCAP owns and reaps its audio-export and JSON-sidecar children. Acquisition uses
-the pinned Core artifacts; a sibling checkout is unnecessary. Full file-level
-ownership and remaining exceptions are recorded in [the audit](avid-core-audit.md).
+`encap-core` owns the persistent model, episode/chapter/source/transcript IDs,
+compatibility extensions, schema migration, project ZIPs, incremental media
+copying, atomic save, autosave and recovery. It rejects unsupported future
+schemas and hostile archives. Core's transient media/inference requests do not
+replace this model. The three mode crates are peers and do not depend on one
+another. Source-clock projection, edit history and speaker reconciliation remain
+EnCAP project responsibilities; generated timing and model provenance belong to
+Core and are never synthesized for ambiguous legacy records.
 
-Both presentation implementations use the `encap-engine` JSON process boundary.
-JSON keys use
-snake case, every invocation returns one JSON value on stdout, and failures
-return `{ "error": "plain-language explanation" }` with a nonzero status.
-Keeping the boundary identical makes the Qt and SwiftUI clients thin
-and independently crash-isolated while the mode crates remain reusable.
+A process-wide output lease rejects concurrent application writers to the same
+destination, including existing filesystem aliases. Mode-specific protection,
+same-directory staging and successful-publication-only replacement remain in
+place. Projects and export destinations are not partially changed on failure.
 
-The Apple transcription sidecar is a separately packaged higher-minimum-OS
-executable; it does not raise the base app's macOS 13 deployment target. It
-imports the verified immutable snapshot under `vendor/avid-core-transcription`,
-with both Swift packages in their original sibling layout. It never parses
-Core's display-oriented command output. Model and inference progress travels
-as structured stderr events while stdout retains the final JSON contract.
-Unsupported targets report unavailable transcription rather than advertising
-an old backend as the new engine. See [migration details](transcription-avid-core.md).
+## Linked media and explicit compatibility paths
 
-UI layers delegate persistence, export construction, schema migration and
-transcription routing to the engine. Qt retains a direct validated-FFmpeg PCM
-preview decoder because Core has no public equivalent; this is a recorded gap. Platform code owns dialogs, windows, menus, accessibility,
-appearance, drag/drop, playback, and lifecycle integration.
+The immutable Rust Core pin is `0.4.0` at
+`dd112d497b68df6786f49a71b3611f7f32f090e9`. The separately vendored Swift packages
+and manifest are refreshed from that same source snapshot. Reproducible builds
+resolve immutable source and target-specific linked SDKs; they do not depend on
+an adjacent Core checkout, developer PATH or arbitrary system FFmpeg libraries.
+Production Core does not enable `legacy-subprocess`.
+
+`encap-video` uses `Renderer::new()`, linked inspection/probing, previews,
+timeline rendering, capabilities, composition and codecs. New projects use
+`Renderer::default_settings()`; saved explicit encoder choices stay unchanged.
+Compiled encoder support is distinct from usable device initialization. Original
+source audio, independent Video ordering/selection, hard cuts, artwork fallback,
+conservative static-image scheduling and the existing memory policy remain host
+adapters. A public Core classifier/planner is still needed before removing that
+compatibility sniffing. Core owns native contexts, filters and media publication.
+
+`encap-app` delegates image optimization directly to Core with protected project,
+payload and source paths. Clients adopt the separate optimized image only after
+success. There is no EnCAP JPEG/PNG compression engine.
+
+Core 0.4 does not provide complete chaptered MP3/AAC/M4A export with EnCAP's
+metadata/artwork contract, libmp3lame profiles, or a supported high-level PCM
+playback decoder. Existing `encap-audio` argument construction and
+`encap-ffmpeg` transport, plus Qt's direct FFmpeg-to-PCM playback subprocess,
+remain unfinished migration paths. They are not a final linked implementation
+or a qualified replacement. No new raw libav/audio engine was introduced.
+Existing bounded WAV/AIFF/AIFC sample validation and waveform parsers also remain
+explicit compatibility exceptions until public equivalent Core APIs exist.
+
+## Transcription and subtitles
+
+`encap-transcript` uses linked APIs; `avid-transcriber` is retained only as a
+diagnostic client of the same Swift services. An isolated higher-minimum Apple
+inference library links the verified `AVIDTranscription` and
+`AVIDTranscriptionEngines` sources, allowing the base macOS app to retain macOS13
+and Intel media/project support. Availability checks happen before loading the
+optional incompatible module; an availability guard around an eagerly linked
+newer dependency would not be sufficient.
+
+Apple provider selection keeps full Whisper large-v3 as the quality default,
+Whisper Turbo, Parakeet, Qwen recognition and corrected-text Qwen alignment.
+Installed-model requests preserve verified identity, tokenizer/runtime pins and
+build provenance; leases last through backend unload. Model acquisition/removal
+is explicit. Old EnCAP/manual/third-party model files are not silently adopted
+or deleted. Actual provider/model/platform qualification remains separate from
+catalog availability.
+
+Portable Tiny English is an explicitly selected additional model behind the
+`portable-whisper` build feature, disabled by default to preserve the base
+application deployment minimum. It is not equivalent to the Apple catalog.
+Portable alignment, Parakeet/Qwen and downloading remain unavailable. Saved
+transcript editing and export do not depend on inference availability.
+
+Ordinary SRT/WebVTT export passes valid segment bounds to Core's linked Rust
+subtitle exporter. Grouped word captions use real timed words and Core grouping;
+segment cues never receive invented timings. TXT remains EnCAP's speaker-aware
+project projection. Export preserves saved text rather than editing a transcript
+to satisfy an exporter, and adds no animated/burned-in captions.
+
+## Threading, native ownership and deployment
+
+Blocking linked work runs on native workers with independent operation tokens.
+Callback buffers are borrowed only for a callback and copied before queued UI
+dispatch. Shared scoped progress forwarding restores the enclosing handler after
+nested calls; native Swift progress is drained on its blocking caller before
+return. Superseded UI work is ignored using existing generation guards.
+Cancellation requests cooperative cleanup and joins workers; no worker thread is
+terminated and no hard process-style deadline is claimed. Shutdown, library
+unload and authenticated application replacement must wait for active work.
+Diagnostic SIGINT/SIGTERM requests follow the same cancellation-and-cleanup path.
+
+Hosts retain native devices/output, playback controls/seeking, Windows SMTC,
+Linux MPRIS, permissions, dialogs and application lifecycle. Qt's internal Mac
+reference disables production updating and uses
+`com.tlolabs.encap.qt-reference`; it is not the production SwiftUI macOS app.
+
+Target receipts must validate source/artifact identity, profile/features,
+ABI/schema, architecture, deployment minimum, transitive libraries, loader paths,
+Swift/Metal/catalog resources, corresponding sources and licenses. A source pin,
+cross-compile or one working native Mac operation does not qualify another target
+or a final package. [The migration matrix](linked-migration.md) records actual
+checks and blockers. Native macOS development builds are unnotarized; standard
+local distributions require Developer ID, Apple Accepted status, stapling and
+final extracted-app signature/Gatekeeper acceptance. Current weekly native
+Windows/Linux publication and authenticated updater policies remain unchanged.
 
 ## Safety invariants
 
-- Untrusted paths are process arguments, never shell text.
-- Project archive extraction rejects traversal, duplicate paths, links, special
-  files, extreme expansion, and oversized manifests before extraction.
-- Deliverables are staged beside their destination and atomically replaced only
-  after successful completion.
-- Raw tool diagnostics stay in local logs; the UI receives concise errors.
-- Unsupported future project schemas are never partially loaded or rewritten.
-- No telemetry, analytics, or automatic diagnostic upload exists.
-
-## Shared desktop presentation
-
-`qt/` contains the Widgets view, interaction and lifecycle code for Windows
-x64/ARM64, Linux x64/ARM64 and the internal Apple Silicon reference. Its
-`EngineClient` invokes one JSON command per operation and keeps media work off
-the UI thread. Rust owns project validation, persistence, transcription and
-media production. Native miniaudio supplies recording preview; authenticated
-bundled FFmpeg decodes PCM formats unsupported by that decoder. Narrow C/C++
-adapters supply Linux MPRIS and Windows SMTC. GLib remains a Linux integration
-dependency; GTK, libadwaita, GStreamer and WinUI are removed.
-
-The reference bundle ID is `com.tlolabs.encap.qt-reference`. Qt running
-on any Mac disables production update operations, even outside the app bundle.
-Its updater executable/configuration and Sparkle are excluded from packaging.
-Production update identity generation rejects that bundle ID. CI uploads its ZIP
-only under an INTERNAL artifact name and never includes it in release inputs.
+- Archives reject traversal, duplicate paths, links, special files, oversized
+  manifests, extreme expansion and suspicious compression ratios.
+- Outputs stage beside their destination and replace it only after success.
+- Native errors retain structured domains/codes; raw diagnostics stay local.
+- Source/protected-path checks and saved unknown compatibility fields remain.
+- No telemetry, analytics or automatic diagnostic upload is introduced.

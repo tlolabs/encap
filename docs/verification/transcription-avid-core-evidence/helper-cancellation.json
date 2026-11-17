@@ -1,0 +1,13 @@
+{
+  "exit_code": 130,
+  "seconds_after_sigterm": 0.003136790997814387,
+  "stdout": {
+    "error": "The AVID operation was cancelled safely. A running Core ML or Metal kernel may finish before cancellation is observed."
+  },
+  "first_progress": {
+    "event": "progress",
+    "model_id": "parakeet-tdt-v3",
+    "stage": "verifying"
+  },
+  "stderr_after_signal": ""
+}

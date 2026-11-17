@@ -1,94 +1,18 @@
+//! Linked media lifecycle and the explicitly unfinished executable-pair boundary.
 #![cfg(unix)]
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::BufRead,
     os::unix::fs::PermissionsExt,
     path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
+mod support;
 fn shell(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-#[test]
-fn host_resolution_rejects_invalid_overrides_and_path_fallback() {
-    let root = tempfile::tempdir().unwrap();
-    shell(&root.path().join("ffmpeg"),"if [ \"$1\" = -version ]; then echo 'ffmpeg version 9.0.1'; else echo ' V..... libx264 software'; fi");
-    shell(&root.path().join("ffprobe"), "echo 'ffprobe version 9.0.1'");
-    let invoke = |command: &str| {
-        Command::new(env!("CARGO_BIN_EXE_encap-engine"))
-            .arg(command)
-            .env("PATH", root.path())
-            .env("ENCAP_FFMPEG", root.path().join("invalid"))
-            .env("ENCAP_FFPROBE", root.path().join("invalid"))
-            .output()
-            .unwrap()
-    };
-    for command in ["validate-tools", "video-capabilities"] {
-        let out = invoke(command);
-        assert!(!out.status.success());
-        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert!(error["error"].as_str().unwrap().contains("bundled"));
-    }
-}
-
-#[test]
-fn one_signal_handler_cancels_video_validation_capabilities_probes_and_encoding() {
-    for stage in ["validation", "capabilities", "probe", "encoding"] {
-        let root = tempfile::tempdir().unwrap();
-        let ready = root.path().join("ready");
-        let sleep = format!("echo ready > '{}'; exec /bin/sleep 20", ready.display());
-        let ffmpeg = root.path().join("ffmpeg");
-        let ffprobe = root.path().join("ffprobe");
-        shell(&ffmpeg,&format!("if [ \"$1\" = -version ]; then {}; echo 'ffmpeg version 9.0.1'; exit; fi\nif [ \"$2\" = -encoders ]; then {}; echo ' V..... libx264 software'; exit; fi\nif [ \"$2\" = -filters ]; then echo ' ... setsar V->V'; exit; fi\nfor last do :; done\nprintf partial > \"$last\"\n{}",if stage=="validation" {&sleep} else {":"},if stage=="capabilities" {&sleep} else {":"},if stage=="encoding" {&sleep} else {":"}));
-        shell(&ffprobe,&format!("if [ \"$1\" = -version ]; then echo 'ffprobe version 9.0.1'; exit; fi\n{}\necho 100x100",if stage=="probe" {&sleep} else {":"}));
-        let image = root.path().join("cover.png");
-        let audio = root.path().join("source.wav");
-        let output = root.path().join("out.mp4");
-        fs::write(&image, b"image").unwrap();
-        fs::write(&audio, b"audio").unwrap();
-        fs::write(&output, b"old").unwrap();
-        let payload = root.path().join("payload.json");
-        fs::write(&payload,serde_json::to_vec(&json!({"metadata":{"artwork_path":image},"audio_sources":[{"source_path":audio,"duration_seconds":1.0}],"chapters":[{"id":"one","chapter_number":1,"start_time_seconds":0.0,"duration_seconds":1.0}],"video":{"export_settings":{"width":160,"height":90,"encoding":"software"}}})).unwrap()).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_encap-engine"));
-        if stage == "validation" || stage == "capabilities" {
-            command.arg("video-capabilities");
-        } else {
-            command.arg("export-video").arg(&payload).arg(&output);
-        }
-        let child = command
-            .env("ENCAP_FFMPEG", &ffmpeg)
-            .env("ENCAP_FFPROBE", &ffprobe)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let start = Instant::now();
-        while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(ready.exists(), "{stage} never started");
-        assert!(Command::new("/bin/kill")
-            .args(["-TERM", &child.id().to_string()])
-            .status()
-            .unwrap()
-            .success());
-        let out = child.wait_with_output().unwrap();
-        assert!(!out.status.success());
-        assert!(start.elapsed() < Duration::from_secs(5));
-        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert!(error["error"].as_str().unwrap().contains("cancelled"));
-        assert_eq!(fs::read(&output).unwrap(), b"old");
-        assert_eq!(fs::read(&audio).unwrap(), b"audio");
-        assert_eq!(fs::read(&image).unwrap(), b"image");
-        assert!(!fs::read_dir(root.path()).unwrap().any(|e| e
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".avid-")));
-    }
 }
 
 #[test]
@@ -99,7 +23,8 @@ fn shared_validation_rejects_partial_mismatched_and_unidentified_pairs() {
     shell(&ffmpeg, "echo 'ffmpeg version 9.0.2'");
     for identity in ["ffprobe version 9.0.1", "some unrelated executable"] {
         shell(&ffprobe, &format!("echo '{identity}'"));
-        for command in ["validate-tools", "video-capabilities"] {
+        {
+            let command = "validate-compatibility-tools";
             let out = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
                 .arg(command)
                 .env("ENCAP_FFMPEG", &ffmpeg)
@@ -113,7 +38,7 @@ fn shared_validation_rejects_partial_mismatched_and_unidentified_pairs() {
     shell(&ffprobe, "echo 'ffprobe version 9.0.2'");
     for missing in ["ENCAP_FFMPEG", "ENCAP_FFPROBE"] {
         let out = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
-            .arg("validate-tools")
+            .arg("validate-compatibility-tools")
             .env("ENCAP_FFMPEG", &ffmpeg)
             .env("ENCAP_FFPROBE", &ffprobe)
             .env_remove(missing)
@@ -150,7 +75,7 @@ fn audio_and_validation_signals_cancel_shared_pair_validation() {
         if mode == "audio" {
             command.arg("export").arg(&payload).arg(&output);
         } else {
-            command.arg("validate-tools");
+            command.arg("validate-compatibility-tools");
         }
         let child = command
             .env("ENCAP_FFMPEG", &ffmpeg)
@@ -179,89 +104,164 @@ fn audio_and_validation_signals_cancel_shared_pair_validation() {
 }
 
 #[test]
-fn transcription_signal_cancels_owned_shared_helper_without_using_ffmpeg() {
+fn linked_capabilities_ignore_executable_overrides_while_compatibility_checks_fail() {
     let root = tempfile::tempdir().unwrap();
-    let ready = root.path().join("ready");
-    let cleanup = root.path().join("cleanup");
-    let helper = root.path().join("avid-transcriber");
-    shell(&helper, &format!("trap 'printf cleaned > {} ; exit 0' TERM\nprintf ready > {}\nprintf '{{\"event\":\"progress\",\"stage\":\"recognizing\"}}\\n' >&2\nwhile :; do /bin/sleep 0.05; done", cleanup.display(), ready.display()));
-    let source = root.path().join("source.wav");
-    fs::write(&source, b"source audio").unwrap();
-    let payload = root.path().join("payload.json");
-    let original = serde_json::to_vec(&json!({"audio_sources":[{"source_path":source,"duration_seconds":1.0}],
-        "transcript_segments":[{"id":"edited","text":"Original edited transcript","speaker":"Host","start_time_seconds":0.0,"end_time_seconds":1.0}]})).unwrap();
-    fs::write(&payload, &original).unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
-        .args(["transcribe"])
+    let ffmpeg = root.path().join("ffmpeg");
+    let ffprobe = root.path().join("ffprobe");
+    let marker = root.path().join("executed");
+    shell(
+        &ffmpeg,
+        &format!("echo executed > '{}'; exit 1", marker.display()),
+    );
+    shell(
+        &ffprobe,
+        &format!("echo executed > '{}'; exit 1", marker.display()),
+    );
+    for command in ["validate-tools", "video-capabilities"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+            .arg(command)
+            .env("PATH", root.path())
+            .env("ENCAP_FFMPEG", &ffmpeg)
+            .env("ENCAP_FFPROBE", &ffprobe)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(result.get("error").is_none());
+        assert!(
+            !marker.exists(),
+            "linked capabilities launched a media executable"
+        );
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .arg("validate-compatibility-tools")
+        .env("PATH", root.path())
+        .env("ENCAP_FFMPEG", root.path().join("invalid"))
+        .env("ENCAP_FFPROBE", root.path().join("invalid"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result["error"].as_str().unwrap().contains("bundled"));
+}
+
+#[test]
+fn signal_cancels_linked_video_and_waits_for_cleanup_preserving_destination() {
+    let root = tempfile::tempdir().unwrap();
+    let image = root.path().join("image.png");
+    let audio = root.path().join("audio.wav");
+    let output = root.path().join("movie.mp4");
+    let payload = root.path().join("project.json");
+    fs::write(&image, support::OPAQUE_PNG).unwrap();
+    support::write_wav(&audio, 10);
+    fs::write(&output, b"existing movie").unwrap();
+    let original_audio = fs::read(&audio).unwrap();
+    let project=serde_json::to_vec(&json!({"metadata":{"artwork_path":image},"audio_sources":[{"source_path":audio,"duration_seconds":10.0}],"chapters":[{"id":"one","chapter_number":1,"start_time_seconds":0.0,"duration_seconds":10.0}],"video":{"export_settings":{"width":1920,"height":1080,"fps":60,"encoding":"software"}}})).unwrap();
+    fs::write(&payload, &project).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .arg("export-video")
         .arg(&payload)
-        .arg("whisper-large-v3")
-        .env("ENCAP_AVID_TRANSCRIBER", &helper)
+        .arg(&output)
+        .args(["--render-mode", "per-frame"])
+        .env("PATH", "")
         .env("ENCAP_FFMPEG", "/must-not-be-used")
         .env("ENCAP_FFPROBE", "/must-not-be-used")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let start = Instant::now();
-    while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(ready.exists(), "shared transcription helper did not start");
+    let stderr = child.stderr.take().unwrap();
+    let (started, wait) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        for line in std::io::BufReader::new(stderr).lines() {
+            let line = line.unwrap();
+            if serde_json::from_str::<Value>(&line)
+                .ok()
+                .is_some_and(|v| v["event"] == "stage")
+            {
+                let _ = started.send(());
+            }
+            captured.push(line);
+        }
+        captured
+    });
+    wait.recv_timeout(Duration::from_secs(10))
+        .expect("linked render did not emit its first stage");
     assert!(Command::new("/bin/kill")
         .args(["-TERM", &child.id().to_string()])
         .status()
         .unwrap()
         .success());
     let result = child.wait_with_output().unwrap();
-    assert!(!result.status.success());
-    let error: Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert!(error["error"].as_str().unwrap().contains("cancelled"));
-    assert!(String::from_utf8_lossy(&result.stderr).contains("recognizing"));
-    assert_eq!(fs::read_to_string(cleanup).unwrap(), "cleaned");
-    assert_eq!(fs::read(payload).unwrap(), original);
-    assert_eq!(fs::read(source).unwrap(), b"source audio");
-    assert!(start.elapsed() < Duration::from_secs(5));
+    let diagnostics = reader.join().unwrap();
+    assert!(
+        !result.status.success(),
+        "render unexpectedly completed: {diagnostics:?}"
+    );
+    let result: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert!(result["error"].as_str().unwrap().contains("cancelled"));
+    assert_eq!(fs::read(&output).unwrap(), b"existing movie");
+    assert_eq!(fs::read(&audio).unwrap(), original_audio);
+    assert_eq!(fs::read(&image).unwrap(), support::OPAQUE_PNG);
+    assert_eq!(fs::read(&payload).unwrap(), project);
+    assert!(!fs::read_dir(root.path()).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".avid-")));
 }
 
 #[test]
-fn transcription_failure_retains_bounded_native_diagnostics_only_on_stderr() {
+fn removed_helper_override_is_never_executed_and_failure_preserves_transcript() {
     let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("executed");
     let helper = root.path().join("avid-transcriber");
-    shell(&helper, "printf 'DIAGNOSTIC_START\\n' >&2\n/usr/bin/head -c 65536 /dev/zero | /usr/bin/tr '\\000' x >&2\nprintf '\\nMissing AVID resource bundle.\\n' >&2\nprintf '{\"error\":\"Missing shared resources.\"}'\nexit 1");
-    let invoke = || {
-        Command::new(env!("CARGO_BIN_EXE_encap-engine"))
-            .arg("models")
-            .env("ENCAP_AVID_TRANSCRIBER", &helper)
-            .output()
-            .unwrap()
-    };
-    let failed = invoke();
-    assert!(!failed.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&failed.stdout).unwrap(),
-        json!({"error":"Missing shared resources."})
-    );
-    let diagnostics = String::from_utf8(failed.stderr).unwrap();
-    assert!(diagnostics.contains("Missing AVID resource bundle."));
-    assert!(!diagnostics.contains("DIAGNOSTIC_START"));
-    assert!(
-        diagnostics.len() <= 8192 + 100,
-        "native diagnostic tail must be bounded"
-    );
-    assert!(!String::from_utf8_lossy(&failed.stdout).contains("resource bundle"));
-
     shell(
         &helper,
-        "printf 'Nonfatal SDK diagnostic\\n' >&2\nprintf '[]'",
+        &format!("echo helper > '{}'; exit 1", marker.display()),
     );
-    let succeeded = invoke();
-    assert!(succeeded.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&succeeded.stdout).unwrap(),
-        json!([])
-    );
-    assert!(
-        succeeded.stderr.is_empty(),
-        "raw SDK diagnostics stay private on success"
-    );
+    let source = root.path().join("audio.wav");
+    support::write_wav(&source, 1);
+    let payload = root.path().join("project.json");
+    let project=serde_json::to_vec(&json!({"audio_sources":[{"source_path":source,"duration_seconds":1.0}],"transcript_segments":[{"id":"edited","text":"Edited transcript","speaker":"Host","start_time_seconds":0.0,"end_time_seconds":1.0}]})).unwrap();
+    fs::write(&payload, &project).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .arg("transcribe")
+        .arg(&payload)
+        .arg("whisper-large-v3")
+        .env("ENCAP_AVID_TRANSCRIBER", &helper)
+        .env(
+            "ENCAP_AVID_TRANSCRIPTION_LIBRARY",
+            root.path().join("missing-library"),
+        )
+        .env("ENCAP_FFMPEG", "/must-not-be-used")
+        .env("ENCAP_FFPROBE", "/must-not-be-used")
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result["error"].as_str().is_some());
+    assert!(!marker.exists());
+    assert_eq!(fs::read(&payload).unwrap(), project);
+    let output = Command::new(env!("CARGO_BIN_EXE_encap-engine"))
+        .arg("models")
+        .env("ENCAP_AVID_TRANSCRIBER", &helper)
+        .env(
+            "ENCAP_AVID_TRANSCRIPTION_LIBRARY",
+            root.path().join("missing-library"),
+        )
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(serde_json::from_slice::<Value>(&output.stdout)
+        .unwrap()
+        .is_array());
+    assert!(!marker.exists());
 }

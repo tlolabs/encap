@@ -2,6 +2,17 @@ import AppKit
 import SwiftUI
 
 @main
+@MainActor
+enum EnCapLauncher {
+    static func main() {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == "--linked-operation" {
+            exit(EngineClient.diagnosticOperation(Array(arguments.dropFirst())))
+        }
+        EnCapApp.main()
+    }
+}
+
 struct EnCapApp: App {
     @NSApplicationDelegateAdaptor(EnCapApplicationDelegate.self) private var appDelegate
     @StateObject private var store = AppStore()

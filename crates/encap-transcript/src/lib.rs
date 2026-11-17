@@ -1,7 +1,7 @@
-//! Thin, process-isolated adapter to the reviewed AVID Core transcription libraries.
+//! Linked adapters to AVID Core transcription and portable caption contracts.
 //!
 //! Catalogs, model ownership, downloading, verification and inference live in the
-//! packaged Swift sidecar. Legacy EnCAP/third-party model folders are never touched.
+//! isolated, packaged Swift library. Legacy EnCAP/third-party model folders are never touched.
 
 use encap_core::{AudioSource, EncapError, Result, TranscriptSegment, TranscriptWord};
 use encap_ffmpeg::CancellationToken;
@@ -10,14 +10,23 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
+#[cfg(test)]
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::{Child, Command, Stdio};
+#[cfg(test)]
 use std::time::{Duration, Instant};
+
+mod portable;
+mod resources;
+pub use encap_core::{with_progress_handler, ProgressHandler};
 
 pub const DEFAULT_MODEL: &str = "whisper-large-v3";
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024 * 1024;
+#[cfg(test)]
 const MAX_FAILURE_DIAGNOSTIC_BYTES: usize = 8192;
+#[cfg(test)]
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
 const PLATFORM_REASON: &str = "AVID Core transcription currently requires Apple silicon and macOS 14 or later. Shared transcription support for Intel Mac, macOS 13, Windows and Linux is unresolved; existing projects, transcript editing and exports remain available.";
 
@@ -51,34 +60,68 @@ pub struct TranscriptionStatus {
 }
 
 pub fn status() -> TranscriptionStatus {
-    match helper_path() {
-        Ok(_) => TranscriptionStatus {
-            available: true,
-            reason: "Local AVID Core transcription. Model installation is required before inference; source audio stays on this computer.".into(),
-            default_model: DEFAULT_MODEL,
-        },
-        Err(error) => TranscriptionStatus {
-            available: false,
-            reason: error.to_string(),
-            default_model: DEFAULT_MODEL,
-        },
+    let apple = Bridge::discover().and_then(|bridge| {
+        bridge.invoke::<Value>(&["status".into()], &CancellationToken::default())
+    });
+    match apple {
+        Ok(_) => TranscriptionStatus {available: true, reason: "Linked Apple AVID providers; verified model installation is required before inference. Portable Tiny English is an explicit additional selection when compiled.".into(), default_model: DEFAULT_MODEL},
+        Err(error) => TranscriptionStatus {available: cfg!(feature="portable-whisper"), reason: if cfg!(feature="portable-whisper") {
+            format!("Portable Tiny English is compiled and must be selected explicitly. Full Whisper remains the quality default and requires the optional Apple module: {error}")
+        } else {error.to_string()}, default_model: DEFAULT_MODEL},
     }
 }
 
 pub fn models(cancellation: &CancellationToken) -> Result<Vec<ModelInfo>> {
-    Bridge::discover()?.invoke(&["models".into()], cancellation)
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    let mut models = if helper_platform_supported()? && helper_path().is_ok() {
+        Bridge::discover()?.invoke(&["models".into()], cancellation)?
+    } else {
+        Vec::new()
+    };
+    models.push(portable::model()?);
+    Ok(models)
 }
 
 pub fn providers(cancellation: &CancellationToken) -> Result<Vec<Provider>> {
-    Bridge::discover()?.invoke(&["providers".into()], cancellation)
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    let mut providers = if helper_platform_supported()? && helper_path().is_ok() {
+        Bridge::discover()?.invoke(&["providers".into()], cancellation)?
+    } else {
+        Vec::new()
+    };
+    if cfg!(feature = "portable-whisper") && portable::model()?.installed {
+        providers.push(Provider {id: portable::ID.into(), name: "Whisper Tiny English (portable CPU)".into(),
+            detail: "Explicit English-only additional model; installed bytes are verified under a lease before inference. No portable forced alignment.".into(), extensions: BTreeMap::new()});
+    }
+    Ok(providers)
 }
 
 pub fn install_model(id: &str, cancellation: &CancellationToken) -> Result<ModelInfo> {
+    if id == portable::ID {
+        return Err(message("Portable model downloading is unavailable. Explicitly import the pinned Tiny English GGML file; existing caches are never adopted automatically."));
+    }
     Bridge::discover()?.invoke(&model_arguments("install-model", id), cancellation)
 }
 
 pub fn remove_model(id: &str, cancellation: &CancellationToken) -> Result<ModelInfo> {
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    if id == portable::ID {
+        return portable::remove();
+    }
     Bridge::discover()?.invoke(&model_arguments("remove-model", id), cancellation)
+}
+
+pub fn verify_model(id: &str, cancellation: &CancellationToken) -> Result<ModelInfo> {
+    if id == portable::ID {
+        return portable::verify(cancellation);
+    }
+    Bridge::discover()?.invoke(&model_arguments("verify-model", id), cancellation)
 }
 
 pub fn import_model(
@@ -86,6 +129,9 @@ pub fn import_model(
     source: &Path,
     cancellation: &CancellationToken,
 ) -> Result<ModelInfo> {
+    if id == portable::ID {
+        return portable::import(source, cancellation);
+    }
     let mut arguments = model_arguments("import-model", id);
     arguments.extend(["--source".into(), source.as_os_str().to_owned()]);
     Bridge::discover()?.invoke(&arguments, cancellation)
@@ -109,14 +155,14 @@ pub fn transcribe(
     previous: &[TranscriptSegment],
     cancellation: &CancellationToken,
 ) -> Result<Vec<TranscriptSegment>> {
-    transcribe_with_bridge(
-        &Bridge::discover()?,
-        sources,
-        model,
-        options,
-        previous,
-        cancellation,
-    )
+    let bridge = if model == portable::ID {
+        Bridge {
+            helper: PathBuf::new(),
+        }
+    } else {
+        Bridge::discover()?
+    };
+    transcribe_with_bridge(&bridge, sources, model, options, previous, cancellation)
 }
 
 fn transcribe_with_bridge(
@@ -331,7 +377,7 @@ fn preserve_replaced_metadata(
             Value::String(warning.into()),
         );
         let event = serde_json::json!({"event":"progress","stage":"speaker-review-needed","message":warning});
-        let _ = writeln!(std::io::stderr(), "{event}");
+        encap_core::emit_progress(event);
     }
     result[0].set_transcription_origin(origin);
     Ok(())
@@ -467,7 +513,7 @@ fn realign_with_bridge(
 }
 
 /// Export one subtitle cue per saved segment without word-caption regrouping.
-/// Core validates and formats cues on supported helper platforms. Its subtitle
+/// Core validates and formats cues on every platform. Its subtitle
 /// escaping, newline folding, and positive/ordered cue requirements intentionally
 /// supersede the legacy writer's permissive formatting there.
 pub fn render_segment_subtitles(
@@ -476,16 +522,25 @@ pub fn render_segment_subtitles(
     cancellation: &CancellationToken,
 ) -> Result<String> {
     validate_segment_subtitles(segments, format, cancellation)?;
-    #[cfg(debug_assertions)]
-    let explicit_helper = std::env::var_os("ENCAP_AVID_TRANSCRIBER").is_some();
-    #[cfg(not(debug_assertions))]
-    let explicit_helper = false;
-    if !explicit_helper && !helper_platform_supported()? {
-        return legacy_platform_subtitles(segments, format);
-    }
-    // A missing, damaged or failing helper on a supported platform is an error;
-    // it must never select the legacy writer and conceal the failure.
-    render_segment_subtitles_with_bridge(&Bridge::discover()?, segments, format, cancellation)
+    let cues: Vec<_> = segments
+        .iter()
+        .map(|segment| {
+            let speaker = segment.speaker.trim();
+            let text = segment.text.trim();
+            avid_transcription::CaptionCue {
+                start_seconds: segment.start_time_seconds,
+                end_seconds: segment.end_time_seconds,
+                text: if speaker.is_empty() {
+                    text.to_owned()
+                } else {
+                    format!("{speaker}: {text}")
+                },
+                words: Vec::new(),
+            }
+        })
+        .collect();
+    avid_transcription::export_captions(&cues, format == "vtt")
+        .map_err(|error| message(error.to_string()))
 }
 
 fn validate_segment_subtitles(
@@ -502,6 +557,7 @@ fn validate_segment_subtitles(
     encap_core::validate_timed_transcript(segments)
 }
 
+#[cfg(test)]
 fn legacy_platform_subtitles(segments: &[TranscriptSegment], format: &str) -> Result<String> {
     // Core gap: the shared Swift exporter is not packaged for Intel Mac,
     // macOS 13, Windows or Linux. Keep saved SRT export compatible until Core
@@ -513,6 +569,7 @@ fn legacy_platform_subtitles(segments: &[TranscriptSegment], format: &str) -> Re
     }
 }
 
+#[cfg(test)]
 fn segment_subtitle_projection(segments: &[TranscriptSegment]) -> Value {
     serde_json::json!({"segments": segments.iter().map(|segment| serde_json::json!({
         "start_seconds": segment.start_time_seconds,
@@ -522,6 +579,7 @@ fn segment_subtitle_projection(segments: &[TranscriptSegment]) -> Value {
     })).collect::<Vec<_>>()})
 }
 
+#[cfg(test)]
 fn render_segment_subtitles_with_bridge(
     bridge: &Bridge,
     segments: &[TranscriptSegment],
@@ -562,32 +620,52 @@ pub fn render_captions(
     if !matches!(format, "srt" | "vtt") {
         return Err(message("Caption format must be srt or vtt."));
     }
-    let raw = caption_projection(segments)?;
-    let operation = tempfile::tempdir().map_err(|error| {
-        message(format!(
-            "Could not create a private caption operation: {error}"
-        ))
-    })?;
-    let transcript_file = operation.path().join("episode-transcript.json");
-    fs::write(&transcript_file, serde_json::to_vec(&raw)?)
-        .map_err(|error| message(format!("Could not stage caption words: {error}")))?;
-    Bridge::discover()?.invoke(
-        &[
-            "captions".into(),
-            "--transcript".into(),
-            transcript_file.as_os_str().to_owned(),
-            "--format".into(),
-            format.into(),
-        ],
-        cancellation,
-    )
+    if cancellation.is_cancelled() {
+        return Err(message("AVID Core operation was cancelled safely."));
+    }
+    // Validate the current edited projection before grouping; it never replaces
+    // persisted recognition/alignment or manufactures word timing.
+    validate_caption_segments(segments)?;
+    let transcript = avid_transcription::Transcript {
+        segments: segments
+            .iter()
+            .filter(|s| !s.text.trim().is_empty())
+            .map(|s| avid_transcription::Segment {
+                text: s.text.clone(),
+                start_seconds: Some(s.start_time_seconds),
+                end_seconds: Some(s.end_time_seconds),
+                words: s
+                    .words
+                    .iter()
+                    .map(|w| avid_transcription::Word {
+                        text: w.text.clone(),
+                        start_seconds: Some(w.start_time_seconds),
+                        end_seconds: Some(w.end_time_seconds),
+                        confidence: None,
+                        timing_method: None,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        language: None,
+        provenance: avid_transcription::Provenance::new(
+            "encap-episode-projection",
+            "current-edited-transcript",
+        ),
+        alignment_provenance: None,
+    };
+    let cues =
+        avid_transcription::caption_cues(&transcript, &Default::default(), &Default::default())
+            .map_err(|error| message(error.to_string()))?;
+    avid_transcription::export_captions(&cues, format == "vtt")
+        .map_err(|error| message(error.to_string()))
 }
 
-fn caption_projection(segments: &[TranscriptSegment]) -> Result<Value> {
+fn validate_caption_segments(segments: &[TranscriptSegment]) -> Result<()> {
     if segments.is_empty() {
         return Err(message("There is no transcript available for captions."));
     }
-    let mut projected = Vec::new();
+    let mut has_words = false;
     for segment in segments {
         if segment.text.trim().is_empty() {
             continue;
@@ -599,24 +677,12 @@ fn caption_projection(segments: &[TranscriptSegment]) -> Result<Value> {
         {
             return Err(message("Word timing is unavailable or invalidated by an edit. Realign the transcript before exporting word captions."));
         }
-        projected.push(serde_json::json!({
-            "text": segment.text,
-            "start_seconds": segment.start_time_seconds,
-            "end_seconds": segment.end_time_seconds,
-            "words": segment.words.iter().map(|word| serde_json::json!({
-                "text": word.text,
-                "start_seconds": word.start_time_seconds,
-                "end_seconds": word.end_time_seconds,
-            })).collect::<Vec<_>>(),
-        }));
+        has_words = true;
     }
-    if projected.is_empty() {
+    if !has_words {
         return Err(message("There are no timed words available for captions."));
     }
-    Ok(serde_json::json!({
-        "segments": projected,
-        "provenance": {"engine_id":"encap-episode-projection", "model_id":"current-edited-transcript"},
-    }))
+    Ok(())
 }
 
 fn preserve_word_ids(new: &mut TranscriptSegment, old: &TranscriptSegment) {
@@ -821,58 +887,68 @@ fn project_transcript(
 }
 
 fn helper_path() -> Result<PathBuf> {
-    // A deliberate developer override is never a discovery scan of third-party
-    // applications, model caches or PATH. Release packages use their own helper.
-    #[cfg(debug_assertions)]
-    if let Some(path) = std::env::var_os("ENCAP_AVID_TRANSCRIBER") {
-        let path = PathBuf::from(path);
-        return if path.is_absolute() && path.is_file() {
-            Ok(path)
-        } else {
-            Err(message(
-                "ENCAP_AVID_TRANSCRIBER must name an existing absolute helper path.",
-            ))
-        };
-    }
     if !helper_platform_supported()? {
         return Err(message(PLATFORM_REASON));
     }
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ENCAP_AVID_TRANSCRIPTION_LIBRARY") {
+        let path = PathBuf::from(path);
+        return if path.is_absolute() && path.is_file() {
+            resources::verify(&path)?;
+            Ok(path)
+        } else {
+            Err(message("ENCAP_AVID_TRANSCRIPTION_LIBRARY must name an existing absolute development library path."))
+        };
+    }
     let executable = std::env::current_exe()
-        .map_err(|error| message(format!("Could not locate the application runtime: {error}")))?;
+        .map_err(|error| message(format!("Could not locate application: {error}")))?;
     let directory = executable
         .parent()
-        .ok_or_else(|| message("The application runtime path is invalid."))?;
-    [directory.join("avid-transcriber"), directory.join("../Resources/avid-transcriber")]
-        .into_iter().find(|path| path.is_file()).ok_or_else(|| message("The packaged AVID Core transcription helper is missing. Rebuild or reinstall EnCAP; legacy transcription engines are no longer used."))
+        .ok_or_else(|| message("Invalid application runtime path."))?;
+    let library = packaged_libraries(directory)?
+        .into_iter().find(|path| path.is_file()).ok_or_else(|| message("The packaged linked AVID transcription library is missing. Existing transcript editing and exports remain available; no helper or model substitution is used."))?;
+    resources::verify(&library)?;
+    Ok(library)
+}
+
+/// Construct the application location lexically without introducing `..` or
+/// canonicalizing away the resource verifier's symbolic-link checks.
+fn packaged_libraries(directory: &Path) -> Result<[PathBuf; 2]> {
+    let contents = directory
+        .parent()
+        .ok_or_else(|| message("Invalid application runtime directory."))?;
+    Ok([
+        contents.join("Frameworks/EnCAPTranscription.framework/Versions/A/EnCAPTranscription"),
+        directory.join("EnCAPTranscription.framework/Versions/A/EnCAPTranscription"),
+    ])
 }
 
 fn helper_platform_supported() -> Result<bool> {
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        return Ok(false);
-    }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        let version = Command::new("/usr/bin/sw_vers")
-            .arg("-productVersion")
-            .output()
-            .map_err(|error| {
-                message(format!("Could not determine macOS compatibility: {error}"))
+        // Read the system's product identity without spawning sw_vers. Do not
+        // dlopen the macOS14 Swift module on the macOS13 base application.
+        let plist = fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
+            .map_err(|error| message(format!("Could not read macOS compatibility: {error}")))?;
+        let value = plist
+            .split("<key>ProductVersion</key>")
+            .nth(1)
+            .and_then(|s| s.split("<string>").nth(1))
+            .and_then(|s| s.split("</string>").next());
+        let major = value
+            .and_then(|s| s.split('.').next())
+            .and_then(|s| s.parse::<u32>().ok())
+            .ok_or_else(|| {
+                message("Could not determine macOS compatibility for linked transcription.")
             })?;
-        let major = String::from_utf8_lossy(&version.stdout)
-            .trim()
-            .split('.')
-            .next()
-            .and_then(|part| part.parse::<u32>().ok());
-        if !version.status.success() || major.is_none() {
-            return Err(message(
-                "Could not determine macOS compatibility for the AVID Core helper.",
-            ));
-        }
-        Ok(major.is_some_and(|major| major >= 14))
+        Ok(major >= 14)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     Ok(false)
 }
+
+#[cfg(not(test))]
+mod linked;
 
 struct Bridge {
     helper: PathBuf,
@@ -888,7 +964,30 @@ impl Bridge {
         arguments: &[OsString],
         cancellation: &CancellationToken,
     ) -> Result<T> {
+        if arguments.first().is_some_and(|v| v == "transcribe")
+            && arguments
+                .windows(2)
+                .any(|v| v[0] == "--model" && v[1] == portable::ID)
+        {
+            let value = |name: &str| arguments.windows(2).find(|v| v[0] == name).map(|v| &v[1]);
+            if value("--alignment-model").is_some() {
+                return Err(message(
+                    "Portable forced alignment is unavailable; no model is substituted.",
+                ));
+            }
+            let audio = value("--input")
+                .ok_or_else(|| message("Portable recognition requires a local input path."))?;
+            let raw = portable::recognize(
+                Path::new(audio),
+                value("--language").and_then(|v| v.to_str()),
+                cancellation,
+            )?;
+            return serde_json::from_value(raw).map_err(Into::into);
+        }
+        #[cfg(test)]
         let bytes = run_helper(&self.helper, arguments, cancellation)?;
+        #[cfg(not(test))]
+        let bytes = linked::invoke(&self.helper, arguments, cancellation)?;
         serde_json::from_slice(&bytes).map_err(|error| {
             message(format!(
                 "AVID Core returned an invalid JSON response: {error}"
@@ -897,7 +996,9 @@ impl Bridge {
     }
 }
 
+#[cfg(test)]
 struct OwnedChild(Child);
+#[cfg(test)]
 impl Drop for OwnedChild {
     fn drop(&mut self) {
         if self.0.try_wait().ok().flatten().is_none() {
@@ -907,6 +1008,7 @@ impl Drop for OwnedChild {
     }
 }
 
+#[cfg(test)]
 fn run_helper(
     helper: &Path,
     arguments: &[OsString],
@@ -991,6 +1093,7 @@ fn run_helper(
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn emit_failure_diagnostics(path: &Path) {
     // Native loaders and SDKs may abort before a machine-readable error exists.
     // Retain only a bounded tail on stderr, then discard the owned operation
@@ -1042,6 +1145,7 @@ fn emit_failure_diagnostics(path: &Path) {
     );
 }
 
+#[cfg(test)]
 fn forward_progress(file: &mut fs::File, pending: &mut Vec<u8>) -> Result<()> {
     let mut buffer = [0_u8; 8192];
     loop {
@@ -1072,7 +1176,7 @@ fn forward_progress(file: &mut fs::File, pending: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn request_cancel(child: &mut Child) {
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
@@ -1083,7 +1187,7 @@ fn request_cancel(child: &mut Child) {
         kill(child.id() as i32, 15);
     }
 }
-#[cfg(not(unix))]
+#[cfg(all(test, not(unix)))]
 fn request_cancel(child: &mut Child) {
     let _ = child.kill();
 }
@@ -1113,6 +1217,22 @@ mod tests {
                 "words":[{"text":"Hello", "start_seconds":2.5,"end_seconds":3.0,"confidence":0.9,"timing_method":"recognizer"},
                     {"text":"world.", "start_seconds":3.2,"end_seconds":4.0,"timing_method":"recognizer"}]}]
         })
+    }
+
+    #[test]
+    fn linked_text_exports_need_neither_inference_module_nor_model() {
+        let token = CancellationToken::default();
+        let mut segments = project_transcript(&record(), &source("clip", 10.0), 0.0, true).unwrap();
+        segments[0].speaker = "Host".into();
+        let before = segments.clone();
+        let vtt = render_segment_subtitles(&segments, "vtt", &token).unwrap();
+        assert!(vtt.starts_with("WEBVTT\n\n00:00:02.500 --> 00:00:04.000\nHost: Hello world."));
+        let captions = render_captions(&segments, "srt", &token).unwrap();
+        assert!(captions.contains("Hello world."));
+        assert_eq!(segments, before);
+        segments[0].words.clear();
+        assert!(render_segment_subtitles(&segments, "srt", &token).is_ok());
+        assert!(render_captions(&segments, "srt", &token).is_err());
     }
 
     #[test]
@@ -1363,20 +1483,52 @@ mod tests {
     }
 
     #[test]
-    fn caption_projection_uses_current_episode_times_once_and_rejects_text_edits() {
+    fn captions_use_current_episode_times_once_and_reject_text_edits() {
         let mut segments =
             project_transcript(&record(), &source("delayed", 10.0), 30.0, true).unwrap();
         let raw_before = segments[0].transcription_origin().unwrap().transcript;
-        let projected = caption_projection(&segments).unwrap();
-        assert_eq!(projected["segments"][0]["words"][0]["start_seconds"], 32.5);
-        assert_eq!(projected["segments"][0]["words"][1]["end_seconds"], 34.0);
+        let token = CancellationToken::default();
+        assert_eq!(
+            render_captions(&segments, "srt", &token).unwrap(),
+            "1\n00:00:32,500 --> 00:00:34,000\nHello world.\n\n"
+        );
+        assert_eq!(
+            render_captions(&segments, "vtt", &token).unwrap(),
+            "WEBVTT\n\n00:00:32.500 --> 00:00:34.000\nHello world.\n\n"
+        );
         assert_eq!(
             segments[0].transcription_origin().unwrap().transcript,
             raw_before
         );
         segments[0].text = "Edited".into();
         segments[0].invalidate_word_alignment();
-        assert!(caption_projection(&segments)
+        assert!(render_captions(&segments, "srt", &token)
+            .unwrap_err()
+            .to_string()
+            .contains("Realign"));
+    }
+
+    #[test]
+    fn captions_reject_empty_or_untimed_text_and_skip_blank_segments() {
+        let token = CancellationToken::default();
+        assert!(render_captions(&[], "srt", &token)
+            .unwrap_err()
+            .to_string()
+            .contains("no transcript"));
+        let blank: TranscriptSegment = serde_json::from_value(json!({
+            "start_time_seconds": 0.0, "end_time_seconds": 0.0
+        }))
+        .unwrap();
+        assert!(render_captions(std::slice::from_ref(&blank), "srt", &token)
+            .unwrap_err()
+            .to_string()
+            .contains("no timed words"));
+        let mut segments = project_transcript(&record(), &source("clip", 10.0), 0.0, true).unwrap();
+        let expected = render_captions(&segments, "srt", &token).unwrap();
+        segments.insert(0, blank);
+        assert_eq!(render_captions(&segments, "srt", &token).unwrap(), expected);
+        segments[1].words.clear();
+        assert!(render_captions(&segments, "srt", &token)
             .unwrap_err()
             .to_string()
             .contains("Realign"));

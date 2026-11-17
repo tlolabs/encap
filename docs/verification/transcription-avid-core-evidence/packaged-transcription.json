@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "target": "macos-arm64",
+  "runtime_files": {
+    "MacOS/avid-transcriber": "c20e92a1eb225ee607ecafd5a2adfc4fcf5f282c7e3aa551de775a2d52e80705",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/Info.plist": "494f58fb57c2d00193a276b46228b8a01798b76948a6c4a5e7561a93c7d22b2d",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/Resources/models.json": "99e463edfce532caa3c3ed7c82e9721a8e1119d830e014c1fd5220228156eca4",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeDirectory": "fe7f786657aefefaafa885bbc63891035ce272dcf2dbc615a1308a6c761dec6a",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeRequirements": "987920904eab650e75788c054aa0b0524e6a80bfc71aa32df8d237a61743f986",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeResources": "69d48d9e911faa807d543f9f5af6e89e32584fc7e161c48d3c80a6799181ab13",
+    "Resources/AVIDTranscription_AVIDTranscription.bundle/Contents/_CodeSignature/CodeSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/Info.plist": "386c5221c42d4d1988d04227dffa3ae58c18cf8c9a05850c082e847b79b75e35",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib": "1802f1eba2f0997d4eb0e538b64b261dd21e7fd7f3847b955361f272f4bbf69f",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeDirectory": "5d9df4043917c8f1c4dd1489950fa6580e8cf571483030646a346c37d3cb59e0",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeRequirements": "987920904eab650e75788c054aa0b0524e6a80bfc71aa32df8d237a61743f986",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeResources": "b8dce90603b3e79647d94d58fecdeb8fa6ca6ab91a4458798a1c839ac6fda67b",
+    "Resources/mlx-swift_Cmlx.bundle/Contents/_CodeSignature/CodeSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Resources/swift-crypto_Crypto.bundle/Contents/Info.plist": "55af3485b25e4553fc10db6dc7bc7c86d31c6c56c11940f1835fdaedafa84be8",
+    "Resources/swift-crypto_Crypto.bundle/Contents/Resources/PrivacyInfo.xcprivacy": "42fb8a30dd8d7ba0900e1bf17fe64ed8c12cfdb8a9c791ab6b4e1eceb0f299c0",
+    "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeDirectory": "c474c159cdd058f637a0fa4b1557375e3901329b92a749664433a14812e306a9",
+    "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeRequirements": "987920904eab650e75788c054aa0b0524e6a80bfc71aa32df8d237a61743f986",
+    "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeResources": "ef18096dbff5ed48c3659bec9bdd13f4cbb99b9a32bbef344b28350174a90610",
+    "Resources/swift-crypto_Crypto.bundle/Contents/_CodeSignature/CodeSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Resources/swift-transformers_Hub.bundle/Contents/Info.plist": "8edcb3d28842b1e1b3e85a0e5b8e91e2aa16ce782e941f915be6317ffedbe638",
+    "Resources/swift-transformers_Hub.bundle/Contents/Resources/gpt2_tokenizer_config.json": "551e26ec611d8d0c8edc3ef72e518a38418cb71f40de1347dd486a595e1557d7",
+    "Resources/swift-transformers_Hub.bundle/Contents/Resources/t5_tokenizer_config.json": "e0aff0b1de9071e30d9a60a199303b6abe916a64a19932bd1c46992279b41a1f",
+    "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeDirectory": "2fbf01579f16c97b0de03a4714fddd48580e5fd370a6e265e15314105a4dd167",
+    "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeRequirements": "987920904eab650e75788c054aa0b0524e6a80bfc71aa32df8d237a61743f986",
+    "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeResources": "ae3880b32a4b58e4636e028cf141099134804da084866b30e86115f17fe99df7",
+    "Resources/swift-transformers_Hub.bundle/Contents/_CodeSignature/CodeSignature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "engine_sha256": "ffaa6aa2e5806c234a607a6ef75d3210f11ea76df5766679ad83841ef9567785",
+  "native_environment": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "version": "macOS-27.2-arm64-arm-64bit-Mach-O"
+  },
+  "status": "passed",
+  "scope": "packaged_offline_transcription_smoke",
+  "model": "parakeet-tdt-v3",
+  "fixture": "locally synthesized English speech; not an accuracy benchmark",
+  "fixture_sha256": "aba2d8c896a7c480dbcff3aa35d1a4bc9d946b3ea7eff64fb58da0628a84d88e",
+  "segments": 1,
+  "timed_words": 17,
+  "checks": [
+    "packaged runtime discovery with empty PATH",
+    "installed verified model",
+    "local recognition",
+    "word timing",
+    "TXT and SRT export",
+    "input project and audio unchanged"
+  ],
+  "limits": [
+    "one short synthetic English fixture",
+    "not a multilingual or long-form benchmark",
+    "other models, native UI and cancellation need separate verification"
+  ]
+}

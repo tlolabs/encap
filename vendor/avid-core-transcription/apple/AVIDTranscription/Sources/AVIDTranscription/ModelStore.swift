@@ -309,12 +309,17 @@ public actor ModelStore {
     }
 
     private nonisolated func rejectSymlinks(_ target: URL, under root: URL) throws {
-        let rootPath = root.standardizedFileURL.path
-        let targetPath = target.standardizedFileURL.path
+        // These URLs are already normalized at the cache/import boundary and
+        // descendants come only from validated catalog paths. Keep that stable
+        // spelling: Foundation may abbreviate /private/tmp for existing paths
+        // while leaving a missing child's prefix unchanged. Do not resolve the
+        // target here, since that would conceal a cache symlink we must reject.
+        let rootPath = root.path
+        let targetPath = target.path
         guard targetPath == rootPath || targetPath.hasPrefix(rootPath + "/") else {
             throw ModelStoreError.unsafePath(target.path)
         }
-        var current = target.standardizedFileURL
+        var current = target
         while true {
             if let attributes = try? FileManager.default.attributesOfItem(atPath: current.path),
                attributes[.type] as? FileAttributeType == .typeSymbolicLink {

@@ -17,8 +17,8 @@ pub use error::{EncapError, Result};
 pub use file_ops::{conflicts_with_path, replace_staged_file};
 pub use model::*;
 pub use project::{
-    load_project, load_project_cancellable, save_project, save_project_cancellable,
-    PROJECT_SCHEMA_VERSION,
+    load_project, load_project_cancellable, project_save_path, save_project,
+    save_project_cancellable, PROJECT_SCHEMA_VERSION,
 };
 pub use source::{discover_audio_files, inspect_files, inspect_folder, inspect_source};
 pub use transcript::{render_srt, render_transcript_text, validate_transcript_export};
@@ -30,3 +30,9 @@ pub use waveform::{waveform_preview, WaveformPreview};
 pub const CORE_VERSION: &str = env!("ENCAP_CORE_VERSION");
 pub const CORE_REVISION: &str = env!("ENCAP_CORE_REVISION");
 pub const CORE_SOURCE: &str = env!("ENCAP_CORE_SOURCE");
+
+mod progress;
+pub use progress::{
+    current_progress_handler, deliver_progress, emit_progress, with_progress_handler,
+    ProgressHandler,
+};

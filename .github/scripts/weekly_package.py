@@ -13,7 +13,7 @@ def load(path, name):
     return module
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument('phase',choices=['stage','finish']); p.add_argument('--source',type=Path,required=True); p.add_argument('--target',required=True); p.add_argument('--tag',required=True); p.add_argument('--sha',required=True); p.add_argument('--windows-signing',choices=['unsigned']); a=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument('phase',choices=['prepare-linked','smoke-linked','stage','finish']); p.add_argument('--source',type=Path,required=True); p.add_argument('--target',required=True); p.add_argument('--tag',required=True); p.add_argument('--sha',required=True); p.add_argument('--windows-signing',choices=['unsigned']); a=p.parse_args()
     root=a.source.resolve(); os.chdir(root)
     machine='arm64' if platform.machine().lower() in ('arm64','aarch64') else 'x64'
     host='windows' if sys.platform=='win32' else 'linux' if sys.platform=='linux' else 'unsupported'
@@ -26,16 +26,61 @@ def main():
     target=host+'-'+('x86_64' if machine=='x64' else machine)
     stage=root/'dist/staging/EnCap'; binary=stage if host=='windows' else stage/'bin'
     suffix='.exe' if host=='windows' else ''
+    linked=(root/'include/encap_app.h').is_file()
+    linked_record=root/'build/weekly-linked.json'
+    if a.phase=='prepare-linked':
+        if not linked: return
+        linked_target=target
+        profile='gpl-software'
+        command=[sys.executable,str(root/'script/linked_runtime.py'),'provision','--target',linked_target,'--profile',profile,'--fetch']
+        prefix=os.environ.get('ENCAP_LINKED_SDK')
+        if prefix: command += ['--prefix',prefix]
+        else:
+            import tempfile
+            command += ['--work',str(Path(tempfile.gettempdir())/('encap-weekly-linked-'+a.sha+'-'+target))]
+        for name in ('cmake','cc','cxx','cxx-runtime'):
+            value=os.environ.get('ENCAP_LINKED_'+name.upper().replace('-','_'))
+            if value: command += ['--'+name,value]
+        sdk=json.loads(subprocess.check_output(command,text=True))
+        receipt=root/'build/weekly-linked-receipt.json'
+        # The library uses GNU/gnullvm even while Qt and updaters use MSVC.
+        # Installing Rust target libraries does not provision the native compiler.
+        run('rustup','target','add',sdk['rust_target'])
+        result=json.loads(subprocess.check_output([sys.executable,str(root/'script/linked_runtime.py'),'build',
+            '--target',linked_target,'--profile',profile,'--prefix',sdk['prefix'],
+            '--target-dir',str(root/'target'),'--receipt',str(receipt)],text=True))
+        sources=root/'build'/('linked-cargo-sources-'+hashlib.sha256((root/'Cargo.lock').read_bytes()).hexdigest()+'.tar.gz')
+        if not sources.is_file(): run(sys.executable,root/'script/linked_runtime.py','bundle-sources','--output',sources,'--fetch')
+        result['source_bundle']=str(sources)
+        linked_record.parent.mkdir(parents=True,exist_ok=True)
+        linked_record.write_text(json.dumps(result))
+        return
+    if a.phase=='smoke-linked':
+        if not linked: return
+        info=json.loads(linked_record.read_text())
+        output=root/'build/weekly-smoke'/('Release' if host=='windows' else '')
+        run(sys.executable,root/'script/linked_runtime.py','stage','--target',target,
+            '--profile',info['sdk']['profile'],'--prefix',info['sdk']['prefix'],
+            '--library',info['library'],'--receipt',info['receipt'],'--source-bundle',info['source_bundle'],'--destination',output)
+        response=json.loads(subprocess.check_output([str(output/('EnCap'+suffix)),
+            '--linked-operation','startup'],text=True,timeout=60))
+        if not {'providers','presets','recovery'} <= response.keys(): raise ValueError('Linked startup failed')
+        return
     if a.phase=='stage':
         tools=root/'build/weekly-tools'; tools.mkdir(parents=True,exist_ok=True)
         triple=('aarch64' if machine=='arm64' else 'x86_64')+'-pc-windows-msvc'
         cargo=root/'target'/triple/'release' if host=='windows' else root/'target/release'
-        for tool in ['encap-engine','encap-update']+(['encap-portable-update'] if host=='windows' else []): shutil.copy2(cargo/(tool+suffix),tools/(tool+suffix))
+        for tool in (['encap-update'] if linked else ['encap-engine','encap-update'])+(['encap-portable-update'] if host=='windows' else []): shutil.copy2(cargo/(tool+suffix),tools/(tool+suffix))
+        if linked:
+            info=json.loads(linked_record.read_text())
+            run(sys.executable,root/'script/linked_runtime.py','stage','--target',target,
+                '--profile',info['sdk']['profile'],'--prefix',info['sdk']['prefix'],
+                '--library',info['library'],'--receipt',info['receipt'],'--source-bundle',info['source_bundle'],'--destination',tools)
         acquired=runtime.provision(target); runtime.stage(target, acquired, tools)
         runtime.finish(target,tools,tools/'ffmpeg-runtime')
         runtime.validate(target,tools,tools/'ffmpeg-runtime',acquired)
         # Deployment logic is trusted workflow control; application inputs remain the tag.
-        qt=load(Path(__file__).resolve().parents[2]/'script/build_qt.py','qt'); qt.ROOT=root
+        qt=load((Path(__file__).resolve().parents[2] if linked else root)/'script/build_qt.py','qt'); qt.ROOT=root
         prefix=root/'Qt/6.10.3'/('msvc2022_arm64' if machine=='arm64' else 'msvc2022_64') if host=='windows' else None
         qt.build(SimpleNamespace(rid=('win' if host=='windows' else 'linux')+'-'+machine,tools=tools,qt_prefix=prefix,smoke_only=True,run=False))
         return
@@ -63,9 +108,16 @@ def main():
     for key in list(env):
         if key.startswith('ENCAP_TEST_') or key in ('QT_PLUGIN_PATH','ENCAP_FFMPEG','ENCAP_FFPROBE'): env.pop(key)
     env['ENCAP_RECOVERY_PATH']=str(root/'build/weekly-final/recovery.json')
-    response=json.loads(subprocess.check_output([str(binary/('encap-engine'+suffix)),'startup'],env=env,text=True,timeout=30))
-    if not {'providers','presets','recovery'} <= response.keys(): raise ValueError('Engine startup failed')
-    run(binary/('encap-engine'+suffix),'validate-tools',env=env,timeout=60)
+    if linked:
+        # Core's missing required contracts cannot be hidden by a startup pass.
+        run(sys.executable,root/'script/linked_runtime.py','verify-stage','--directory',binary,'--require-qualified')
+        application=binary/('EnCap'+suffix)
+        response=json.loads(subprocess.check_output([str(application),'--linked-operation','startup'],env=env,text=True,timeout=30))
+        run(application,'--linked-operation','validate-tools',env=env,timeout=60)
+    else:
+        response=json.loads(subprocess.check_output([str(binary/('encap-engine'+suffix)),'startup'],env=env,text=True,timeout=30))
+        run(binary/('encap-engine'+suffix),'validate-tools',env=env,timeout=60)
+    if not {'providers','presets','recovery'} <= response.keys(): raise ValueError('Application startup failed')
     app=binary/('EnCap'+suffix) if host=='windows' else extracted/'squashfs-root/AppRun'
     command=[sys.executable,str(root/'script/test_native_startup.py'),str(app)]
     if host=='linux': command=['xvfb-run','-a','dbus-run-session','--']+command

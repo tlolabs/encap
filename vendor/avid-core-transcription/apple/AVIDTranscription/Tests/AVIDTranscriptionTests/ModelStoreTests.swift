@@ -98,6 +98,28 @@ private final class VerificationProgressGate: @unchecked Sendable {
 
 @MainActor
 final class ModelStoreTests: XCTestCase {
+    #if os(macOS)
+    func testFreshAliasedCacheRootInstallsOnTheFirstAttempt() async throws {
+        for prefix in ["/private/tmp", "/tmp"] {
+            let root = URL(fileURLWithPath: prefix, isDirectory: true)
+                .appendingPathComponent("avid-fresh-cache-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("nested", isDirectory: true)
+            let parent = root.deletingLastPathComponent()
+            addTeardownBlock { try? FileManager.default.removeItem(at: parent) }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+            let transport = FixtureDownloadTransport(payload: payload)
+            let store = try ModelStore(catalog: catalog(), rootDirectory: root, transport: transport)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.path), "Initialization must not create a cache")
+            let installed = try await store.install(id: modelID)
+            XCTAssertEqual(try Data(contentsOf: installed.directory.appendingPathComponent("weights.bin")), payload)
+            let calls = await transport.offsets
+            XCTAssertEqual(calls, [0], "A fresh cache must install on the first attempt")
+            _ = try await store.installedModel(id: modelID)
+            try await store.remove(id: modelID)
+        }
+    }
+    #endif
+
     private let payload = Data("abcdef".utf8)
     private let modelID = "fixture"
     private let revision = String(repeating: "a", count: 40)

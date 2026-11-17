@@ -9,16 +9,25 @@ struct TranscriptWire: Codable, Sendable, Equatable {
         let modelID: String
         let modelInstallationID: String?
         let sourceBundleSHA256: String?
+        let modelIdentity: ModelIdentity?
+        let runtimeRevisions: [String: String]?
+        let runtimeBuildSHA256: String?
         enum CodingKeys: String, CodingKey {
+            case modelIdentity = "model_identity", runtimeRevisions = "runtime_revisions"
+            case runtimeBuildSHA256 = "runtime_build_sha256"
             case engineID = "engine_id", modelID = "model_id"
             case modelInstallationID = "model_installation_id", sourceBundleSHA256 = "source_bundle_sha256"
         }
         init(_ value: TranscriptProvenance, descriptor: ModelDescriptor? = nil) {
             engineID = value.engineID; modelID = value.modelID
-            modelInstallationID = descriptor?.installationID
+            modelIdentity = value.modelIdentity
+            runtimeRevisions = value.runtimeRevisions
+            runtimeBuildSHA256 = value.runtimeBuildSHA256
+            modelInstallationID = value.modelIdentity?.installationID ?? descriptor?.installationID
             sourceBundleSHA256 = descriptor == nil ? nil : SharedSource.bundleSHA256
         }
-        var core: TranscriptProvenance { .init(engineID: engineID, modelID: modelID) }
+        var core: TranscriptProvenance { .init(engineID: engineID, modelID: modelID,
+            modelIdentity: modelIdentity, runtimeRevisions: runtimeRevisions, runtimeBuildSHA256: runtimeBuildSHA256) }
     }
     struct Word: Codable, Sendable, Equatable {
         let text: String
@@ -82,5 +91,5 @@ struct TranscriptWire: Codable, Sendable, Equatable {
 
 enum SharedSource {
     // Must move with the immutable vendor snapshot, never a mutable checkout revision.
-    static let bundleSHA256 = "a302200860bde5c47cd4aeabacefedefa30e6112248302925164589ce9f45937"
+    static let bundleSHA256 = "76f517ddfcf14067ac52c0f84b61b4f3bb7dd11917df30de94385dc0d15428a3"
 }

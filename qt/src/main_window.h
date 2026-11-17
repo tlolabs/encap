@@ -113,6 +113,7 @@ private:
     QString enginePath() const;
     QString updaterPath() const;
     bool internalReference() const;
+    bool linkedWorkActive() const;
     void cleanupProjectDirectory(const QString& workingDir);
     void cleanupStaleSessions();
 

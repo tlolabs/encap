@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "kind": "encap-linked-core-source",
+  "repository": "https://github.com/tlolabs/avid-core.git",
+  "version": "0.4.0",
+  "revision": "dd112d497b68df6786f49a71b3611f7f32f090e9",
+  "abi_version": 1,
+  "schema_version": 1,
+  "spec_sha256": "dff19991aa7d8ebb81cda7102c6622b1e4d1c303c95a19dda3bf8b4db136794a",
+  "artifact_status": "source-build-only; no compiled linked release assets pinned",
+  "native_qualification": "not_run",
+  "profiles": {
+    "macos": "apple-gpl",
+    "windows": "gpl-software",
+    "linux": "gpl-software"
+  },
+  "unsupported": [
+    "audio_export",
+    "pcm_playback",
+    "structured_sample_inspection",
+    "waveform_windows"
+  ],
+  "binary_validator_sha256": "003ffe2ffebd5f080e06a685f2ff03b282f3f546ee7024e35cba1fd8737d5409"
+}

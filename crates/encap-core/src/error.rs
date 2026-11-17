@@ -4,6 +4,13 @@ use std::path::PathBuf;
 pub enum EncapError {
     #[error("{0}")]
     Message(String),
+    /// Preserve linked native error domains/codes while presenting safe UI text.
+    #[error("{message}")]
+    Media {
+        message: String,
+        #[source]
+        source: Box<avid_core::Error>,
+    },
     #[error("The file could not be read: {path}: {source}")]
     Read {
         path: PathBuf,
@@ -34,8 +41,10 @@ impl From<avid_core::Error> for EncapError {
         tracing::error!(code = error.code(), details = ?error, "shared Video operation failed");
         let message = match error {
             avid_core::Error::Cancelled => "Video operation was cancelled safely.",
-            avid_core::Error::Timeout(_) => "The Video media tool timed out. Try again or check the selected media.",
-            avid_core::Error::ToolUnavailable { .. } => "The Video media tools are unavailable or incompatible. Restore a matching FFmpeg and ffprobe pair.",
+            avid_core::Error::Timeout(_) | avid_core::Error::Deadline { .. } => "The Video operation reached its cooperative deadline. Try again or check the selected media.",
+            avid_core::Error::ToolUnavailable { .. } => "The linked media capability is unavailable or incompatible.",
+            avid_core::Error::Unsupported { .. } => "The requested media capability is not supported by this linked build. Saved encoding settings have been preserved.",
+            avid_core::Error::Linked { .. } | avid_core::Error::NativeLibrary { .. } => "The linked media library could not complete the operation. See local diagnostics for its native error code.",
             avid_core::Error::InvalidInput(ref detail) if detail == "Required software encoder libx264 is unavailable" => "Software H.264 encoding is unavailable in the bundled FFmpeg build.",
             avid_core::Error::InvalidInput(ref detail) if detail == "Required software encoder libx265 is unavailable" => "Software HEVC encoding is unavailable in the bundled FFmpeg build.",
             avid_core::Error::InvalidInput(ref detail) if detail == "Hardware H264 requested, but no compatible encoder is advertised" => "Hardware H.264 encoding is unavailable on this system.",
@@ -43,8 +52,11 @@ impl From<avid_core::Error> for EncapError {
             avid_core::Error::InvalidInput(_) => "Check the Video selection, media, dimensions, frame rate, bitrate, and output destination. The output must be separate from project and source files.",
             avid_core::Error::Fallback { .. } => "Automatic hardware encoding failed and software fallback also failed. See local diagnostics for both attempts.",
             avid_core::Error::Io { .. } => "Video could not access a required file. Check file permissions and the output destination.",
-            _ => "The Video media tool could not complete the operation. Check the selected media and local diagnostics.",
+            _ => "The linked Video library could not complete the operation. Check the selected media and local diagnostics.",
         };
-        Self::Message(message.into())
+        Self::Media {
+            message: message.into(),
+            source: Box::new(error),
+        }
     }
 }

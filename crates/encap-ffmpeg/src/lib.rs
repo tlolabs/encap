@@ -1,4 +1,6 @@
-//! Process-safe access to bundled FFmpeg-family tools.
+//! Unfinished executable compatibility transport for Audio and transcription.
+//! Linked Video/image operations do not use this crate. Remove this transport
+//! only after Core supplies behavior-equivalent audio export and playback APIs.
 
 use encap_core::{EncapError, Result};
 use std::ffi::{OsStr, OsString};
@@ -17,7 +19,12 @@ pub struct ProcessOutput {
 }
 
 #[derive(Clone, Debug)]
-pub struct MediaTools(avid_core::MediaTools);
+pub struct MediaTools {
+    ffmpeg: PathBuf,
+    ffprobe: PathBuf,
+    ffmpeg_version: String,
+    ffprobe_version: String,
+}
 
 impl MediaTools {
     pub fn discover_with_cancellation(token: &CancellationToken) -> Result<Self> {
@@ -30,17 +37,57 @@ impl MediaTools {
         );
         #[cfg(not(debug_assertions))]
         let paths = (None, None);
-        runtime::resolve(paths.0, paths.1, token).map(Self)
+        runtime::resolve(paths.0, paths.1, token)
     }
 
     pub fn ffmpeg(&self) -> &Path {
-        self.0.ffmpeg()
+        &self.ffmpeg
     }
     pub fn ffprobe(&self) -> &Path {
-        self.0.ffprobe()
+        &self.ffprobe
     }
-    pub fn into_core(self) -> avid_core::MediaTools {
-        self.0
+    pub fn ffmpeg_version(&self) -> &str {
+        &self.ffmpeg_version
+    }
+    pub fn ffprobe_version(&self) -> &str {
+        &self.ffprobe_version
+    }
+
+    // Validation of the retained authenticated executable pair, not a second
+    // media implementation and not a linked-artifact provenance check.
+    fn from_paths(ffmpeg: PathBuf, ffprobe: PathBuf, token: &CancellationToken) -> Result<Self> {
+        let version = |path: &Path, name: &str| -> Result<String> {
+            if !path.is_absolute() || !path.is_file() {
+                return Err(runtime_error());
+            }
+            let output = run_with_timeout(
+                path,
+                &[os("-version")],
+                token,
+                "Compatibility tool validation",
+                Some(Duration::from_secs(10)),
+            )?;
+            let line = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            if !line.starts_with(&format!("{name} version ")) {
+                return Err(runtime_error());
+            }
+            Ok(line)
+        };
+        let ffmpeg_version = version(&ffmpeg, "ffmpeg")?;
+        let ffprobe_version = version(&ffprobe, "ffprobe")?;
+        if ffmpeg_version.split_whitespace().nth(2) != ffprobe_version.split_whitespace().nth(2) {
+            return Err(runtime_error());
+        }
+        Ok(Self {
+            ffmpeg,
+            ffprobe,
+            ffmpeg_version,
+            ffprobe_version,
+        })
     }
 }
 
@@ -49,6 +96,16 @@ pub fn run(
     arguments: &[OsString],
     cancellation: &CancellationToken,
     operation: &str,
+) -> Result<ProcessOutput> {
+    run_with_timeout(executable, arguments, cancellation, operation, None)
+}
+
+fn run_with_timeout(
+    executable: &Path,
+    arguments: &[OsString],
+    cancellation: &CancellationToken,
+    operation: &str,
+    timeout: Option<Duration>,
 ) -> Result<ProcessOutput> {
     if cancellation.is_cancelled() {
         return Err(EncapError::Message(format!(
@@ -78,6 +135,7 @@ pub fn run(
         .stderr(Stdio::from(stderr))
         .spawn()
         .map_err(|source| EncapError::Message(format!("{operation} could not start: {source}")))?;
+    let started = std::time::Instant::now();
     let status = loop {
         if cancellation.is_cancelled() {
             let _ = child.kill();
@@ -98,6 +156,13 @@ pub fn run(
         };
         if let Some(status) = status {
             break status;
+        }
+        if timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(EncapError::Message(format!(
+                "{operation} timed out safely."
+            )));
         }
         std::thread::sleep(Duration::from_millis(50));
     };
@@ -198,6 +263,22 @@ mod tests {
         cancellation.cancel();
         let error = worker.join().unwrap().unwrap_err();
         assert!(error.to_string().contains("cancelled safely"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn compatibility_validation_deadline_reaps_the_child() {
+        let started = std::time::Instant::now();
+        let error = run_with_timeout(
+            Path::new("/bin/sleep"),
+            &[os("10")],
+            &CancellationToken::default(),
+            "Compatibility tool validation",
+            Some(Duration::from_millis(50)),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("timed out safely"));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

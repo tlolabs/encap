@@ -5,13 +5,15 @@ crate, its desktop media runtime, or its immutable FFmpeg release contract:
 
 - **AVIDTranscription**: model catalog, verified direct downloads, shared transcript
   types, provider protocols, caption grouping, and SRT/WebVTT export. Swift 6.0+,
-  macOS 14+, no third-party package dependencies.
+  macOS 14+/iOS 17+, no third-party package dependencies.
 - **AVIDTranscriptionEngines**: WhisperKit, FluidAudio Parakeet, and MLX Qwen ASR /
   forced-alignment adapters plus `avid-transcribe`. Apple silicon, macOS 14+,
   Swift 6.3+ and the Xcode Metal toolchain. Upstream dependencies are pinned to
   immutable revisions; commit `Package.resolved` when changing them.
 
-Phones and iPads are deferred. These packages do not add UI, modify app project
+The contract library cross-builds for the iOS simulator. Phone/iPad inference
+qualification remains deferred; deployment declarations do not establish it.
+These packages do not add UI, modify app project
 formats, or burn animated captions into AVID Core exports. A host renders timed
 words separately; SRT/WebVTT exports are ordinary caption cues, not animation.
 
@@ -121,8 +123,7 @@ _ = try await store.install(id: catalog.defaultModelID) { progress in
 }
 let transcript = try await store.withInstalledModel(id: catalog.defaultModelID) { installed in
     try await WhisperKitProvider().transcribe(
-        RecognitionRequest(audioURL: audioURL, modelID: installed.descriptor.id,
-                           modelDirectory: installed.directory)
+        RecognitionRequest(audioURL: audioURL, installedModel: installed)
     ) { progress in
         // Forward transcription progress to the UI.
     }
@@ -140,10 +141,22 @@ operation. Requests passed directly to adapters must refer to a verified install
 `Transcript`, `TranscriptSegment`, and `TranscriptWord` are Codable/Sendable.
 Words keep original-source start/end seconds, optional confidence, and timing
 provenance. Recognition and alignment model IDs are preserved independently.
+Requests created from a verified `InstalledModel` also persist the exact model
+revision, full manifest digest and every model/tokenizer artifact pin. Providers
+record their pinned SDK source revisions separately. Older request initializers
+remain available; omitted model identity stays unknown. Old transcripts are never
+assigned today's catalog pins during decoding. Keep the transcript alongside SRT
+or WebVTT, whose cue formats do not carry this complete provenance schema.
 Untimed text remains valid transcript data; attempting to generate word captions
 from it fails explicitly. Missing word boundaries are never evenly interpolated.
 
 See [recorded verification and its limits](VERIFICATION.md).
+
+The [linked transcription inventory and migration contract](../docs/linked-transcription.md)
+records the additional portable Rust/Whisper CPU profile, exact independent GGML
+model identity, direct C ABI operations and remaining nonApple alignment work.
+The portable English tiny model is explicitly selected and never replaces the
+Apple full Whisper default automatically.
 
 ## Checks and catalog maintenance
 

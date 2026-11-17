@@ -2,7 +2,7 @@
 # Build/stage the isolated Apple-silicon shared transcription runtime.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DESTINATION="${1:?destination directory for avid-transcriber and its resources}"
+DESTINATION="${1:?destination directory for libEnCAPTranscription.dylib and resources}"
 PACKAGE="$ROOT/helpers/avid_transcriber"
 SCRATCH="${ENCAP_AVID_BUILD_DIR:-$ROOT/.build-tools/avid-transcriber-build}"
 if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
@@ -17,7 +17,7 @@ export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$SCRATCH/mo
 export MACOSX_DEPLOYMENT_TARGET=14.0
 swift build --disable-sandbox --build-system swiftbuild --package-path "$PACKAGE" \
   --scratch-path "$SCRATCH" --configuration release --force-resolved-versions \
-  --product avid-transcriber >&2
+  --product EnCAPTranscription >&2
 BIN="$(swift build --disable-sandbox --build-system swiftbuild --package-path "$PACKAGE" \
   --scratch-path "$SCRATCH" --configuration release --show-bin-path)"
 python3 "$ROOT/script/stage_avid_transcriber.py" --binary-directory "$BIN" --destination "$DESTINATION" \

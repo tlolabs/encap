@@ -1,5 +1,53 @@
 # AVID Core ownership audit
 
+## Current linked migration ownership (2026-11-16)
+
+This section supersedes the historical implementation descriptions below. The
+current task baseline is EnCAP `dc1e96879f434b8ec05d2965c4938fb7cd5f7cdf`,
+task ID `encap-linked-20261116-dc1e968`. Its original requirements and
+pre-existing files are preserved outside the repository. Earlier audit results
+below describe earlier tasks/source hashes and are not new-task review evidence.
+
+Core `v0.4.0` resolves to immutable source
+`dd112d497b68df6786f49a71b3611f7f32f090e9`; Rust and the separately vendored
+Swift snapshot share that source identity. The sibling checkout has unrelated
+uncommitted fixes and is not the consumed reproducible dependency. No newer
+immutable local source supplies the missing Audio/playback contracts.
+
+| Current boundary | Implementation and new Core API | Artifact/platform requirement | Acceptance and remaining ownership |
+| --- | --- | --- | --- |
+| `crates/encap-app`, `include/encap_app.h` | EnCAP-owned ABI1/schema1; typed operations delegate to the existing peer workflows and project services | Target-specific `libencap_app`, verified linked Core SDK; C ABI used across Swift/C++ toolchains | Owned/type-checked handles, bounded copies/requests, cancellation, callback lifetime, independent recovery config, alias-writer tests; no whole-project Core request |
+| `crates/encap-engine` | Thin diagnostic client of `encap-app`; signal handling/log/output only | Optional diagnostic binary, not production UI transport | Legacy protocol regression tests still use the same services; no second media engine |
+| `macos/EnCap/Services/EngineClient.swift` | Worker-backed direct application ABI loading, schema/result checks, copied progress, token cancellation and drain | Base macOS13/Intel-compatible facade; packaged target dylib; debug-only explicit library override | Native Swift tests cover import, waveform, save/open, linked preview, request validation, edit/history and worker cleanup; actual final package/provider coverage separate |
+| `qt/src/engine_client.cpp`, `qt/src/main_window.cpp` | Direct application ABI on joined `std::thread`; queued copied events and generation guards | Qt Widgets/native output on Windows/Linux; matching C ABI DLL/SO and transitive libraries | ABI contract fixture plus native reference UI import/save/open and stale waveform/preview tests; native Windows/Linux packages not qualified by Mac reference |
+| `crates/encap-core` project/model/archive/edit/recovery | Persistent EnCAP project schema and compatibility data remain EnCAP-owned | Portable Rust and host filesystem | Existing migration, hostile ZIP, source identity, incremental copy and atomic-save checks remain; no Core replacement for application archives is assumed |
+| `crates/encap-core/src/source.rs`, `waveform.rs` | Existing bounded WAV/AIFF/AIFC/sample-accurate validators and waveform reads | Existing portable native parser | Explicit compatibility exception pending structured Core sample/container/window API; no new parser |
+| `crates/encap-audio`, `crates/encap-ffmpeg` | Existing audio-only normalization/concatenation, codec/metadata/artwork export via existing child transport | Historical authenticated executable runtime while unfinished; never reinterpreted as linked receipt | **Unfinished Core prerequisite:** complete chaptered MP3/AAC/M4A API, artwork/metadata/encoder selection and libmp3lame profile; behavior is retained, full migration not claimed |
+| `crates/encap-video` | Typed EnCAP selection/source mapping to `Renderer::new()`, probe/preview/render; compiled-versus-usable capabilities; `default_settings()` for fresh projects | Core0.4 verified target linked profile; explicit saved encoders preserved | Existing selection/order/memory policy and native decoded media tests; target native qualification recorded separately |
+| `crates/encap-video/src/artwork.rs` | Existing conservative static/animation classification selects Core Simple/PerFrame | Public Core render modes | Compatibility exception until public classifier/planner; no frozen animation or discarded memory policy |
+| `crates/encap-app/src/artwork.rs` | Protected input/output projection to `optimize_image` | Core linked image codecs | Source/destination preservation and safe UI adoption remain; no EnCAP image codec |
+| Qt direct playback decoder | Native output/controls with existing FFmpeg-to-PCM compatibility subprocess | Host audio device plus historical validated runtime | **Unfinished Core prerequisite:** supported high-level PCM decode/seek API; existing generation guards and cleanup preserved; no new libav engine |
+| `crates/encap-transcript`, `helpers/avid_transcriber` | Linked Apple module uses installed-model APIs/leases; diagnostic CLI calls the same Swift services | Same immutable Swift snapshot; optional inference module isolated from macOS13/Intel base host | Full Whisper default/catalog/provenance/source-clock reconciliation retained; no production helper transport; actual providers qualified only where executed |
+| Portable Transcript | Linked Core Rust caption/correction/model contracts; optional `portable-whisper` forwards pinned tiny.en backend | Separate combined SDK with verified newer deployment minimum; opt-in feature defaults off | Tiny English explicitly selected; no portable alignment/Parakeet/Qwen/downloader parity claimed |
+| Segment subtitles and word captions | Core Rust `CaptionCue`/export and real-word grouping; EnCAP speaker-aware TXT projection | Linked portable Rust contracts, independent of inference | Legacy host SRT fallback no longer selected in the production adapter; no invented word timing or saved-text rewrite |
+| Build/acquisition/packaging/qualification | Pin/artifact checks, target receipts, ABI/dependencies/resources/licenses and built-in `--linked-operation` diagnostic | Native target toolchain; final-package integrity/launch/media evidence | Historical executable manifest does not authenticate linked artifacts; missing prerequisites and unqualified packages remain visible |
+| Updates/CI/signing | Existing authenticated update and independent weekly publication policy | Current owner policy, exact signed/authenticated artifacts where required | Media migration grants no push/publication/credential change; native Mac distribution still requires accepted notarization/stapling/Gatekeeper |
+
+The migration is **not complete** while Audio export and Qt fallback playback
+still use subprocesses or lack behavior-equivalent public Core APIs. Existing
+sample/waveform and static-image policy exceptions also prevent a complete
+ownership claim. The [linked migration report](linked-migration.md) records
+platform/mode/provider evidence and concrete prerequisite contracts. Current
+review source/model attribution belongs to the new task's own result artifacts;
+the historical accepted audit below cannot cover these changes.
+
+## Historical ownership audit and corrective reports
+
+The following material is preserved as prior-task evidence. Its source identities,
+helper/process architecture, platform capability statements and review budgets
+refer to those earlier tasks and are superseded above for current implementation.
+
+
 This corrective audit was prepared on 2026-11-10 against task-start EnCAP HEAD
 `eae227e5e76a825d52540dd418cbe7844a1fac21` and its pre-existing working edits.
 The originally requested pre-integration `docs/avid-core-audit.md` was absent.

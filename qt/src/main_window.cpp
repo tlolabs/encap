@@ -24,6 +24,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QKeyEvent>
@@ -65,6 +66,18 @@
 
 namespace {
 constexpr double kMaxSafeSeconds = 86400.0 * 365.0;
+
+QHash<QString, QJsonObject> indexChapters(const QJsonArray& chapters) {
+    QHash<QString, QJsonObject> indexed;
+    indexed.reserve(chapters.size());
+    for (const auto& value : chapters) {
+        const auto chapter = value.toObject();
+        const auto id = chapter.value("id").toString();
+        // Preserve the first match used by the previous sequential lookup.
+        if (!indexed.contains(id)) indexed.insert(id, chapter);
+    }
+    return indexed;
+}
 
 int safeSecondsToInt(double seconds, int fallback = 0) {
     if (!std::isfinite(seconds) || seconds < 0.0) return fallback;
@@ -125,6 +138,9 @@ MainWindow::MainWindow() {
     waveformEngine_ = new EngineClient(enginePath(), preferencePath("recovery.json"), this);
     buildUi();
     buildMenus();
+    // Recovery uses this client too, so it needs the same foreground exclusion
+    // as explicitly requested operations while its native worker owns the client.
+    connect(engine_, &EngineClient::busyChanged, this, &MainWindow::setBusy);
     connect(engine_, &EngineClient::transcriptionProgress, this, [this](const QJsonObject& event) {
         if (!busy_) return;
         const auto stage = event.value("stage").toString(event.value("phase").toString("Working"));
@@ -164,6 +180,10 @@ MainWindow::MainWindow() {
     recoveryTimer_.setSingleShot(true);
     recoveryTimer_.setInterval(1000);
     connect(&recoveryTimer_, &QTimer::timeout, this, [this] {
+        if (updateRunning_ || closing_) {
+            if (dirty_ && hasProject_ && !closing_) recoveryTimer_.start();
+            return;
+        }
         if (dirty_ && hasProject_ && !busy_)
             engine_->runWithPayload({"save-recovery", "@payload"}, project_, [this](const QJsonValue&, const QString& error) {
                 if (!error.isEmpty()) fail(error);
@@ -188,41 +208,12 @@ MainWindow::MainWindow() {
             setStatus("System media controls are unavailable; playback controls remain available.");
     });
 #endif
-    auto runLegacy = [this] {
-        runEngine("Loading local engines and recovery…", {"providers"}, [this](const QJsonValue& result) {
-            setTranscriptionProviders(result.toArray());
-            runEngine("Loading video presets…", {"video-presets"}, [this](const QJsonValue& presets) {
-                presets_ = presets.toArray();
-                preset_->clear();
-                for (const auto& entry : presets_) {
-                    const auto value = entry.toObject();
-                    preset_->addItem(QStringLiteral("%1 — %2 — %3 × %4").arg(value.value("platform").toString(), value.value("aspect").toString())
-                        .arg(value.value("width").toInt()).arg(value.value("height").toInt()));
-                }
-                runEngine("Loading recovery…", {"load-recovery"}, [this](const QJsonValue& recovery) {
-                    const auto previous = recovery.toObject().value("project");
-                    if (previous.isObject()) {
-                        present(previous.toObject(), true);
-                        setStatus("Recovered unsaved work from the previous session.");
-                    } else setStatus("Import an audio folder or open a project to begin.");
-#ifdef Q_OS_WIN
-                    const auto acknowledgement = qEnvironmentVariable("ENCAP_UPDATE_STARTUP_ACK");
-                    if (!acknowledgement.isEmpty()) {
-                        QFile ready(acknowledgement);
-                        if (ready.open(QIODevice::WriteOnly)) ready.write("ready");
-                    }
-#endif
-                });
-            });
-        });
-    };
     setBusy(true);
     setStatus("Loading engine and recovery…");
-    engine_->run({"startup"}, [this, runLegacy](const QJsonValue& initData, const QString& error) {
+    engine_->run({"startup"}, [this](const QJsonValue& initData, const QString& error) {
         setBusy(false);
         if (!error.isEmpty()) {
-            if (engine_->unsupportedStartup()) runLegacy();
-            else fail(error);
+            fail(error);
             return;
         }
         const auto data = initData.toObject();
@@ -292,15 +283,17 @@ QString MainWindow::preferencePath(const QString& name) const {
     return dataDirectory() + "/" + name;
 }
 QString MainWindow::enginePath() const {
-    const auto overrideEngine = qEnvironmentVariable("ENCAP_TEST_ENGINE");
-    if (!overrideEngine.isEmpty() && QFile::exists(overrideEngine)) {
-        return overrideEngine;
-    }
-    return QCoreApplication::applicationDirPath() + "/encap-engine"
-#ifdef Q_OS_WIN
-        ".exe"
+#ifdef ENCAP_TESTING
+    const auto overrideLibrary = qEnvironmentVariable("ENCAP_TEST_LIBRARY");
+    if (!overrideLibrary.isEmpty() && QFile::exists(overrideLibrary)) return overrideLibrary;
 #endif
-        ;
+#ifdef Q_OS_WIN
+    return QCoreApplication::applicationDirPath() + "/encap_app.dll";
+#elif defined(Q_OS_MACOS)
+    return QCoreApplication::applicationDirPath() + "/../Frameworks/libencap_app.dylib";
+#else
+    return QCoreApplication::applicationDirPath() + "/libencap_app.so";
+#endif
 }
 QString MainWindow::updaterPath() const {
     const auto overrideUpdater = qEnvironmentVariable("ENCAP_TEST_UPDATER");
@@ -316,7 +309,7 @@ QString MainWindow::updaterPath() const {
 
 void MainWindow::runEngine(const QString& message, const QStringList& arguments, Result result,
                            const QJsonValue& payload, std::function<void()> failed) {
-    if (busy_) return;
+    if (busy_ || updateRunning_) return;
     setBusy(true);
     setStatus(message);
     auto completed = [this, result, failed](const QJsonValue& value, const QString& error) {
@@ -533,19 +526,19 @@ void MainWindow::refreshVideo() {
     const bool before = loading_;
     loading_ = true;
     const auto chapters = project_.value("chapters").toArray();
+    const auto chaptersById = indexChapters(chapters);
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
-    QStringList selectedIds;
-    for (const auto& value : selected) selectedIds.append(value.toString());
+    QSet<QString> selectedIds;
+    for (const auto& value : selected) selectedIds.insert(value.toString());
+    const bool initialized = field({"video", "export_settings", "selection_initialized"}).toBool();
     videoChapters_->setRowCount(videoOrder_.size());
     double duration = 0;
     int count = 0;
     for (int row = 0; row < videoOrder_.size(); ++row) {
-        QJsonObject chapter;
-        for (const auto& value : chapters) if (value.toObject().value("id").toString() == videoOrder_[row]) { chapter = value.toObject(); break; }
+        const auto chapter = chaptersById.value(videoOrder_[row]);
         auto* include = new QTableWidgetItem;
         include->setFlags((include->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
-        const bool enabled = selectedIds.contains(videoOrder_[row]) ||
-            !field({"video", "export_settings", "selection_initialized"}).toBool();
+        const bool enabled = selectedIds.contains(videoOrder_[row]) || !initialized;
         include->setCheckState(enabled ? Qt::Checked : Qt::Unchecked);
         videoChapters_->setItem(row, 0, include);
         videoChapters_->setItem(row, 1, new QTableWidgetItem(chapter.value("title").toString()));
@@ -561,7 +554,7 @@ void MainWindow::refreshVideo() {
 }
 
 void MainWindow::requestVideoPreview() {
-    if (!hasProject_ || sessionDir_.isEmpty() || modes_->currentIndex() != 2) return;
+    if (updateRunning_ || closing_ || !hasProject_ || sessionDir_.isEmpty() || modes_->currentIndex() != 2) return;
     const auto settings = field({"video", "export_settings"}).toObject();
     auto selected = settings.value("selected_chapter_ids").toArray();
     const auto chapters = project_.value("chapters").toArray();
@@ -1175,7 +1168,7 @@ void MainWindow::moveVideoTo(int next) {
     markDirty();
 }
 void MainWindow::loadWaveforms() {
-    if (!hasProject_) return;
+    if (updateRunning_ || closing_ || !hasProject_) return;
     ++waveformGeneration_;
     if (waveformEngine_->busy()) {
         waveformEngine_->cancel();
@@ -1184,7 +1177,7 @@ void MainWindow::loadWaveforms() {
     loadWaveformAt(project_.value("audio_sources").toArray(), 0, waveformGeneration_);
 }
 void MainWindow::loadWaveformAt(const QJsonArray& paths, int row, int generation) {
-    if (generation != waveformGeneration_ || row >= paths.size()) return;
+    if (updateRunning_ || closing_ || generation != waveformGeneration_ || row >= paths.size()) return;
     const auto path = paths[row].toObject().value("source_path").toString();
     waveformEngine_->run({"waveform", "--", path}, [this, paths, path, row, generation](const QJsonValue& result, const QString& error) {
         if (generation != waveformGeneration_) {
@@ -1782,6 +1775,7 @@ void MainWindow::buildMenus() {
 }
 
 void MainWindow::openPlayback(const QString& path, std::function<void(bool)> completed) {
+    if (updateRunning_ || closing_) { completed(false); return; }
     const int generation = ++playbackGeneration_;
     if (decoder_) { decoder_->kill(); decoder_->deleteLater(); decoder_ = nullptr; }
     previewEngine_->cancel();
@@ -1796,8 +1790,8 @@ void MainWindow::openPlayback(const QString& path, std::function<void(bool)> com
     }
     encap_audio_close();
     setStatus("Opening recording preview…");
-    previewEngine_->run({"validate-tools"}, [this, path, completed, generation](const QJsonValue&, const QString& error) {
-        if (generation != playbackGeneration_) { completed(false); return; }
+    previewEngine_->run({"validate-compatibility-tools"}, [this, path, completed, generation](const QJsonValue&, const QString& error) {
+        if (updateRunning_ || closing_ || generation != playbackGeneration_) { completed(false); return; }
         if (!error.isEmpty()) { fail(error); completed(false); return; }
         QTemporaryFile staged(QDir::tempPath() + "/encap-preview-XXXXXX.wav");
         staged.setAutoRemove(false);
@@ -1851,6 +1845,7 @@ void MainWindow::togglePlayback() {
     if (!hasProject_ || busy_) return;
     const bool video = modes_->currentIndex() == 2;
     if (encap_audio_playing()) { pausePlayback(); return; }
+    if (updateRunning_ || closing_) return;
     if (video) {
         const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
         if (selected.isEmpty()) return;
@@ -1883,7 +1878,7 @@ void MainWindow::togglePlayback() {
     tick();
 }
 void MainWindow::seekPlayback(double seconds, bool play) {
-    if (!hasProject_) return;
+    if (updateRunning_ || closing_ || !hasProject_) return;
     if (modes_->currentIndex() != 2) {
         encap_audio_seek(seconds);
         tick();
@@ -1918,7 +1913,7 @@ void MainWindow::seekPlayback(double seconds, bool play) {
     }
 }
 void MainWindow::adjacent(int delta) {
-    if (!hasProject_) return;
+    if (updateRunning_ || closing_ || !hasProject_) return;
     if (modes_->currentIndex() == 2) {
         const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
         if (selected.isEmpty()) return;
@@ -1975,14 +1970,15 @@ void MainWindow::tick() {
     double videoDuration = 0, offset = 0, chapterDuration = 0;
     QString title = "EnCap";
     const auto selected = field({"video", "export_settings", "selected_chapter_ids"}).toArray();
+    const auto chaptersById = selected.isEmpty() ? QHash<QString, QJsonObject>{}
+        : indexChapters(project_.value("chapters").toArray());
     for (int i = 0; i < selected.size(); ++i) {
-        for (const auto& value : project_.value("chapters").toArray()) if (value.toObject().value("id") == selected[i]) {
-            const auto chapter = value.toObject();
-            const double length = chapter.value("duration_seconds").toDouble();
-            if (i == previewIndex_) { offset = videoDuration; chapterDuration = length; title = chapter.value("title").toString(); }
-            videoDuration += length;
-            break;
-        }
+        const auto found = chaptersById.constFind(selected[i].toString());
+        if (found == chaptersById.cend()) continue;
+        const auto& chapter = found.value();
+        const double length = chapter.value("duration_seconds").toDouble();
+        if (i == previewIndex_) { offset = videoDuration; chapterDuration = length; title = chapter.value("title").toString(); }
+        videoDuration += length;
     }
     const double videoPosition = offset + std::min(position, chapterDuration);
     const int videoPosInt = safeSecondsToInt(videoPosition);
@@ -2017,6 +2013,7 @@ void MainWindow::mediaAction(int action, double value) {
     if (!owner) return;
     QMetaObject::invokeMethod(owner, [owner, action, value] {
         if (owner->busy_) return;
+        if ((owner->updateRunning_ || owner->closing_) && action != 2 && action != 3) return;
         switch (action) {
         case 1: if (!encap_audio_playing()) owner->togglePlayback(); break;
         case 2: owner->pausePlayback(); break;
@@ -2101,6 +2098,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Space) { togglePlayback(); return; }
     if (event->key() == Qt::Key_K) { slow_ = true; pausePlayback(); return; }
     if (event->key() == Qt::Key_J || event->key() == Qt::Key_L) {
+        if (updateRunning_ || closing_) return;
         if (modes_->currentIndex() != 0 || sources_->currentRow() < 0) return;
         const int direction = event->key() == Qt::Key_J ? -1 : 1;
         const double next = slow_ ? direction * 0.5 : direction * (rate_ * direction > 0 ? std::min(32.0, std::max(1.0, std::abs(rate_) * 2)) : 1.0);
@@ -2140,8 +2138,12 @@ void MainWindow::setAppearance(const QString& preference) {
     QFile file(preferencePath("appearance.txt"));
     if (file.open(QIODevice::WriteOnly)) file.write(selected.toUtf8());
 }
+bool MainWindow::linkedWorkActive() const {
+    return engine_->busy() || previewEngine_->busy() || artworkEngine_->busy() || waveformEngine_->busy() || decoder_;
+}
+
 void MainWindow::checkUpdates(bool manual) {
-    if (internalReference() || updateRunning_ || busy_ || dirty_) return;
+    if (internalReference() || updateRunning_ || busy_ || linkedWorkActive() || dirty_) return;
     updateRunning_ = true;
     auto* process = new QProcess(this);
     process->setProgram(updaterPath());
@@ -2157,7 +2159,10 @@ void MainWindow::checkUpdates(bool manual) {
             return;
         }
         QString error;
-        const auto result = EngineClient::parseResponse(stdoutBytes, &error);
+        const auto document = QJsonDocument::fromJson(stdoutBytes);
+        const QJsonValue result = document.isObject() ? QJsonValue(document.object()) : QJsonValue{};
+        if (!result.isObject()) error = "The authenticated updater returned invalid JSON.";
+        else if (result.toObject().value("error").isString()) error = result.toObject().value("error").toString();
         if (!error.isEmpty()) { if (manual) fail(error); return; }
         updateResult(result, manual);
     });
@@ -2182,7 +2187,7 @@ void MainWindow::updateResult(const QJsonValue& result, bool manual) {
     }
     if (QMessageBox::question(this, "EnCap " + update.value("version").toString() + " is available",
         "Download and install this authenticated update? Save your project first.") != QMessageBox::Yes) return;
-    if (dirty_ || busy_) { setStatus("Save your work and finish the current operation before updating."); return; }
+    if (dirty_ || busy_ || linkedWorkActive()) { setStatus("Save your work and finish the current operation before updating."); return; }
     auto* download = new QProcess(this);
     download->setProgram(updaterPath());
 #ifdef Q_OS_LINUX
@@ -2206,10 +2211,13 @@ void MainWindow::updateResult(const QJsonValue& result, bool manual) {
         }
 #endif
         QString parseError;
-        const auto artifact = EngineClient::parseResponse(bytes, &parseError).toObject();
+        const auto document = QJsonDocument::fromJson(bytes);
+        const auto artifact = document.object();
+        if (!document.isObject()) parseError = "The authenticated updater returned invalid JSON.";
+        else if (artifact.value("error").isString()) parseError = artifact.value("error").toString();
         if (!parseError.isEmpty()) { fail(parseError); return; }
 #ifdef Q_OS_WIN
-        if (dirty_ || busy_) { setStatus("Update downloaded. Save your work before installing."); return; }
+        if (dirty_ || busy_ || linkedWorkActive()) { setStatus("Update downloaded. Save your work before installing."); return; }
         const auto temporary = QDir::tempPath() + "/encap-portable-helper-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
         if (!QDir().mkpath(temporary)) { fail("Could not stage the portable updater."); return; }
         const auto helper = temporary + "/encap-portable-update.exe";
@@ -2229,7 +2237,7 @@ void MainWindow::updateResult(const QJsonValue& result, bool manual) {
         connect(timer, &QTimer::timeout, this, [this, timer, attempts, ready, helperPid] {
             if (QFile::exists(ready)) {
                 timer->stop(); timer->deleteLater();
-                if (dirty_ || busy_) {
+                if (dirty_ || busy_ || linkedWorkActive()) {
                     QProcess::startDetached("taskkill", {"/T", "/F", "/PID", QString::number(helperPid)});
                     setStatus("Installation cancelled because the project changed. Save and retry.");
                     return;

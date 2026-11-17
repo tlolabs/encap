@@ -1,0 +1,9 @@
+{
+  "corrected_text": "Hello. This is a local transcription test. Every word should have a start and an end time!",
+  "realigned_words": 17,
+  "recognition_identity_preserved": true,
+  "webvtt_cues": 4,
+  "first_word": 12.5,
+  "last_word": 17.86,
+  "temporary_qwen_staging_removed": true
+}

@@ -284,7 +284,7 @@ int main(int argc, char** argv) {
     app.processEvents();
     // Unit fixtures mutate private state. Do not race an in-flight production
     // startup callback when this suite is exercising the real engine.
-    if (!qEnvironmentVariable("ENCAP_TEST_ENGINE").isEmpty() &&
+    if (!qEnvironmentVariable("ENCAP_TEST_LIBRARY").isEmpty() &&
         !waitUntil(app, [&] { return MainWindowUiTest::startupFinished(window); })) return 27;
     auto* modes = window.findChild<QTabWidget*>();
     if (!modes || modes->count() != 3 || !window.menuBar() || window.menuBar()->actions().size() < 3)
@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
     modes->setCurrentIndex(2);
     app.processEvents();
     if (modes->currentIndex() != 2) return 4;
-    if (qEnvironmentVariable("ENCAP_TEST_ENGINE").isEmpty()) return 0;
+    if (qEnvironmentVariable("ENCAP_TEST_LIBRARY").isEmpty()) return 0;
     QTemporaryDir folder;
     if (!folder.isValid()) return 5;
     QByteArray wav;
