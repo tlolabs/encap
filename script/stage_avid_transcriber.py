@@ -168,8 +168,8 @@ def stage(binary_directory: Path, destination: Path, checkouts=None, resolved=No
             stage_licenses(checkouts, resolved, resource_root / "AVIDTranscriptionLicenses")
         (resource_root / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleExecutable": "EnCAPTranscription", "CFBundleIdentifier": "com.tlolabs.encap.transcription",
-            "CFBundleName": "EnCAPTranscription", "CFBundlePackageType": "FMWK", "CFBundleVersion": "2.0.13",
-            "CFBundleShortVersionString": "2.0.13", "CFBundleSupportedPlatforms": ["MacOSX"], "LSMinimumSystemVersion": "14.0"}))
+            "CFBundleName": "EnCAPTranscription", "CFBundlePackageType": "FMWK", "CFBundleVersion": "2.0.14",
+            "CFBundleShortVersionString": "2.0.14", "CFBundleSupportedPlatforms": ["MacOSX"], "LSMinimumSystemVersion": "14.0"}))
         runtime = relocate_module(executable, payload)
         for bundle in sorted(resource_root.glob("*.bundle")):
             subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(bundle)], check=True)

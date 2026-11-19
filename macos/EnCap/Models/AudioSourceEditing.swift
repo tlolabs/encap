@@ -15,7 +15,7 @@ extension ProjectDocument {
         for (index, source) in audioSources.enumerated() {
             let end = sourceStart + source.durationSeconds
             if ids.contains(source.id) {
-                removedRanges.append(sourceStart..<end)
+                if end > sourceStart { removedRanges.append(sourceStart..<end) }
             } else {
                 retainedSourcePositions[source.transcriptionSourceID] = (retainedStart, source.durationSeconds)
                 retainedStart += source.durationSeconds

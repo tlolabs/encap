@@ -82,6 +82,28 @@ final class AudioSourceRemovalTests: XCTestCase {
         XCTAssertEqual(project.transcriptSegments.last?.words.first?.endTimeSeconds, 12)
     }
 
+    func testRemovingZeroDurationSourcePreservesCrossingTranscript() {
+        var project = ProjectDocument()
+        project.audioSources = [
+            AudioSource(sourcePath: "/a.wav", displayName: "A", durationSeconds: 10),
+            AudioSource(sourcePath: "/empty.wav", displayName: "Empty", durationSeconds: 0, avidSourceId: "empty"),
+            AudioSource(sourcePath: "/c.wav", displayName: "C", durationSeconds: 10)
+        ]
+        let crossing = TranscriptSegment(id: "crossing", startTimeSeconds: 9, endTimeSeconds: 11, speaker: "A", text: "Unchanged", words: [
+            TranscriptWord(id: "word", startTimeSeconds: 9.5, endTimeSeconds: 10.5, text: "Unchanged")
+        ])
+        let linked = TranscriptSegment(
+            id: "linked", startTimeSeconds: 10, endTimeSeconds: 10, speaker: "A", text: "Removed",
+            avidCore: .init(payload: .object(["source_id": .string("empty")]))
+        )
+        project.transcriptSegments = [crossing, linked]
+
+        project.removeAudioSources(ids: ["/empty.wav"])
+
+        XCTAssertEqual(project.audioSources.map(\.id), ["/a.wav", "/c.wav"])
+        XCTAssertEqual(project.transcriptSegments, [crossing])
+    }
+
     func testUnknownSelectionIsNoOpAndDeletingAllLeavesEmptyProject() {
         var project = fixture()
         let original = project

@@ -43,6 +43,24 @@ final class TranscriptOriginTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(TranscriptSegment.self, from: encoder.encode(segment)), segment)
     }
 
+    func testOpaqueOriginPreservesWideIntegers() throws {
+        let integers = [
+            "-9223372036854775808", "-9007199254740993", "9007199254740993",
+            "9223372036854775807", "9223372036854775808", "18446744073709551615"
+        ].joined(separator: ",")
+        let input = #"{"future":[\#(integers)],"source_timeline_offset_seconds":12.5}"#
+        let decoder = JSONDecoder()
+        let origin = try decoder.decode(TranscriptOrigin.self, from: Data(input.utf8))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        XCTAssertEqual(origin.sourceTimelineOffsetSeconds, 12.5)
+        XCTAssertEqual(String(decoding: try encoder.encode(origin), as: UTF8.self), input)
+
+        let wideFraction = try decoder.decode(JSONValue.self, from: Data("9007199254740993.1".utf8))
+        XCTAssertEqual(wideFraction, .number(9007199254740993.1))
+    }
+
     func testNativeRemovalPreservesSourceRecordAndShiftsProjectionOnce() throws {
         var project = ProjectDocument()
         project.audioSources = [

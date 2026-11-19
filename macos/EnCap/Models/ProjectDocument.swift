@@ -266,6 +266,8 @@ struct VideoSettings: Codable, Hashable {
 enum JSONValue: Codable, Hashable {
     case string(String)
     case number(Double)
+    case signedInteger(Int64)
+    case unsignedInteger(UInt64)
     case boolean(Bool)
     case object([String: JSONValue])
     case array([JSONValue])
@@ -275,10 +277,24 @@ enum JSONValue: Codable, Hashable {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() { self = .null }
         else if let value = try? container.decode(Bool.self) { self = .boolean(value) }
-        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode(Double.self) { self = Self.decodedNumber(value, from: container) }
         else if let value = try? container.decode(String.self) { self = .string(value) }
         else if let value = try? container.decode([String: JSONValue].self) { self = .object(value) }
         else { self = .array(try container.decode([JSONValue].self)) }
+    }
+
+    private static func decodedNumber(_ value: Double, from container: SingleValueDecodingContainer) -> Self {
+        // Double cannot preserve every integer starting at 2^53. Check the
+        // decimal value because an integer decode can truncate wide fractions.
+        guard abs(value) >= 9_007_199_254_740_992,
+              let decimal = try? container.decode(Decimal.self) else { return .number(value) }
+        if let integer = try? container.decode(Int64.self), decimal == Decimal(integer) {
+            return .signedInteger(integer)
+        }
+        if let integer = try? container.decode(UInt64.self), decimal == Decimal(integer) {
+            return .unsignedInteger(integer)
+        }
+        return .number(value)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -286,6 +302,8 @@ enum JSONValue: Codable, Hashable {
         switch self {
         case .string(let value): try container.encode(value)
         case .number(let value): try container.encode(value)
+        case .signedInteger(let value): try container.encode(value)
+        case .unsignedInteger(let value): try container.encode(value)
         case .boolean(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
         case .array(let value): try container.encode(value)

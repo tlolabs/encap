@@ -36,7 +36,9 @@ pub fn edit_audio(project: &ProjectDocument, edits: AudioEdits) -> Result<Projec
             starts.push(position);
             let end = position + source.duration_seconds;
             if removed.contains(&source.source_path) {
-                cuts.push(position..end);
+                if position < end {
+                    cuts.push(position..end);
+                }
             } else {
                 retained_source_positions.insert(
                     source.transcription_source_id(),
@@ -237,6 +239,35 @@ mod tests {
         );
         assert_eq!(result.video.export_settings.selected_chapter_ids, ["c"]);
         assert_eq!(project, fixture());
+    }
+
+    #[test]
+    fn removing_a_zero_duration_source_keeps_transcript_across_the_boundary() {
+        let project: ProjectDocument = serde_json::from_value(json!({
+            "audio_sources": [
+                {"source_path":"a.wav", "duration_seconds":10},
+                {"source_path":"b.wav", "duration_seconds":0},
+                {"source_path":"c.wav", "duration_seconds":10}
+            ],
+            "transcript_segments": [
+                {"id":"legacy", "start_time_seconds":9, "end_time_seconds":11, "text":"Keep this",
+                 "words":[{"id":"word","start_time_seconds":9.5,"end_time_seconds":10.5,"text":"Keep this"}]}
+            ]
+        }))
+        .unwrap();
+        project.validate().unwrap();
+
+        let result = edit_audio(
+            &project,
+            AudioEdits {
+                remove_files: vec!["b.wav".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.audio_sources.len(), 2);
+        assert_eq!(result.transcript_segments, project.transcript_segments);
     }
 
     #[test]

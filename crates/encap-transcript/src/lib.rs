@@ -413,18 +413,24 @@ fn realign_with_bridge(
     }
     // Fail before processing any source if the saved transcript cannot be mapped
     // reversibly to its source. Never apply timing to a guessed source or text.
+    let source_ids: Vec<_> = sources
+        .iter()
+        .map(AudioSource::transcription_source_id)
+        .collect();
+    let mut segments_by_source: BTreeMap<_, Vec<_>> = source_ids
+        .iter()
+        .map(|id| (id.as_str(), Vec::new()))
+        .collect();
     for segment in previous {
         let origin = segment.transcription_origin().ok_or_else(|| {
             message("This legacy transcript has no source provenance. Transcribe it with AVID Core before realigning; the current transcript was preserved.")
         })?;
-        if !sources
-            .iter()
-            .any(|source| source.transcription_source_id() == origin.source_id)
-        {
-            return Err(message(
-                "A transcript source is missing. The current transcript was preserved.",
-            ));
-        }
+        let retained = segments_by_source
+            .get_mut(origin.source_id.as_str())
+            .ok_or_else(|| {
+                message("A transcript source is missing. The current transcript was preserved.")
+            })?;
+        retained.push(segment);
     }
     let operation = tempfile::tempdir().map_err(|error| {
         message(format!(
@@ -433,22 +439,15 @@ fn realign_with_bridge(
     })?;
     let mut result = Vec::new();
     let mut episode_offset = 0.0;
-    for source in sources {
-        let retained: Vec<_> = previous
-            .iter()
-            .filter(|segment| {
-                segment
-                    .transcription_origin()
-                    .is_some_and(|origin| origin.source_id == source.transcription_source_id())
-            })
-            .collect();
+    for (source, source_id) in sources.iter().zip(&source_ids) {
+        let retained = &segments_by_source[source_id.as_str()];
         if retained.is_empty() {
             episode_offset += source.duration_seconds;
             continue;
         }
         let mut raw = retained[0].transcription_origin().unwrap().transcript;
         let mut segments = Vec::with_capacity(retained.len());
-        for segment in &retained {
+        for segment in retained {
             let origin = segment.transcription_origin().unwrap();
             let mut raw_segment = origin
                 .transcript
@@ -482,7 +481,7 @@ fn realign_with_bridge(
         if projected.len() != retained.len()
             || projected
                 .iter()
-                .zip(&retained)
+                .zip(retained)
                 .any(|(new, old)| new.text != old.text)
         {
             return Err(message("Alignment changed the transcript text or segment count. The current transcript was preserved."));
@@ -1869,5 +1868,57 @@ mod tests {
             origin.extensions["alignment_record"]["segments"][0]["text"],
             "Edited words."
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn realignment_keeps_source_order_and_each_sources_saved_segment_order() {
+        let first = source("first", 10.0);
+        let untranscribed = source("untranscribed", 4.0);
+        let last = source("last", 10.0);
+        let mut raw = record();
+        raw["segments"].as_array_mut().unwrap().push(json!({
+            "text": "Later in this source.", "start_seconds": 5.0, "end_seconds": 6.0
+        }));
+        let earlier = project_transcript(&raw, &first, 0.0, true).unwrap();
+        let later = project_transcript(&raw, &last, 14.0, true).unwrap();
+        let previous = [
+            later[0].clone(),
+            earlier[0].clone(),
+            later[1].clone(),
+            earlier[1].clone(),
+        ];
+        // Echo only the staged, synthetic segments. A repeated source ID
+        // revisits the same segments at the next episode offset.
+        let (_directory, bridge) = fake_helper(
+            "while [ \"$#\" -gt 1 ]; do\n\
+             if [ \"$1\" = --transcript ]; then cat \"$2\"; exit; fi\n\
+             shift\n\
+             done\n\
+             exit 1",
+        );
+        let result = realign_with_bridge(
+            &bridge,
+            &[first.clone(), untranscribed, last, first],
+            &previous,
+            "aligner",
+            None,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+        let expected = [
+            (&earlier[0], 2.5),
+            (&earlier[1], 5.0),
+            (&later[0], 16.5),
+            (&later[1], 19.0),
+            (&earlier[0], 26.5),
+            (&earlier[1], 29.0),
+        ];
+        assert_eq!(result.len(), expected.len());
+        for (segment, (saved, start)) in result.iter().zip(expected) {
+            assert_eq!(segment.id, saved.id);
+            assert_eq!(segment.text, saved.text);
+            assert_eq!(segment.start_time_seconds, start);
+        }
     }
 }
